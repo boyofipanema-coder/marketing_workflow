@@ -38,22 +38,45 @@ export async function getCurrentMember(): Promise<{
   member: Member;
   db: Database;
 }> {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
-
-  if (!token) {
-    redirect("/login");
-  }
-
   const { env } = await getCloudflareContext({ async: true });
   const db = createDb(env.DB);
-  const currentMember = await validateSession(db, token);
 
+  // If a valid session exists, use it.
+  const cookieStore = await cookies();
+  const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+  if (token) {
+    const currentMember = await validateSession(db, token);
+    if (currentMember) {
+      return { member: currentMember, db };
+    }
+  }
+
+  // No/invalid session — auto-enter as the default workspace member.
+  // (Login is intentionally bypassed at this stage; see getDefaultMember.)
+  const currentMember = await getDefaultMember(db);
   if (!currentMember) {
+    // No members seeded at all — nothing we can do but send to login.
     redirect("/login");
   }
 
   return { member: currentMember, db };
+}
+
+/**
+ * Returns the member to auto-authenticate as when no real session is present.
+ * Prefers an admin; falls back to any member. Returns null if the workspace
+ * has no members yet. Remove this (and its callers) to re-enable real login.
+ */
+async function getDefaultMember(db: Database): Promise<Member | null> {
+  const admins = await db
+    .select()
+    .from(member)
+    .where(eq(member.role, "admin"))
+    .limit(1);
+  if (admins.length > 0) return admins[0]!;
+
+  const any = await db.select().from(member).limit(1);
+  return any[0] ?? null;
 }
 
 // ---------------------------------------------------------------------------

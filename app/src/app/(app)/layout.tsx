@@ -1,35 +1,18 @@
-import { cookies } from "next/headers";
-import { redirect } from "next/navigation";
-import { getCloudflareContext } from "@opennextjs/cloudflare";
 import NavBar from "@/components/NavBar";
-import { createDb } from "@/server/db/client";
-import { validateSession } from "@/server/auth/session";
-import { SESSION_COOKIE_NAME } from "@/server/auth/constants";
+import { getCurrentMember } from "@/server/data/queries";
 
 /**
- * App shell layout — wraps all authenticated app screens.
- * Validates the D1-backed session on every (app) route.
- * Unauthenticated visitors are redirected to /login.
+ * App shell layout — wraps all app screens.
+ * Login is intentionally bypassed at this stage: getCurrentMember auto-enters
+ * as the default workspace member when no valid session is present.
  */
 export default async function AppLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
-
-  if (!token) {
-    redirect("/login");
-  }
-
-  const { env } = await getCloudflareContext({ async: true });
-  const db = createDb(env.DB);
-  const currentMember = await validateSession(db, token);
-
-  if (!currentMember) {
-    redirect("/login");
-  }
+  // Resolves a member (real session or default) and warms the request.
+  await getCurrentMember();
 
   return (
     <div className="min-h-screen bg-bg">
