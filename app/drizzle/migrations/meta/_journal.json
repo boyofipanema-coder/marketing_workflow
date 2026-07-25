@@ -1,0 +1,20 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1784962926791,
+      "tag": "0000_absent_harry_osborn",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1784969421516,
+      "tag": "0001_add_parent_task_id",
+      "breakpoints": true
+    }
+  ]
+}

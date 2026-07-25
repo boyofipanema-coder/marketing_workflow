@@ -1,0 +1,26 @@
+import { CalendarDays } from "lucide-react";
+
+/**
+ * Calendar page — non-functional placeholder.
+ * Campaign timeline, deadline calendar, and milestone view are planned for a later milestone.
+ */
+export default function CalendarPage() {
+  return (
+    <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6">
+      <div className="flex flex-col items-center justify-center gap-6 rounded-2xl border border-dashed border-separator bg-surface py-24 text-center">
+        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-surface-2">
+          <CalendarDays className="h-7 w-7 text-text-tertiary" aria-hidden />
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <h1 className="font-serif text-xl font-semibold text-text">캘린더</h1>
+          <p className="text-sm text-text-secondary max-w-xs leading-relaxed">
+            캠페인 일정, 스프린트 캘린더, 마일스톤 추적 기능은 이후 마일스톤에서 제공될 예정입니다.
+          </p>
+        </div>
+
+        <span className="inline-flex items-center rounded-full border border-separator bg-surface-2 px-3 py-1 text-xs font-medium text-text-tertiary">준비 중</span>
+      </div>
+    </div>
+  );
+}

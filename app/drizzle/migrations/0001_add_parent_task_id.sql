@@ -1,0 +1,1 @@
+ALTER TABLE `task` ADD `parent_task_id` text REFERENCES task(id);

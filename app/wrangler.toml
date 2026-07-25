@@ -1,0 +1,11 @@
+name = "marketing-team-workflow"
+compatibility_date = "2024-12-18"
+compatibility_flags = ["nodejs_compat"]
+main = ".open-next/worker.js"
+assets = { directory = ".open-next/assets" }
+
+[[d1_databases]]
+binding = "DB"
+database_name = "marketing-team-workflow-db"
+database_id = "placeholder-replace-with-real-id"
+migrations_dir = "drizzle/migrations"

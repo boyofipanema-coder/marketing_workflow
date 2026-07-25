@@ -1,0 +1,39 @@
+# dependencies
+node_modules/
+**/node_modules/
+
+# builds
+.next/
+out/
+.open-next/
+dist/
+build/
+
+# cloudflare / wrangler
+.wrangler/
+.dev.vars
+.dev.vars.*
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# test / coverage
+coverage/
+
+# env
+.env
+.env.local
+.env.*.local
+
+# logs
+*.log
+npm-debug.log*
+
+# os
+.DS_Store
+Thumbs.db
+
+# editor
+.vscode/
+.idea/

@@ -1,0 +1,35 @@
+## Handoff: team-plan → team-exec
+- **Decided**: App root at app/. Stack = Cloudflare Workers (OpenNext) + Next.js App Router + TS + Tailwind/Radix + D1/Drizzle + Better Auth (admin accounts, D1 sessions). Scope M0-M2 only.
+- **Task graph**: #1 M0 bootstrap (gates all) → #2 schema, #3 shell/components, #4 mock data → #5 Home/MyWork, #6 Projects (need #3,#4) ; #7 auth, #8 services, #9 derive/validate/search (need #2) → #10 wire+deploy (needs #5,#6,#7,#8,#9).
+- **Rejected**: KV sessions (D1 instead), KV/Queues/Cron in M0 (deferred to M6/M7), magic-link auth (admin-created accounts).
+- **Risks**: greenfield bootstrap needs network (npm/create-cloudflare); D1 tx atomicity for activity_log; Better Auth D1 adapter maturity; Workers Paid ($5/mo) for SSR+auth deploy.
+- **Files**: .omc/plans/m0-m2-implementation-plan.md (spec), BUILD_PLAN.md, seed (accepted 0.87).
+- **Remaining**: exec all 10 tasks in dependency order; verify (typecheck+tests); deploy smoke.
+
+## Handoff: design-system → all UI tasks (#3, #5, #6, and every screen/component)
+- **MANDATORY**: read `app/DESIGN_SYSTEM.md` before building/editing ANY UI. An Apple-style design system is now in place; all UI must consume it.
+- **Foundation shipped** (do not re-invent, do not fight): design tokens in `app/src/styles/globals.css` (light+dark, Apple system colors, materials, motion) → mapped to Tailwind in `app/tailwind.config.ts`. Primitives in `app/src/components/ui/` (`Button`, `Card`, `Badge`, `StatusBadge`/`FlagBadge`, `Input`; import from `@/components/ui`). Helpers: `cn()` in `app/src/lib/utils.ts`, springs/physics in `app/src/lib/motion.ts`, status vocab in `app/src/lib/status.ts`. Root font stack (SF + Korean) set in `app/src/app/layout.tsx`.
+- **Rules**: NO raw hex, NO Tailwind default palettes (`zinc/slate/gray-*`), NO arbitrary `[…]` visual values. Use semantic utilities: `bg-bg` `bg-surface` `text-text` `text-text-secondary` `border-separator` `bg-accent` `shadow-sm/md/lg` `rounded-xl`. Task status ONLY via `<StatusBadge>` + `lib/status.ts`.
+- **Migration note**: `app/src/app/(app)/layout.tsx` currently uses `bg-zinc-50` → switch to `bg-bg`. `NavBar` should become `.material-chrome` (translucent, content scrolls under) instead of an opaque bar. Any component already written with default palettes must be migrated to tokens.
+- **Verified**: design-system files typecheck clean (0 errors from them). Pre-existing tsc errors are in server auth/services files, unrelated.
+
+## Handoff: design-system MIGRATION COMPLETE (all existing UI moved onto tokens)
+- **Done**: every component + screen migrated off Tailwind default palettes onto design tokens. `NavBar` is now `.material-chrome` (translucent). `TaskDetailPanel` uses `.material-panel` + right-slide. `TaskCard`/status colors use `--status-*` tokens. Buttons/inputs use `@/components/ui` primitives. `(app)/layout.tsx` root is `bg-bg`. Login/team/projects/calendar/home/my-work all tokenized. **0 default-palette classes remain** in `src/app` + `src/components` (verified by grep).
+- **When adding NEW UI**: keep using tokens (see `app/DESIGN_SYSTEM.md`). Do NOT reintroduce `zinc/slate/gray/sky/amber/emerald/red-*` etc.
+- **Two build gotchas now fixed in `tailwind.config.ts` — don't undo**: (1) `content` globs now include `./src/lib/**` because `lib/status.ts` holds Tailwind class strings (status tints) that otherwise never generate. (2) `theme.extend.opacity` registers `8/12/15/18` because Tailwind's default opacity scale lacks them, so soft tints like `bg-status-todo/12` silently fail to compile without them. If you add token color strings in a new non-scanned dir, add it to `content`.
+- **Verified**: `npx tailwindcss` compiles all token utilities incl. status/flag `/12`·`/15` tints; migrated files typecheck clean.
+
+## Handoff: Workflow tab is now a swimlane-Kanban CANVAS (not a card list)
+- **New component**: `app/src/components/workflow/WorkflowCanvas.tsx` (client). Pannable/zoomable board — rows = Group-by (Workstream default / Owner / Due), columns = status stages (To Do→In Progress→Review→Done), cards encode status+progress, cells cap at 4 with "+N more" expander, pipeline edges per lane. Reuses `lib/status` vocab + tokens; full-bleed (`left-1/2 -ml-[50vw] w-screen`) so it escapes the centered container.
+- **Wired in** `ProjectWorkspace.tsx`: the `activeTab==="workflow"` block now renders `<WorkflowCanvas tasks workstreams members onSelect={t=>handleTaskClick(toTaskItem(t,members))}/>`; existing `TaskDetailPanel` is the inspector. Old `WorkflowSection`/`WorkstreamGroup` + Do-Now/Waiting/Coming-Next memos were REMOVED — do not reintroduce them for the workflow tab (Tasks/Milestones tabs unchanged).
+- **Consumes**: real `Task`/`Workstream`/`Member` types. Card = uniform height (fixed-height stacking) because there is no subtask hierarchy in the schema yet.
+- **Verified**: `tsc --noEmit` 0 errors repo-wide; tailwind compiles all canvas utilities. Runtime render still needs the app running with auth+seed (M2 wiring) to see it end-to-end.
+
+## Handoff: task HIERARCHY landed (parent_task_id) + canvas inline subtask expand
+- **Schema**: added nullable self-ref `parent_task_id` to `task` (schema.ts) + `parent`/`subtasks` relations. Migration `drizzle/migrations/0001_add_parent_task_id.sql` (`ALTER TABLE task ADD parent_task_id text REFERENCES task(id)`). Top-level tasks have `parent_task_id = null`; subtasks share the parent's `project_id` so `getProjectTasks` already returns them.
+- **Canvas** now builds a parent→children tree: only roots are placed on the board; a card with children shows a "⤷ n/m subtasks" meter that expands INLINE (arbitrary depth, analytic heights so nothing overlaps), and progress/status ROLL UP from children. `TaskDetailPanel` still opens on card/subtask-row click.
+- **Seed**: `seed.ts` now has demo subtasks under `task_p1_03` (incl. one nested level) so the board shows hierarchy live.
+- **Heads-up for anyone building `Task` objects**: `Task` now has `parent_task_id: string | null`. I added `parent_task_id: null` to the 4 test `makeTask` fixtures (derive/search/task/integration tests) — all 66 unit tests pass. Any NEW code that builds a full `Task` literal must include it. Task-create services should accept an optional `parent_task_id`.
+- **Subtask CREATION shipped**: service `createSubtask(db,{parentId,title,memberId})` in `services/task.ts` (inherits parent's workspace/project/workstream, defaults ToDo, rejects missing/cancelled parent) → server action `createSubtaskAction(parentTaskId,title)` in `app/actions/tasks.ts` → inline "+ Add subtask" composer on every board card (hover to reveal, Enter to create, `router.refresh()` to show it). Card heights reserve the footer/input analytically so nothing overlaps.
+- **Test harness note**: integration test hand-writes the `task` DDL — I added `parent_task_id TEXT REFERENCES task(id)` there so the in-memory DB matches. All 110 unit/integration tests pass; `tsc` 0 errors.
+- **Still future**: finish-to-start dependency edges (M3); cross-project "All work" portfolio view (separate screen). Prototype shows both: artifact "Workflow Canvas".
