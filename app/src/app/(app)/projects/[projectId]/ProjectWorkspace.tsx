@@ -11,8 +11,8 @@ import { useTaskController } from "@/components/tasks/useTaskController";
 import ProjectFormDialog from "@/components/projects/ProjectFormDialog";
 import WorkstreamManager from "@/components/projects/WorkstreamManager";
 import MilestoneManager from "@/components/projects/MilestoneManager";
-import WorkflowCanvas from "@/components/workflow/WorkflowCanvas";
-import EmptyState from "@/components/EmptyState";
+import WorkflowCanvas, { type Focus } from "@/components/workflow/WorkflowCanvas";
+import ProjectPulse from "@/components/projects/ProjectPulse";
 import { createProjectTaskAction } from "@/app/actions/tasks";
 import {
   archiveProjectAction,
@@ -39,11 +39,14 @@ export interface ProjectWorkspaceProps {
   allWorkstreams: Workstream[];
 }
 
-type Tab = "tasks" | "workflow" | "settings";
+type Tab = "workflow" | "tasks" | "settings";
 
+// The board leads: opening a project should answer "what is moving, what is
+// stuck" before it offers a list to edit. The list stays one click away for the
+// times you actually want to work through items in order.
 const TABS: { id: Tab; label: string }[] = [
-  { id: "tasks", label: "업무" },
   { id: "workflow", label: "업무 흐름" },
+  { id: "tasks", label: "목록" },
   { id: "settings", label: "영역·마일스톤" },
 ];
 
@@ -67,12 +70,22 @@ export default function ProjectWorkspace({
   allWorkstreams,
 }: ProjectWorkspaceProps) {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<Tab>("tasks");
+  const [activeTab, setActiveTab] = useState<Tab>("workflow");
+  const [boardFocus, setBoardFocus] = useState<Focus>("all");
   const [editOpen, setEditOpen] = useState(false);
   const [projectError, setProjectError] = useState<string | null>(null);
 
   const controller = useTaskController(tasks);
   const { store } = controller;
+
+  // A pan-and-zoom board is the wrong first screen on a phone — there the
+  // single-column list is the readable one. Both server and first client render
+  // agree on "workflow", so this only ever narrows after mount.
+  useEffect(() => {
+    if (window.matchMedia("(max-width: 640px)").matches) {
+      setActiveTab("tasks");
+    }
+  }, []);
 
   // Refresh on focus so a change made in another tab shows up on return.
   useEffect(() => {
@@ -118,9 +131,9 @@ export default function ProjectWorkspace({
 
   return (
     <>
-      <div className="mx-auto max-w-3xl px-4 py-6 sm:px-6 sm:py-8">
+      <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-8">
         {/* Header */}
-        <header className="mb-6">
+        <header className="mb-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
               <h1 className="font-serif text-2xl font-semibold leading-tight text-text">
@@ -203,6 +216,19 @@ export default function ProjectWorkspace({
           )}
         </header>
 
+        {/* The one-glance read, above the tabs so it frames whichever view is
+            open. Its counts double as entry points into the board. */}
+        {activeTab !== "settings" && (
+          <ProjectPulse
+            tasks={controller.tasks}
+            milestones={milestones}
+            onFocus={(next) => {
+              setActiveTab("workflow");
+              setBoardFocus(next);
+            }}
+          />
+        )}
+
         {/* Tabs */}
         <nav
           className="mb-4 flex gap-1 border-b border-separator"
@@ -226,6 +252,38 @@ export default function ProjectWorkspace({
           ))}
         </nav>
 
+        {activeTab === "workflow" &&
+          (visibleTasks.length > 0 ? (
+            <WorkflowCanvas
+              tasks={controller.tasks}
+              workstreams={workstreams}
+              members={members}
+              onSelect={controller.select}
+              onAddTask={archived ? undefined : addTask}
+              focus={boardFocus}
+              onFocusChange={setBoardFocus}
+            />
+          ) : (
+            // An empty board is the first thing a new project shows, so it has
+            // to be a place to start work rather than a dead end.
+            <div className="rounded-xl border border-dashed border-border bg-surface-2/40 px-6 py-12">
+              <div className="mx-auto flex max-w-sm flex-col items-center gap-4 text-center">
+                <h3 className="text-sm font-medium text-text-secondary">
+                  아직 업무가 없습니다
+                </h3>
+                <p className="text-xs leading-relaxed text-text-tertiary">
+                  업무를 추가하면 업무 영역별로 진행 단계가 한눈에 보이는
+                  흐름 보드가 만들어집니다.
+                </p>
+                {!archived && (
+                  <div className="w-full max-w-xs">
+                    <InlineAdd onAdd={addTask} label="첫 업무 추가" />
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+
         {activeTab === "tasks" && (
           <TaskList
             tasks={visibleTasks}
@@ -246,21 +304,6 @@ export default function ProjectWorkspace({
             }
           />
         )}
-
-        {activeTab === "workflow" &&
-          (visibleTasks.some((t) => !t.cancelled_at) ? (
-            <WorkflowCanvas
-              tasks={controller.tasks}
-              workstreams={workstreams}
-              members={members}
-              onSelect={controller.select}
-            />
-          ) : (
-            <EmptyState
-              title="표시할 업무가 없습니다"
-              description="업무 탭에서 업무를 추가하면 흐름 보드에 나타납니다."
-            />
-          ))}
 
         {activeTab === "settings" && (
           <div className="flex flex-col gap-8">

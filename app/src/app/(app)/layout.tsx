@@ -2,6 +2,15 @@ import NavBar from "@/components/NavBar";
 import { getCurrentMember } from "@/server/data/queries";
 
 /**
+ * Every screen under this layout resolves the current member and reads that
+ * member's workspace out of D1, so none of them can be meaningfully rendered
+ * ahead of a request. Declaring that explicitly also keeps the build from
+ * opening the local D1 replica, which several parallel build workers cannot
+ * share.
+ */
+export const dynamic = "force-dynamic";
+
+/**
  * App shell layout — wraps all app screens.
  * Login is intentionally bypassed at this stage: getCurrentMember auto-enters
  * as the default workspace member when no valid session is present.

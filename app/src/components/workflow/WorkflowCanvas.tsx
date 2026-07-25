@@ -545,7 +545,9 @@ export default function WorkflowCanvas({
           {layout.columns.map((c) => (
             <div key={c.i} className="absolute top-0" style={{ left: c.x, top: TOP - 40 }}>
               <div className="absolute rounded-2xl" style={{ top: 40, width: COLW - COLGAP, height: layout.worldH - TOP - 8, background: `color-mix(in srgb, rgb(var(--${STAGE_TOKENS[c.i]})) 5%, transparent)` }} />
-              <div className="absolute inline-flex h-7 items-center gap-2 rounded-full px-3 text-xs font-semibold"
+              {/* nowrap: the wrapper is a zero-width absolute box, so without it
+                  the label collapses to one character per line. */}
+              <div className="absolute inline-flex h-7 w-max items-center gap-2 whitespace-nowrap rounded-full px-3 text-xs font-semibold"
                 style={{ color: `rgb(var(--${STAGE_TOKENS[c.i]}))`, background: `color-mix(in srgb, rgb(var(--${STAGE_TOKENS[c.i]})) 13%, rgb(var(--surface)))` }}>
                 <span className="size-2 rounded-full" style={{ background: `rgb(var(--${STAGE_TOKENS[c.i]}))` }} />
                 {STAGE_LABELS[c.i]}<span className="font-mono tabular-nums text-text-tertiary">{c.count}</span>
