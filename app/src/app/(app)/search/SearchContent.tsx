@@ -260,6 +260,7 @@ export default function SearchContent({
               onToggleComplete={controller.toggleComplete}
               onCancel={controller.cancel}
               onRestore={controller.restore}
+            onToggleKey={controller.toggleKey}
             />
           </>
         )}

@@ -110,6 +110,18 @@ export const task = sqliteTable("task", {
   })
     .notNull()
     .default("Inbox"),
+  /**
+   * How much the project turns on this task — deliberately independent of where
+   * it sits in the tree. A subtask can be the most consequential thing in the
+   * project, and the board has to be able to say so.
+   */
+  importance: text("importance", { enum: ["normal", "key"] })
+    .notNull()
+    .default("normal"),
+  /** A milestone is a task-shaped marker, not a separate species. */
+  kind: text("kind", { enum: ["task", "milestone"] })
+    .notNull()
+    .default("task"),
   assignee_id: text("assignee_id").references(() => member.id),
   reviewer_id: text("reviewer_id").references(() => member.id),
   start_date: text("start_date"),

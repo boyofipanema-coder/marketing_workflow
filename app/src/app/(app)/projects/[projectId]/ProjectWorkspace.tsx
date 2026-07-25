@@ -294,6 +294,7 @@ export default function ProjectWorkspace({
             onToggleComplete={controller.toggleComplete}
             onCancel={controller.cancel}
             onRestore={controller.restore}
+            onToggleKey={controller.toggleKey}
             onReorder={controller.reorder}
             emptyTitle="아직 업무가 없습니다"
             emptyDescription="아래 입력란에 제목만 적어도 업무가 만들어집니다."

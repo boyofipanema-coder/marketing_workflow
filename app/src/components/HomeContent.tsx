@@ -108,6 +108,7 @@ export default function HomeContent({
     onToggleComplete: controller.toggleComplete,
     onCancel: controller.cancel,
     onRestore: controller.restore,
+    onToggleKey: controller.toggleKey,
   };
 
   return (

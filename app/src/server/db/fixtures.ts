@@ -19,6 +19,8 @@ export function makeTaskFixture(overrides: Partial<Task> = {}): Task {
     title: "Test Task",
     description: null,
     status: "ToDo",
+    importance: "normal",
+    kind: "task",
     assignee_id: null,
     reviewer_id: null,
     start_date: null,

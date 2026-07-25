@@ -257,3 +257,75 @@ describe("applyTaskEdit — title validation", () => {
     ).toThrow(ValidationError);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Importance is orthogonal to hierarchy and to status
+// ---------------------------------------------------------------------------
+
+describe("applyTaskEdit — importance", () => {
+  it("promotes a task to key and logs who decided it", () => {
+    const current = makeTask({ importance: "normal" });
+    const { updates, activityRows } = applyTaskEdit(
+      current,
+      { importance: "key" },
+      1,
+      ACTOR,
+      NOW
+    );
+    expect(updates.importance).toBe("key");
+    const row = activityRows.find((r) => r.change_type === "importance");
+    expect(row?.from_value).toBe("normal");
+    expect(row?.to_value).toBe("key");
+  });
+
+  it("leaves status untouched when importance changes", () => {
+    const current = makeTask({ status: "Waiting", importance: "normal" });
+    const { updates } = applyTaskEdit(
+      current,
+      { importance: "key" },
+      1,
+      ACTOR,
+      NOW
+    );
+    expect(updates.status).toBeUndefined();
+    expect(updates.completed_at).toBeUndefined();
+  });
+
+  // A subtask being important is the whole point — depth must not constrain it.
+  it("allows a subtask to be key", () => {
+    const current = makeTask({ parent_task_id: "parent-1", importance: "normal" });
+    const { updates } = applyTaskEdit(
+      current,
+      { importance: "key" },
+      1,
+      ACTOR,
+      NOW
+    );
+    expect(updates.importance).toBe("key");
+  });
+
+  it("emits nothing when importance is re-set to its current value", () => {
+    const current = makeTask({ importance: "key" });
+    const { activityRows } = applyTaskEdit(
+      current,
+      { importance: "key" },
+      1,
+      ACTOR,
+      NOW
+    );
+    expect(activityRows).toHaveLength(0);
+  });
+
+  it("converts a task to a milestone and logs the change", () => {
+    const current = makeTask({ kind: "task" });
+    const { updates, activityRows } = applyTaskEdit(
+      current,
+      { kind: "milestone" },
+      1,
+      ACTOR,
+      NOW
+    );
+    expect(updates.kind).toBe("milestone");
+    expect(activityRows.some((r) => r.change_type === "kind")).toBe(true);
+  });
+});

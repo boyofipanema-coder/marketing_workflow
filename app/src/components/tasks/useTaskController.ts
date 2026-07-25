@@ -90,6 +90,19 @@ export function useTaskController(initialTasks: Task[]) {
     [store]
   );
 
+  /** One-click promotion. Importance is independent of the task's depth. */
+  const toggleKey = useCallback(
+    (task: Task) => {
+      const next = task.importance === "key" ? "normal" : "key";
+      return store.mutate(
+        task.id,
+        (t) => ({ ...t, importance: next } as Task),
+        () => editTaskAction(task.id, task.version, { importance: next })
+      );
+    },
+    [store]
+  );
+
   const reorder = useCallback(
     (orderedIds: string[]) =>
       store.reorder(orderedIds, () => reorderTasksAction(orderedIds)),
@@ -108,6 +121,7 @@ export function useTaskController(initialTasks: Task[]) {
     toggleComplete,
     cancel,
     restore,
+    toggleKey,
     reorder,
   };
 }

@@ -70,6 +70,7 @@ export default function MyWorkContent({
     onToggleComplete: controller.toggleComplete,
     onCancel: controller.cancel,
     onRestore: controller.restore,
+    onToggleKey: controller.toggleKey,
   };
 
   const hasAny = Object.values(sections).some((s) => s.length > 0);

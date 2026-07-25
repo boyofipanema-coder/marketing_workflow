@@ -16,6 +16,7 @@ export interface TaskSectionProps {
   onToggleComplete: (task: Task) => void;
   onCancel: (task: Task) => void;
   onRestore: (task: Task) => void;
+  onToggleKey?: (task: Task) => void;
   emptyTitle: string;
   emptyDescription: string;
   /** Sections whose contents are derived stay hidden when empty. */
@@ -35,6 +36,7 @@ export default function TaskSection({
   onToggleComplete,
   onCancel,
   onRestore,
+  onToggleKey,
   emptyTitle,
   emptyDescription,
   hideWhenEmpty,
@@ -68,6 +70,7 @@ export default function TaskSection({
         onToggleComplete={onToggleComplete}
         onCancel={onCancel}
         onRestore={onRestore}
+        onToggleKey={onToggleKey}
         emptyTitle={emptyTitle}
         emptyDescription={emptyDescription}
         footer={footer}

@@ -9,6 +9,7 @@ import {
   MoreHorizontal,
   Loader2,
   RotateCcw,
+  Star,
   XCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -27,6 +28,8 @@ export interface TaskRowProps {
   onToggleComplete: (task: Task) => void;
   onCancel: (task: Task) => void;
   onRestore: (task: Task) => void;
+  /** Promote/demote a key task. Omit to hide the control. */
+  onToggleKey?: (task: Task) => void;
   /** Omitted when the list is not reorderable (e.g. search results). */
   dragHandleProps?: React.HTMLAttributes<HTMLButtonElement>;
 }
@@ -58,6 +61,7 @@ export default function TaskRow({
   onToggleComplete,
   onCancel,
   onRestore,
+  onToggleKey,
   dragHandleProps,
 }: TaskRowProps) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -134,9 +138,16 @@ export default function TaskRow({
         <span
           className={cn(
             "line-clamp-2 text-sm leading-snug text-text",
+            task.importance === "key" && "font-semibold",
             (done || cancelled) && "text-text-tertiary line-through"
           )}
         >
+          {task.importance === "key" && (
+            <Star
+              className="mr-1 inline-block h-3 w-3 -translate-y-px fill-current text-text-secondary"
+              aria-label="핵심 업무"
+            />
+          )}
           {task.title}
         </span>
 
@@ -205,6 +216,22 @@ export default function TaskRow({
             sideOffset={4}
             className="z-50 min-w-[10rem] rounded-lg border border-separator bg-elevated p-1 shadow-xl"
           >
+            {!cancelled && onToggleKey && (
+              <>
+                <DropdownMenu.Item
+                  onSelect={() => onToggleKey(task)}
+                  className="flex cursor-pointer items-center gap-2 rounded px-2 py-2 text-sm text-text outline-none data-[highlighted]:bg-surface-2"
+                >
+                  <Star
+                    className={cn("h-3.5 w-3.5", task.importance === "key" && "fill-current")}
+                    aria-hidden
+                  />
+                  {task.importance === "key" ? "핵심 업무 해제" : "핵심 업무로 표시"}
+                </DropdownMenu.Item>
+                <DropdownMenu.Separator className="my-1 h-px bg-separator" />
+              </>
+            )}
+
             {cancelled ? (
               <DropdownMenu.Item
                 onSelect={() => onRestore(task)}

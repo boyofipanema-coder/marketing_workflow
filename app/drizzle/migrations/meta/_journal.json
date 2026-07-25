@@ -22,6 +22,13 @@
       "when": 1785024000000,
       "tag": "0002_recovery_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1785110000000,
+      "tag": "0003_task_hierarchy",
+      "breakpoints": true
     }
   ]
 }

@@ -310,6 +310,19 @@ export default function TaskDetailPanel({
                 >
                   검토 요청
                 </QuickChip>
+                {/* Importance, not status — a subtask can be the most
+                    consequential thing in the project. */}
+                <QuickChip
+                  disabled={readOnly}
+                  active={task.importance === "key"}
+                  onClick={() =>
+                    void patch({
+                      importance: task.importance === "key" ? "normal" : "key",
+                    })
+                  }
+                >
+                  핵심 업무
+                </QuickChip>
                 <QuickChip
                   disabled={readOnly}
                   active={task.status === "Done"}

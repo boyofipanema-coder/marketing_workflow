@@ -145,12 +145,21 @@ const LANE_PAD = 12;
 const LANE_GAP = 18;
 const CAP = 4;
 const ADD_H = 42; // inline "add subtask" input row
+// A key task earns its extra height from importance alone — never from how many
+// subtasks it happens to carry (see cardHeight).
+const KEY_EXTRA = 14;
+
+function isKey(t: Task): boolean {
+  return t.importance === "key";
+}
 
 function cardHeight(t: Task, cm: ChildMap, open: Set<string>, addingId: string | null): number {
   const hasKids = kids(cm, t.id).length > 0;
-  let h = CARD_BASE;
+  let h = CARD_BASE + (isKey(t) ? KEY_EXTRA : 0);
   if (hasKids) {
     h += METER_H;
+    // Subtree size only affects height while the user has it expanded, so a
+    // card's resting size reads as importance rather than as child count.
     if (open.has(t.id)) h += SUB_PAD + visibleRows(t, cm, open) * ROW_H;
   }
   h += addingId === t.id ? ADD_H : ADDBTN_H; // input while composing, else the add footer
@@ -164,7 +173,7 @@ interface Positioned {
   h: number;
 }
 interface Layout {
-  lanes: (Lane & { y: number; done: number; total: number })[];
+  lanes: (Lane & { y: number; h: number; done: number; total: number })[];
   columns: { i: number; x: number; count: number }[];
   nodes: Positioned[];
   overflow: { cellKey: string; x: number; y: number; count: number; open: boolean }[];
@@ -212,9 +221,11 @@ function computeLayout(
     lanes = [...workstreams]
       .sort((a, b) => a.order - b.order)
       .filter((ws) => roots.some((t) => t.workstream_id === ws.id))
-      .map((ws) => ({ key: ws.id, name: ws.name, color: "var(--accent)" }));
+      // --accent is a bare RGB triplet, so it has to be wrapped; passing it raw
+      // yields an invalid colour and the lane rail silently disappears.
+      .map((ws) => ({ key: ws.id, name: ws.name, color: "rgb(var(--accent))" }));
     if (roots.some((t) => !t.workstream_id))
-      lanes.push({ key: "_other", name: "미지정", color: "rgb(var(--text-quaternary))" });
+      lanes.push({ key: "_other", name: "미분류", color: "rgb(var(--text-quaternary))" });
   } else if (groupBy === "owner") {
     const seen = new Map<string, Lane>();
     for (const t of roots) {
@@ -240,7 +251,14 @@ function computeLayout(
     const k = `${laneKeyOf(t)}|${stageIndex(effStatus(t, cm))}`;
     (cell.get(k) ?? cell.set(k, []).get(k)!).push(t);
   }
-  for (const arr of cell.values()) arr.sort((a, b) => (a.due_date ?? "9999").localeCompare(b.due_date ?? "9999"));
+  // Key work sits at the top of its cell so scanning a column top-to-bottom is
+  // scanning by consequence, then by urgency.
+  for (const arr of cell.values())
+    arr.sort(
+      (a, b) =>
+        Number(isKey(b)) - Number(isKey(a)) ||
+        (a.due_date ?? "9999").localeCompare(b.due_date ?? "9999"),
+    );
 
   const nodes: Positioned[] = [];
   const overflow: Layout["overflow"] = [];
@@ -267,7 +285,7 @@ function computeLayout(
       }
       laneMaxBottom = Math.max(laneMaxBottom, cy);
     }
-    laneOut.push({ ...lane, y: laneTop, done, total: laneTasks.length });
+    laneOut.push({ ...lane, y: laneTop, h: laneMaxBottom - laneTop + LANE_PAD, done, total: laneTasks.length });
     y = laneMaxBottom + LANE_PAD + LANE_GAP;
   }
   const contentBottom = y - LANE_GAP;
@@ -577,11 +595,21 @@ export default function WorkflowCanvas({
             </div>
           ))}
 
-          {/* lanes */}
-          {layout.lanes.map((l, i) => (
+          {/* lanes — drawn as enclosed bands so a workstream reads as a
+              container the cards live inside, not just a row they sit near. */}
+          {layout.lanes.map((l) => (
             <div key={l.key}>
-              {i > 0 && <div className="absolute h-px bg-separator/70" style={{ top: l.y - LANE_GAP / 2, left: 0, width: LANEPAD + STAGE_COUNT * COLW }} />}
-              <div className="absolute flex flex-col gap-1.5 rounded-xl border border-separator bg-surface/75 p-3 backdrop-blur" style={{ top: l.y + 8, left: 0, width: LANEPAD - 16 }}>
+              <div
+                className="absolute rounded-2xl border border-separator/70 bg-surface/40"
+                style={{ top: l.y, left: 0, width: LANEPAD + STAGE_COUNT * COLW - COLGAP, height: l.h }}
+              />
+              {/* the band's colour rail — the only place the lane colour lives,
+                  so it never competes with the status colours on the cards */}
+              <div
+                className="absolute rounded-l-2xl"
+                style={{ top: l.y, left: 0, width: 3, height: l.h, background: l.color }}
+              />
+              <div className="absolute flex flex-col gap-1.5 rounded-xl border border-separator bg-surface/90 p-3 backdrop-blur" style={{ top: l.y + 10, left: 10, width: LANEPAD - 28 }}>
                 <div className="flex items-center gap-2 text-[13px] font-semibold text-text">
                   {l.avatar ? <span className="grid size-5 place-items-center rounded-full text-[9px] font-bold text-white" style={{ background: l.color }}>{l.avatar}</span> : <span className="size-2.5 rounded" style={{ background: l.color }} />}
                   <span className="truncate">{l.name}</span>
@@ -612,19 +640,29 @@ export default function WorkflowCanvas({
             const [sd, sn] = subCount(task, childMap);
             const hasKids = sn > 0;
             const open = subsOpen.has(task.id);
+            const key_ = isKey(task);
             const rows = hasKids && open ? subRows(task, 0) : [];
             return (
               <div key={task.id} data-card onPointerEnter={() => setHotLane(laneKey)} onPointerLeave={() => setHotLane((hh) => (hh === laneKey ? null : hh))}
-                className={cn("group absolute flex flex-col overflow-hidden rounded-[14px] border bg-surface shadow-sm transition-[opacity,box-shadow] duration-200",
-                  task.status === "Waiting" && !hasKids ? "border-dashed border-status-waiting/50" : "border-separator", dim && "opacity-30 saturate-50")}
+                className={cn("group absolute flex flex-col overflow-hidden rounded-[14px] bg-surface transition-[opacity,box-shadow] duration-200",
+                  // Importance is carried by weight and elevation only — never by
+                  // colour, which belongs exclusively to status.
+                  key_ ? "border-2 border-text/25 shadow-md" : "border shadow-sm",
+                  !key_ && (task.status === "Waiting" && !hasKids ? "border-dashed border-status-waiting/50" : "border-separator"),
+                  dim && "opacity-30 saturate-50")}
                 style={{ left: x, top: y, width: NODEW, height: h }}>
-                <div className={cn("h-1 shrink-0", meta.dot)} />
+                <div className={cn("shrink-0", meta.dot, key_ ? "h-1.5" : "h-1")} />
                 <div className="flex flex-1 flex-col gap-2 overflow-hidden p-3">
                   {/* clickable header opens the detail panel */}
                   <button type="button" onClick={() => onSelect(task)}
                     className="text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg rounded">
                     {over && <span className="absolute right-2 top-2 size-2.5 rounded-full border-2 border-surface bg-flag-overdue" />}
-                    <div className={cn("mb-2 line-clamp-2 text-[13px] font-medium leading-snug", eff === "Done" && "text-text-secondary")}>{task.title}</div>
+                    {key_ && (
+                      <div className="mb-1.5 inline-flex items-center gap-1 rounded-full border border-text/20 px-1.5 py-px text-[9px] font-bold uppercase tracking-wide text-text-secondary">
+                        핵심
+                      </div>
+                    )}
+                    <div className={cn("mb-2 line-clamp-2 leading-snug", key_ ? "text-[14.5px] font-semibold" : "text-[13px] font-medium", eff === "Done" && "text-text-secondary")}>{task.title}</div>
                     <div className="flex flex-wrap items-center gap-2">
                       <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10.5px] font-semibold", meta.fill, meta.text)}>
                         <span className={cn("size-1.5 rounded-full", meta.dot)} />{task.status === "Waiting" && !hasKids ? "대기 중" : meta.label}

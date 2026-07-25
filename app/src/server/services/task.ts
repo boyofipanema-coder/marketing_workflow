@@ -49,10 +49,15 @@ export interface CreateSubtaskParams {
 
 /** Fields that can be patched via editTask.
  *  actor_id is required so we can write the activity_log row. */
+export type TaskImportance = Task["importance"];
+export type TaskKind = Task["kind"];
+
 export interface TaskPatch {
   title?: string;
   description?: string | null;
   status?: TaskStatus;
+  importance?: TaskImportance;
+  kind?: TaskKind;
   assignee_id?: string | null;
   reviewer_id?: string | null;
   start_date?: string | null;
@@ -176,6 +181,35 @@ export function applyTaskEdit(
       });
     }
     updates.description = patch.description;
+  }
+
+  // ---- Importance / kind -------------------------------------------------
+  // Both are one-click promotions from the board, so they are logged: "who
+  // decided this was a key task" is exactly the kind of thing teams re-litigate.
+  if (patch.importance !== undefined && patch.importance !== current.importance) {
+    activityRows.push({
+      workspace_id: current.workspace_id,
+      task_id: current.id,
+      actor_id: actorId,
+      change_type: "importance",
+      from_value: current.importance,
+      to_value: patch.importance,
+      created_at: now,
+    });
+    updates.importance = patch.importance;
+  }
+
+  if (patch.kind !== undefined && patch.kind !== current.kind) {
+    activityRows.push({
+      workspace_id: current.workspace_id,
+      task_id: current.id,
+      actor_id: actorId,
+      change_type: "kind",
+      from_value: current.kind,
+      to_value: patch.kind,
+      created_at: now,
+    });
+    updates.kind = patch.kind;
   }
 
   // ---- Status ------------------------------------------------------------
@@ -452,6 +486,8 @@ export async function createByTitle(
     title,
     description: null,
     status: "Inbox",
+    importance: "normal",
+    kind: "task",
     assignee_id: null,
     reviewer_id: null,
     start_date: null,
@@ -518,6 +554,8 @@ export async function createProjectTask(
     title,
     description: null,
     status: "ToDo",
+    importance: "normal",
+    kind: "task",
     assignee_id: null,
     reviewer_id: null,
     start_date: null,
@@ -566,6 +604,8 @@ export async function createSubtask(
     title,
     description: null,
     status: "ToDo",
+    importance: "normal",
+    kind: "task",
     assignee_id: null,
     reviewer_id: null,
     start_date: null,
