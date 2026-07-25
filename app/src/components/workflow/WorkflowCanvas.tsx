@@ -2,12 +2,13 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Minus, Plus, Maximize2, ChevronRight } from "lucide-react";
+import { Minus, Plus, Maximize2, ChevronRight, CornerDownRight, ArrowUpRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { statusMeta, type TaskStatus } from "@/lib/status";
 import { createSubtaskAction } from "@/app/actions/tasks";
 import InlineAdd from "@/components/tasks/InlineAdd";
 import type { Task, Workstream, Member, Project } from "@/server/db/schema";
+import { buildBoardGraph, isKey, laneKeyFor, type ChildMap, type GroupBy } from "@/lib/board-graph";
 
 /**
  * WorkflowCanvas — a pannable/zoomable swimlane Kanban.
@@ -73,7 +74,6 @@ function fmtDue(iso: string): string {
 }
 
 // ── hierarchy helpers (operate over a parent→children map) ──────────────────────
-type ChildMap = Map<string, Task[]>;
 const kids = (cm: ChildMap, id: string): Task[] => cm.get(id) ?? [];
 function rollupProgress(t: Task, cm: ChildMap): number {
   const c = kids(cm, t.id);
@@ -98,7 +98,6 @@ function visibleRows(t: Task, cm: ChildMap, open: Set<string>): number {
 }
 
 // ── group-by ──────────────────────────────────────────────────────────────────
-type GroupBy = "project" | "workstream" | "owner" | "due";
 const GROUP_OPTS: { id: GroupBy; label: string }[] = [
   { id: "project", label: "프로젝트" },
   { id: "workstream", label: "업무 영역" },
@@ -106,20 +105,6 @@ const GROUP_OPTS: { id: GroupBy; label: string }[] = [
   { id: "due", label: "마감" },
 ];
 export type Focus = "all" | "do" | "wait" | "over";
-
-/** Which lane a task belongs to under a given grouping. */
-function laneKeyFor(t: Task, groupBy: GroupBy): string {
-  switch (groupBy) {
-    case "project":
-      return t.project_id ?? "_inbox";
-    case "owner":
-      return t.assignee_id ?? "_un";
-    case "due":
-      return dueBucket(t.due_date).key;
-    default:
-      return t.workstream_id ?? "_other";
-  }
-}
 
 interface Lane {
   key: string;
@@ -149,10 +134,6 @@ const ADD_H = 42; // inline "add subtask" input row
 // subtasks it happens to carry (see cardHeight).
 const KEY_EXTRA = 14;
 
-function isKey(t: Task): boolean {
-  return t.importance === "key";
-}
-
 function cardHeight(t: Task, cm: ChildMap, open: Set<string>, addingId: string | null): number {
   const hasKids = kids(cm, t.id).length > 0;
   let h = CARD_BASE + (isKey(t) ? KEY_EXTRA : 0);
@@ -177,7 +158,7 @@ interface Layout {
   columns: { i: number; x: number; count: number }[];
   nodes: Positioned[];
   overflow: { cellKey: string; x: number; y: number; count: number; open: boolean }[];
-  edges: { d: string; laneKey: string }[];
+  edges: { d: string; laneKey: string; kind: "flow" | "parent" }[];
   worldW: number;
   worldH: number;
 }
@@ -198,8 +179,11 @@ function ownerColor(id: string): string {
 }
 
 function computeLayout(
+  placed: Task[],
   roots: Task[],
   cm: ChildMap,
+  laneOf: Map<string, string>,
+  parentOf: Map<string, string>,
   workstreams: Workstream[],
   members: Record<string, Member>,
   projects: Project[],
@@ -208,7 +192,9 @@ function computeLayout(
   subsOpen: Set<string>,
   addingId: string | null,
 ): Layout {
-  const laneKeyOf = (t: Task): string => laneKeyFor(t, groupBy);
+  // Lane membership is decided by the root of a task's tree, so a promoted
+  // descendant always appears in the same band as the work it belongs to.
+  const laneKeyOf = (t: Task): string => laneOf.get(t.id) ?? laneKeyFor(t, groupBy);
 
   let lanes: Lane[] = [];
   if (groupBy === "project") {
@@ -245,9 +231,9 @@ function computeLayout(
     lanes = [...seen.values()].sort((a, b) => a.order - b.order);
   }
 
-  // bucket roots into (lane × stage) by rolled-up status
+  // bucket every placed node into (lane × stage) by rolled-up status
   const cell = new Map<string, Task[]>();
-  for (const t of roots) {
+  for (const t of placed) {
     const k = `${laneKeyOf(t)}|${stageIndex(effStatus(t, cm))}`;
     (cell.get(k) ?? cell.set(k, []).get(k)!).push(t);
   }
@@ -265,7 +251,7 @@ function computeLayout(
   const laneOut: Layout["lanes"] = [];
   let y = TOP;
   for (const lane of lanes) {
-    const laneTasks = roots.filter((t) => laneKeyOf(t) === lane.key);
+    const laneTasks = placed.filter((t) => laneKeyOf(t) === lane.key);
     const done = laneTasks.filter((t) => effStatus(t, cm) === "Done").length;
     const laneTop = y;
     let laneMaxBottom = laneTop + CARD_BASE;
@@ -293,21 +279,47 @@ function computeLayout(
   const columns = STAGE_LABELS.map((_, i) => ({
     i,
     x: LANEPAD + i * COLW,
-    count: roots.filter((t) => stageIndex(effStatus(t, cm)) === i).length,
+    count: placed.filter((t) => stageIndex(effStatus(t, cm)) === i).length,
   }));
 
   const edges: Layout["edges"] = [];
+  const posOf = new Map(nodes.map((n) => [n.task.id, n]));
+
+  // the in-lane stage flow line (roots only — it describes the pipeline, not
+  // individual parentage)
   for (const lane of laneOut) {
     const firsts: Positioned[] = [];
     for (let s = 0; s < STAGE_COUNT; s++) {
-      const n = nodes.find((p) => stageIndex(effStatus(p.task, cm)) === s && laneKeyOf(p.task) === lane.key);
+      const n = nodes.find(
+        (p) =>
+          !parentOf.has(p.task.id) &&
+          stageIndex(effStatus(p.task, cm)) === s &&
+          laneKeyOf(p.task) === lane.key,
+      );
       if (n) firsts.push(n);
     }
     for (let i = 0; i < firsts.length - 1; i++) {
       const a = firsts[i]!, b = firsts[i + 1]!;
       const ax = a.x + NODEW, ay = a.y + 30, bx = b.x, by = b.y + 30, mx = (ax + bx) / 2;
-      edges.push({ d: `M ${ax} ${ay} C ${mx} ${ay}, ${mx} ${by}, ${bx} ${by}`, laneKey: lane.key });
+      edges.push({ d: `M ${ax} ${ay} C ${mx} ${ay}, ${mx} ${by}, ${bx} ${by}`, laneKey: lane.key, kind: "flow" });
     }
+  }
+
+  // a promoted node keeps a visible tether to the card it belongs under, so
+  // pulling it out of its parent never costs the structural reading
+  for (const n of nodes) {
+    const parentId = parentOf.get(n.task.id);
+    if (!parentId) continue;
+    const p = posOf.get(parentId);
+    if (!p) continue;
+    const ax = p.x + NODEW / 2, ay = p.y + p.h;
+    const bx = n.x + NODEW / 2, by = n.y;
+    const my = (ay + by) / 2;
+    edges.push({
+      d: `M ${ax} ${ay} C ${ax} ${my}, ${bx} ${my}, ${bx} ${by}`,
+      laneKey: laneKeyOf(n.task),
+      kind: "parent",
+    });
   }
 
   return { lanes: laneOut, columns, nodes, overflow, edges, worldW: LANEPAD + STAGE_COUNT * COLW + 40, worldH: contentBottom + 40 };
@@ -363,20 +375,15 @@ export default function WorkflowCanvas({
   const worldRef = useRef<HTMLDivElement>(null);
   const view = useRef({ x: 0, y: 8, scale: 1 });
 
-  // parent→children map + top-level roots (drop cancelled)
-  const { childMap, roots } = useMemo(() => {
-    const live = tasks.filter((t) => !t.cancelled_at);
-    const cm: ChildMap = new Map();
-    for (const t of live) {
-      if (t.parent_task_id) (cm.get(t.parent_task_id) ?? cm.set(t.parent_task_id, []).get(t.parent_task_id)!).push(t);
-    }
-    for (const arr of cm.values()) arr.sort((a, b) => (a.due_date ?? "9999").localeCompare(b.due_date ?? "9999"));
-    return { childMap: cm, roots: live.filter((t) => !t.parent_task_id) };
-  }, [tasks]);
+  // Which nodes get a card, and how a promoted one points back at its parent.
+  const { childMap, roots, placed, laneOf, parentOf } = useMemo(
+    () => buildBoardGraph(tasks, groupBy),
+    [tasks, groupBy],
+  );
 
   const layout = useMemo(
-    () => computeLayout(roots, childMap, workstreams, members, projects ?? [], groupBy, cellsOpen, subsOpen, addingFor),
-    [roots, childMap, workstreams, members, projects, groupBy, cellsOpen, subsOpen, addingFor],
+    () => computeLayout(placed, roots, childMap, laneOf, parentOf, workstreams, members, projects ?? [], groupBy, cellsOpen, subsOpen, addingFor),
+    [placed, roots, childMap, laneOf, parentOf, workstreams, members, projects, groupBy, cellsOpen, subsOpen, addingFor],
   );
 
   // open the inline subtask composer under a card
@@ -409,7 +416,7 @@ export default function WorkflowCanvas({
     });
   }
 
-  const laneKeyOf = (t: Task) => laneKeyFor(t, groupBy);
+  const laneKeyOf = (t: Task) => laneOf.get(t.id) ?? laneKeyFor(t, groupBy);
   const matchesFocus = (t: Task) => {
     const eff = effStatus(t, childMap);
     return focus === "all" ? true : focus === "do" ? eff === "InProgress" || eff === "Review" : focus === "wait" ? t.status === "Waiting" : overdue(t, eff);
@@ -623,8 +630,18 @@ export default function WorkflowCanvas({
           {/* edges */}
           <svg className="pointer-events-none absolute left-0 top-0 overflow-visible" width={layout.worldW} height={layout.worldH}>
             {layout.edges.map((e, i) => (
-              <path key={i} d={e.d} fill="none" strokeLinecap="round" strokeWidth={hotLane === e.laneKey ? 2.6 : 2}
-                stroke={hotLane === e.laneKey ? "rgb(var(--accent))" : "rgb(var(--text-quaternary)/0.5)"} className="transition-[stroke,stroke-width] duration-200" />
+              <path
+                key={i}
+                d={e.d}
+                fill="none"
+                strokeLinecap="round"
+                strokeWidth={e.kind === "parent" ? 1.5 : hotLane === e.laneKey ? 2.6 : 2}
+                /* dashed = "belongs under", solid = "flows into"; the two must
+                   never be mistaken for one another */
+                strokeDasharray={e.kind === "parent" ? "3 4" : undefined}
+                stroke={hotLane === e.laneKey ? "rgb(var(--accent))" : "rgb(var(--text-quaternary)/0.5)"}
+                className="transition-[stroke,stroke-width] duration-200"
+              />
             ))}
           </svg>
 
@@ -641,6 +658,8 @@ export default function WorkflowCanvas({
             const hasKids = sn > 0;
             const open = subsOpen.has(task.id);
             const key_ = isKey(task);
+            const parentId = parentOf.get(task.id);
+            const parentTitle = parentId ? tasks.find((x) => x.id === parentId)?.title : undefined;
             const rows = hasKids && open ? subRows(task, 0) : [];
             return (
               <div key={task.id} data-card onPointerEnter={() => setHotLane(laneKey)} onPointerLeave={() => setHotLane((hh) => (hh === laneKey ? null : hh))}
@@ -657,11 +676,21 @@ export default function WorkflowCanvas({
                   <button type="button" onClick={() => onSelect(task)}
                     className="text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg rounded">
                     {over && <span className="absolute right-2 top-2 size-2.5 rounded-full border-2 border-surface bg-flag-overdue" />}
-                    {key_ && (
-                      <div className="mb-1.5 inline-flex items-center gap-1 rounded-full border border-text/20 px-1.5 py-px text-[9px] font-bold uppercase tracking-wide text-text-secondary">
-                        핵심
-                      </div>
-                    )}
+                    <div className="mb-1.5 flex flex-wrap items-center gap-1">
+                      {key_ && (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-text/20 px-1.5 py-px text-[9px] font-bold uppercase tracking-wide text-text-secondary">
+                          핵심
+                        </span>
+                      )}
+                      {/* Pulled out of a parent card — say what it sits under,
+                          or the hierarchy is lost the moment it moves. */}
+                      {parentTitle && (
+                        <span className="inline-flex min-w-0 items-center gap-0.5 text-[9.5px] font-medium text-text-tertiary">
+                          <CornerDownRight className="size-2.5 shrink-0" aria-hidden />
+                          <span className="truncate">{parentTitle}</span>
+                        </span>
+                      )}
+                    </div>
                     <div className={cn("mb-2 line-clamp-2 leading-snug", key_ ? "text-[14.5px] font-semibold" : "text-[13px] font-medium", eff === "Done" && "text-text-secondary")}>{task.title}</div>
                     <div className="flex flex-wrap items-center gap-2">
                       <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10.5px] font-semibold", meta.fill, meta.text)}>
@@ -701,7 +730,9 @@ export default function WorkflowCanvas({
                               </button>
                             ) : <span className="size-4 shrink-0" />}
                             <span className={cn("size-2 shrink-0 rounded-full", cm2.dot)} />
-                            <button type="button" onClick={() => onSelect(c)} className={cn("flex-1 truncate text-left text-[12px] font-medium hover:underline", ce === "Done" && "text-text-tertiary line-through")}>{c.title}</button>
+                            <button type="button" onClick={() => onSelect(c)} className={cn("flex-1 truncate text-left text-[12px] font-medium hover:underline", isKey(c) && "font-semibold", ce === "Done" && "text-text-tertiary line-through")}>{c.title}</button>
+                            {/* still counted here, but it also has its own card */}
+                            {isKey(c) && <ArrowUpRight className="size-3 shrink-0 text-text-tertiary" aria-label="핵심 업무 — 보드에 별도 카드로 표시됨" />}
                             {ck && <span className="shrink-0 font-mono text-[9.5px] tabular-nums text-text-tertiary">{cd}/{cn2}</span>}
                             {cav && <span className="grid size-4 shrink-0 place-items-center rounded-full text-[8px] font-bold text-white" style={{ background: ownerColor(cav.id) }}>{initials(cav.name)}</span>}
                           </div>
