@@ -7,6 +7,7 @@ import { Button } from "@/components/ui";
 import TaskSection from "@/components/tasks/TaskSection";
 import TaskDetailPanel from "@/components/tasks/TaskDetailPanel";
 import InlineAdd from "@/components/tasks/InlineAdd";
+import WorkflowCanvas, { type Focus } from "@/components/workflow/WorkflowCanvas";
 import { useTaskController } from "@/components/tasks/useTaskController";
 import { createTaskAction } from "@/app/actions/tasks";
 import {
@@ -47,6 +48,14 @@ export default function HomeContent({
   const { store } = controller;
   const [addOpen, setAddOpen] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
+  const [boardFocus, setBoardFocus] = useState<Focus>("all");
+  // The board is the landing view. On a phone it is unreadable, so the personal
+  // lists lead there instead; server and first client render agree on the board.
+  const [showBoard, setShowBoard] = useState(true);
+
+  useEffect(() => {
+    if (window.matchMedia("(max-width: 640px)").matches) setShowBoard(false);
+  }, []);
 
   useEffect(() => {
     function onFocus() {
@@ -86,6 +95,11 @@ export default function HomeContent({
     return true;
   }
 
+  const boardTasks = useMemo(
+    () => controller.tasks.filter((t) => !t.cancelled_at),
+    [controller.tasks]
+  );
+
   const shared = {
     members: membersRecord,
     store,
@@ -98,7 +112,7 @@ export default function HomeContent({
 
   return (
     <>
-      <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
+      <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-10">
         <header className="mb-8 flex items-start justify-between gap-4">
           <div>
             <h1 className="font-serif text-2xl font-semibold leading-tight text-text">
@@ -142,6 +156,31 @@ export default function HomeContent({
           >
             {store.error}
           </p>
+        )}
+
+        {/* The board leads: the whole workspace at a glance, grouped by
+            project, before any personal list. */}
+        {showBoard && boardTasks.length > 0 && (
+          <section className="mb-10" aria-label="전체 업무 흐름">
+            <div className="mb-3 flex items-baseline justify-between gap-3">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-text-secondary">
+                업무 흐름
+              </h2>
+              <span className="text-xs text-text-tertiary">
+                진행 중인 프로젝트 {projects.length}개 · 업무 {boardTasks.length}건
+              </span>
+            </div>
+            <WorkflowCanvas
+              tasks={boardTasks}
+              workstreams={workstreams}
+              members={membersRecord}
+              projects={projects}
+              defaultGroupBy="project"
+              onSelect={controller.select}
+              focus={boardFocus}
+              onFocusChange={setBoardFocus}
+            />
+          </section>
         )}
 
         <div className="flex flex-col gap-8">

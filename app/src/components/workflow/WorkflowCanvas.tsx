@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import { statusMeta, type TaskStatus } from "@/lib/status";
 import { createSubtaskAction } from "@/app/actions/tasks";
 import InlineAdd from "@/components/tasks/InlineAdd";
-import type { Task, Workstream, Member } from "@/server/db/schema";
+import type { Task, Workstream, Member, Project } from "@/server/db/schema";
 
 /**
  * WorkflowCanvas — a pannable/zoomable swimlane Kanban.
@@ -98,13 +98,28 @@ function visibleRows(t: Task, cm: ChildMap, open: Set<string>): number {
 }
 
 // ── group-by ──────────────────────────────────────────────────────────────────
-type GroupBy = "workstream" | "owner" | "due";
+type GroupBy = "project" | "workstream" | "owner" | "due";
 const GROUP_OPTS: { id: GroupBy; label: string }[] = [
+  { id: "project", label: "프로젝트" },
   { id: "workstream", label: "업무 영역" },
   { id: "owner", label: "담당자" },
   { id: "due", label: "마감" },
 ];
 export type Focus = "all" | "do" | "wait" | "over";
+
+/** Which lane a task belongs to under a given grouping. */
+function laneKeyFor(t: Task, groupBy: GroupBy): string {
+  switch (groupBy) {
+    case "project":
+      return t.project_id ?? "_inbox";
+    case "owner":
+      return t.assignee_id ?? "_un";
+    case "due":
+      return dueBucket(t.due_date).key;
+    default:
+      return t.workstream_id ?? "_other";
+  }
+}
 
 interface Lane {
   key: string;
@@ -178,20 +193,22 @@ function computeLayout(
   cm: ChildMap,
   workstreams: Workstream[],
   members: Record<string, Member>,
+  projects: Project[],
   groupBy: GroupBy,
   cellsOpen: Set<string>,
   subsOpen: Set<string>,
   addingId: string | null,
 ): Layout {
-  const laneKeyOf = (t: Task): string =>
-    groupBy === "owner"
-      ? t.assignee_id ?? "_un"
-      : groupBy === "due"
-        ? dueBucket(t.due_date).key
-        : t.workstream_id ?? "_other";
+  const laneKeyOf = (t: Task): string => laneKeyFor(t, groupBy);
 
   let lanes: Lane[] = [];
-  if (groupBy === "workstream") {
+  if (groupBy === "project") {
+    lanes = projects
+      .filter((p) => roots.some((t) => t.project_id === p.id))
+      .map((p) => ({ key: p.id, name: p.name, color: "rgb(var(--accent))" }));
+    if (roots.some((t) => !t.project_id))
+      lanes.push({ key: "_inbox", name: "인박스", color: "rgb(var(--status-inbox))" });
+  } else if (groupBy === "workstream") {
     lanes = [...workstreams]
       .sort((a, b) => a.order - b.order)
       .filter((ws) => roots.some((t) => t.workstream_id === ws.id))
@@ -283,6 +300,10 @@ export interface WorkflowCanvasProps {
   tasks: Task[];
   workstreams: Workstream[];
   members: Record<string, Member>;
+  /** Needed to name project lanes. Pass on workspace-wide boards. */
+  projects?: Project[];
+  /** Lane axis to open on. Home groups by project, a project by workstream. */
+  defaultGroupBy?: GroupBy;
   onSelect: (task: Task) => void;
   /** Creates a top-level task in this project. Omit to hide the add affordance. */
   onAddTask?: (title: string) => Promise<boolean>;
@@ -295,12 +316,14 @@ export default function WorkflowCanvas({
   tasks,
   workstreams,
   members,
+  projects,
+  defaultGroupBy = "workstream",
   onSelect,
   onAddTask,
   focus: focusProp,
   onFocusChange,
 }: WorkflowCanvasProps) {
-  const [groupBy, setGroupBy] = useState<GroupBy>("workstream");
+  const [groupBy, setGroupBy] = useState<GroupBy>(defaultGroupBy);
   const [focusState, setFocusState] = useState<Focus>("all");
   const focus = focusProp ?? focusState;
   const setFocus = (next: Focus) => {
@@ -334,8 +357,8 @@ export default function WorkflowCanvas({
   }, [tasks]);
 
   const layout = useMemo(
-    () => computeLayout(roots, childMap, workstreams, members, groupBy, cellsOpen, subsOpen, addingFor),
-    [roots, childMap, workstreams, members, groupBy, cellsOpen, subsOpen, addingFor],
+    () => computeLayout(roots, childMap, workstreams, members, projects ?? [], groupBy, cellsOpen, subsOpen, addingFor),
+    [roots, childMap, workstreams, members, projects, groupBy, cellsOpen, subsOpen, addingFor],
   );
 
   // open the inline subtask composer under a card
@@ -368,8 +391,7 @@ export default function WorkflowCanvas({
     });
   }
 
-  const laneKeyOf = (t: Task) =>
-    groupBy === "owner" ? t.assignee_id ?? "_un" : groupBy === "due" ? dueBucket(t.due_date).key : t.workstream_id ?? "_other";
+  const laneKeyOf = (t: Task) => laneKeyFor(t, groupBy);
   const matchesFocus = (t: Task) => {
     const eff = effStatus(t, childMap);
     return focus === "all" ? true : focus === "do" ? eff === "InProgress" || eff === "Review" : focus === "wait" ? t.status === "Waiting" : overdue(t, eff);
@@ -510,7 +532,7 @@ export default function WorkflowCanvas({
         <div className="flex items-center gap-2">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">기준</span>
           <div className="flex gap-0.5 rounded-lg bg-surface-2 p-0.5">
-            {GROUP_OPTS.map((o) => (
+            {GROUP_OPTS.filter((o) => o.id !== "project" || projects).map((o) => (
               <button key={o.id} type="button" aria-pressed={groupBy === o.id}
                 onClick={() => { setGroupBy(o.id); setCellsOpen(new Set()); }}
                 className={cn("rounded-md px-2.5 py-1 text-xs font-medium transition-colors", groupBy === o.id ? "bg-surface text-text shadow-xs" : "text-text-secondary hover:text-text")}>
