@@ -1,7 +1,8 @@
-import { eq } from "drizzle-orm";
+import { and, eq, desc, inArray, isNull, sql } from "drizzle-orm";
 import {
   task,
   activity_log,
+  project as projectTable,
   workstream as workstreamTable,
   type Task,
   type NewTask,
@@ -16,16 +17,34 @@ import { StaleVersionError, ValidationError, NotFoundError } from "./errors";
 
 export type TaskStatus = Task["status"];
 
+/** Statuses a task can be reopened into — everything except the terminal Done. */
+const NON_TERMINAL_STATUSES: TaskStatus[] = [
+  "Inbox",
+  "ToDo",
+  "InProgress",
+  "Waiting",
+  "Review",
+];
+
 export interface CreateByTitleParams {
   title: string;
   memberId: string;
   workspaceId: string;
 }
 
+export interface CreateProjectTaskParams {
+  workspaceId: string;
+  projectId: string;
+  title: string;
+  memberId: string;
+  workstreamId?: string | null;
+}
+
 export interface CreateSubtaskParams {
   parentId: string;
   title: string;
   memberId: string;
+  workspaceId: string;
 }
 
 /** Fields that can be patched via editTask.
@@ -38,6 +57,7 @@ export interface TaskPatch {
   reviewer_id?: string | null;
   start_date?: string | null;
   due_date?: string | null;
+  due_time?: string | null;
   project_id?: string | null;
   workstream_id?: string | null;
   actor_id: string;
@@ -59,6 +79,31 @@ function validateTitle(raw: string): string {
   if (trimmed.length > 200)
     throw new ValidationError("업무명은 200자 이하로 입력해 주세요.");
   return trimmed;
+}
+
+/** Accepts "YYYY-MM-DD" only. */
+function validateDate(raw: string, field: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    throw new ValidationError(`${field}은(는) YYYY-MM-DD 형식이어야 합니다.`);
+  }
+  const [y, m, d] = raw.split("-").map(Number);
+  const dt = new Date(Date.UTC(y!, m! - 1, d!));
+  if (
+    dt.getUTCFullYear() !== y ||
+    dt.getUTCMonth() !== m! - 1 ||
+    dt.getUTCDate() !== d
+  ) {
+    throw new ValidationError(`${field}이(가) 올바른 날짜가 아닙니다.`);
+  }
+  return raw;
+}
+
+/** Accepts 24-hour "HH:mm" only. */
+function validateTime(raw: string): string {
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(raw)) {
+    throw new ValidationError("시간은 HH:mm 형식이어야 합니다.");
+  }
+  return raw;
 }
 
 /**
@@ -100,11 +145,36 @@ export function applyTaskEdit(
 
   // ---- Title -------------------------------------------------------------
   if (patch.title !== undefined) {
-    updates.title = validateTitle(patch.title);
+    const nextTitle = validateTitle(patch.title);
+    if (nextTitle !== current.title) {
+      activityRows.push({
+        workspace_id: current.workspace_id,
+        task_id: current.id,
+        actor_id: actorId,
+        change_type: "title",
+        from_value: current.title,
+        to_value: nextTitle,
+        created_at: now,
+      });
+    }
+    updates.title = nextTitle;
   }
 
   // ---- Description -------------------------------------------------------
+  // The body itself is never copied into the activity log (plan §4.4) — only
+  // the fact that it changed.
   if (patch.description !== undefined) {
+    if ((patch.description ?? null) !== (current.description ?? null)) {
+      activityRows.push({
+        workspace_id: current.workspace_id,
+        task_id: current.id,
+        actor_id: actorId,
+        change_type: "description",
+        from_value: null,
+        to_value: null,
+        created_at: now,
+      });
+    }
     updates.description = patch.description;
   }
 
@@ -144,15 +214,42 @@ export function applyTaskEdit(
     patch.project_id !== undefined ? patch.project_id : current.project_id;
   if (nextStatus !== "Inbox" && !nextProjectId) {
     throw new ValidationError(
-      "Tasks outside Inbox must belong to a project"
+      "Inbox 밖의 업무는 프로젝트가 있어야 합니다."
     );
   }
   if (patch.project_id !== undefined) {
+    if ((patch.project_id ?? null) !== (current.project_id ?? null)) {
+      activityRows.push({
+        workspace_id: current.workspace_id,
+        task_id: current.id,
+        actor_id: actorId,
+        change_type: "project",
+        from_value: current.project_id ?? null,
+        to_value: patch.project_id ?? null,
+        created_at: now,
+      });
+      // Moving to a different project invalidates the old project's workstream
+      // unless the caller is explicitly setting one in the same patch.
+      if (patch.workstream_id === undefined) {
+        updates.workstream_id = null;
+      }
+    }
     updates.project_id = patch.project_id;
   }
 
   // ---- Workstream (projectId match enforced at DB level in editTask) ------
   if (patch.workstream_id !== undefined) {
+    if ((patch.workstream_id ?? null) !== (current.workstream_id ?? null)) {
+      activityRows.push({
+        workspace_id: current.workspace_id,
+        task_id: current.id,
+        actor_id: actorId,
+        change_type: "workstream",
+        from_value: current.workstream_id ?? null,
+        to_value: patch.workstream_id ?? null,
+        created_at: now,
+      });
+    }
     updates.workstream_id = patch.workstream_id;
   }
 
@@ -172,28 +269,164 @@ export function applyTaskEdit(
 
   // ---- Reviewer ----------------------------------------------------------
   if (patch.reviewer_id !== undefined) {
+    if ((patch.reviewer_id ?? null) !== (current.reviewer_id ?? null)) {
+      activityRows.push({
+        workspace_id: current.workspace_id,
+        task_id: current.id,
+        actor_id: actorId,
+        change_type: "reviewer",
+        from_value: current.reviewer_id ?? null,
+        to_value: patch.reviewer_id ?? null,
+        created_at: now,
+      });
+    }
     updates.reviewer_id = patch.reviewer_id;
   }
 
   // ---- Dates -------------------------------------------------------------
   if (patch.start_date !== undefined) {
-    updates.start_date = patch.start_date;
+    updates.start_date = patch.start_date
+      ? validateDate(patch.start_date, "시작일")
+      : null;
   }
 
   if (patch.due_date !== undefined) {
+    const nextDue = patch.due_date ? validateDate(patch.due_date, "마감일") : null;
     activityRows.push({
       workspace_id: current.workspace_id,
       task_id: current.id,
       actor_id: actorId,
       change_type: "due_date",
       from_value: current.due_date ?? null,
-      to_value: patch.due_date ?? null,
+      to_value: nextDue,
       created_at: now,
     });
-    updates.due_date = patch.due_date;
+    updates.due_date = nextDue;
+  }
+
+  if (patch.due_time !== undefined) {
+    const nextTime = patch.due_time ? validateTime(patch.due_time) : null;
+    const effectiveDue =
+      patch.due_date !== undefined ? updates.due_date : current.due_date;
+    if (nextTime && !effectiveDue) {
+      throw new ValidationError("시간을 지정하려면 마감일이 필요합니다.");
+    }
+    if (nextTime !== (current.due_time ?? null)) {
+      activityRows.push({
+        workspace_id: current.workspace_id,
+        task_id: current.id,
+        actor_id: actorId,
+        change_type: "due_time",
+        from_value: current.due_time ?? null,
+        to_value: nextTime,
+        created_at: now,
+      });
+    }
+    updates.due_time = nextTime;
+  }
+
+  // Start must not fall after Due.
+  const effectiveStart =
+    updates.start_date !== undefined ? updates.start_date : current.start_date;
+  const effectiveDue =
+    updates.due_date !== undefined ? updates.due_date : current.due_date;
+  if (effectiveStart && effectiveDue && effectiveStart > effectiveDue) {
+    throw new ValidationError("시작일은 마감일보다 늦을 수 없습니다.");
   }
 
   return { updates, activityRows };
+}
+
+// ---------------------------------------------------------------------------
+// DB helpers
+// ---------------------------------------------------------------------------
+
+/** Loads a task, scoped to the caller's workspace. Cross-workspace ids 404. */
+async function loadScoped(
+  db: Database,
+  taskId: string,
+  workspaceId: string
+): Promise<Task> {
+  const rows = await db
+    .select()
+    .from(task)
+    .where(and(eq(task.id, taskId), eq(task.workspace_id, workspaceId)));
+  const current = rows[0];
+  if (!current) throw new NotFoundError(`Task ${taskId} not found`);
+  return current;
+}
+
+async function nextSortOrder(
+  db: Database,
+  workspaceId: string,
+  projectId: string | null,
+  parentTaskId: string | null
+): Promise<number> {
+  const rows = await db
+    .select({ value: sql<number>`coalesce(max(${task.sort_order}), -1)` })
+    .from(task)
+    .where(
+      and(
+        eq(task.workspace_id, workspaceId),
+        projectId === null
+          ? isNull(task.project_id)
+          : eq(task.project_id, projectId),
+        parentTaskId === null
+          ? isNull(task.parent_task_id)
+          : eq(task.parent_task_id, parentTaskId)
+      )
+    );
+  return (rows[0]?.value ?? -1) + 1;
+}
+
+function logRows(rows: Omit<NewActivityLog, "id">[]) {
+  return rows.map((row) => ({ id: crypto.randomUUID(), ...row }));
+}
+
+/**
+ * Applies the computed updates under a conditional UPDATE that also carries the
+ * version check, so two concurrent writers holding the same baseVersion cannot
+ * both win. Returns the updated row, or throws StaleVersionError when the guard
+ * matched nothing.
+ *
+ * The activity rows are written in a follow-up batch rather than alongside the
+ * UPDATE: a batch cannot be aborted partway, so bundling them would persist log
+ * rows for a write that the version guard rejected.
+ */
+async function commitVersionedUpdate(
+  db: Database,
+  taskId: string,
+  workspaceId: string,
+  baseVersion: number,
+  current: Task,
+  updates: Partial<Task> & { version: number; updated_at: string },
+  activityRows: Omit<NewActivityLog, "id">[]
+): Promise<Task> {
+  const updated = await db
+    .update(task)
+    .set(updates)
+    .where(
+      and(
+        eq(task.id, taskId),
+        eq(task.workspace_id, workspaceId),
+        eq(task.version, baseVersion)
+      )
+    )
+    .returning();
+
+  if (updated.length === 0) {
+    throw new StaleVersionError();
+  }
+
+  if (activityRows.length > 0) {
+    await db.batch(
+      logRows(activityRows).map((row) =>
+        db.insert(activity_log).values(row)
+      ) as never
+    );
+  }
+
+  return (updated[0] ?? { ...current, ...updates }) as Task;
 }
 
 // ---------------------------------------------------------------------------
@@ -210,10 +443,9 @@ export async function createByTitle(
 ): Promise<Task> {
   const title = validateTitle(params.title);
   const now = new Date().toISOString();
-  const id = crypto.randomUUID();
 
   const newTask: NewTask = {
-    id,
+    id: crypto.randomUUID(),
     workspace_id: params.workspaceId,
     project_id: null,
     workstream_id: null,
@@ -224,6 +456,79 @@ export async function createByTitle(
     reviewer_id: null,
     start_date: null,
     due_date: null,
+    due_time: null,
+    sort_order: await nextSortOrder(db, params.workspaceId, null, null),
+    version: 1,
+    created_by: params.memberId,
+    created_at: now,
+    updated_at: now,
+    completed_at: null,
+    cancelled_at: null,
+  };
+
+  await db.insert(task).values(newTask);
+  return newTask as Task;
+}
+
+/**
+ * Create a top-level task directly inside a project. Title is the only required
+ * input — the task lands in ToDo at the end of the project's list.
+ */
+export async function createProjectTask(
+  db: Database,
+  params: CreateProjectTaskParams
+): Promise<Task> {
+  const title = validateTitle(params.title);
+
+  const [proj] = await db
+    .select()
+    .from(projectTable)
+    .where(
+      and(
+        eq(projectTable.id, params.projectId),
+        eq(projectTable.workspace_id, params.workspaceId)
+      )
+    );
+  if (!proj) throw new NotFoundError(`Project ${params.projectId} not found`);
+  if (proj.archived_at !== null) {
+    throw new ValidationError("보관된 프로젝트에는 업무를 추가할 수 없습니다.");
+  }
+
+  if (params.workstreamId) {
+    const [ws] = await db
+      .select()
+      .from(workstreamTable)
+      .where(
+        and(
+          eq(workstreamTable.id, params.workstreamId),
+          eq(workstreamTable.project_id, params.projectId)
+        )
+      );
+    if (!ws) {
+      throw new ValidationError("해당 프로젝트의 업무 영역이 아닙니다.");
+    }
+  }
+
+  const now = new Date().toISOString();
+  const newTask: NewTask = {
+    id: crypto.randomUUID(),
+    workspace_id: params.workspaceId,
+    project_id: params.projectId,
+    workstream_id: params.workstreamId ?? null,
+    title,
+    description: null,
+    status: "ToDo",
+    assignee_id: null,
+    reviewer_id: null,
+    start_date: null,
+    due_date: null,
+    due_time: null,
+    sort_order: await nextSortOrder(
+      db,
+      params.workspaceId,
+      params.projectId,
+      null
+    ),
     version: 1,
     created_by: params.memberId,
     created_at: now,
@@ -247,11 +552,7 @@ export async function createSubtask(
 ): Promise<Task> {
   const title = validateTitle(params.title);
 
-  const [parent] = await db
-    .select()
-    .from(task)
-    .where(eq(task.id, params.parentId));
-  if (!parent) throw new NotFoundError(`Task ${params.parentId} not found`);
+  const parent = await loadScoped(db, params.parentId, params.workspaceId);
   if (parent.cancelled_at)
     throw new ValidationError("취소된 업무에는 세부 업무를 추가할 수 없습니다.");
 
@@ -269,6 +570,13 @@ export async function createSubtask(
     reviewer_id: null,
     start_date: null,
     due_date: null,
+    due_time: null,
+    sort_order: await nextSortOrder(
+      db,
+      parent.workspace_id,
+      parent.project_id,
+      parent.id
+    ),
     version: 1,
     created_by: params.memberId,
     created_at: now,
@@ -284,41 +592,49 @@ export async function createSubtask(
 /**
  * Edit a task with optimistic concurrency control.
  *
- * baseVersion must equal the task's stored version exactly.
- * Status/assignee/dueDate changes are logged atomically in the same batch.
- * If workstream_id is set, validates that workstream.project_id === task.project_id.
+ * baseVersion must equal the task's stored version exactly, and the write is
+ * guarded on that version at the SQL level so a concurrent save cannot clobber
+ * a newer value. Field changes are recorded in activity_log.
  */
 export async function editTask(
   db: Database,
   taskId: string,
+  workspaceId: string,
   patch: TaskPatch,
   baseVersion: number
 ): Promise<Task> {
-  // 1. Fetch current task
-  const rows = await db
-    .select()
-    .from(task)
-    .where(eq(task.id, taskId));
-  const current = rows[0];
-  if (!current) throw new NotFoundError(`Task ${taskId} not found`);
+  const current = await loadScoped(db, taskId, workspaceId);
 
-  // 2. Validate workstream project alignment (DB-level check)
+  // Target project must live in the same workspace.
+  if (patch.project_id !== undefined && patch.project_id !== null) {
+    const [proj] = await db
+      .select()
+      .from(projectTable)
+      .where(
+        and(
+          eq(projectTable.id, patch.project_id),
+          eq(projectTable.workspace_id, workspaceId)
+        )
+      );
+    if (!proj) throw new NotFoundError(`Project ${patch.project_id} not found`);
+  }
+
+  // Workstream must belong to the task's (possibly new) project.
   if (patch.workstream_id !== undefined && patch.workstream_id !== null) {
-    const wsRows = await db
+    const [ws] = await db
       .select()
       .from(workstreamTable)
       .where(eq(workstreamTable.id, patch.workstream_id));
-    const ws = wsRows[0];
-    if (!ws) throw new NotFoundError(`Workstream ${patch.workstream_id} not found`);
+    if (!ws)
+      throw new NotFoundError(`Workstream ${patch.workstream_id} not found`);
     const effectiveProjectId = patch.project_id ?? current.project_id;
     if (ws.project_id !== effectiveProjectId) {
       throw new ValidationError(
-        "Workstream does not belong to the task's project"
+        "해당 프로젝트의 업무 영역이 아닙니다."
       );
     }
   }
 
-  // 3. Pure computation (throws StaleVersionError / ValidationError on conflict)
   const { actor_id: actorId, ...patchFields } = patch;
   const { updates, activityRows } = applyTaskEdit(
     current,
@@ -327,25 +643,81 @@ export async function editTask(
     actorId
   );
 
-  // 4. Atomic batch: update task + insert all activity log rows
-  const updateStmt = db
-    .update(task)
-    .set(updates)
-    .where(eq(task.id, taskId));
+  return commitVersionedUpdate(
+    db,
+    taskId,
+    workspaceId,
+    baseVersion,
+    current,
+    updates,
+    activityRows
+  );
+}
 
-  if (activityRows.length === 0) {
-    await updateStmt;
-  } else {
-    const logStmts = activityRows.map((row) =>
-      db.insert(activity_log).values({
-        id: crypto.randomUUID(),
-        ...row,
-      })
-    );
-    await db.batch([updateStmt, ...logStmts]);
+/** Mark a task Done, recording completed_at. */
+export async function completeTask(
+  db: Database,
+  taskId: string,
+  workspaceId: string,
+  actorId: string,
+  baseVersion: number
+): Promise<Task> {
+  return editTask(
+    db,
+    taskId,
+    workspaceId,
+    { status: "Done", actor_id: actorId },
+    baseVersion
+  );
+}
+
+/**
+ * Un-complete a task, returning it to the status it held before it was closed.
+ *
+ * The previous status is read back from the activity log — the most recent
+ * status change whose to_value was "Done". Falls back to ToDo when no such
+ * record exists (e.g. a task completed before logging, or one created as Done).
+ */
+export async function reopenTask(
+  db: Database,
+  taskId: string,
+  workspaceId: string,
+  actorId: string,
+  baseVersion: number
+): Promise<Task> {
+  const current = await loadScoped(db, taskId, workspaceId);
+  if (current.status !== "Done") {
+    throw new ValidationError("완료된 업무가 아닙니다.");
   }
 
-  return { ...current, ...updates } as Task;
+  const history = await db
+    .select()
+    .from(activity_log)
+    .where(
+      and(
+        eq(activity_log.task_id, taskId),
+        eq(activity_log.workspace_id, workspaceId),
+        eq(activity_log.change_type, "status"),
+        eq(activity_log.to_value, "Done")
+      )
+    )
+    .orderBy(desc(activity_log.created_at))
+    .limit(1);
+
+  const previous = history[0]?.from_value as TaskStatus | undefined;
+  const restored =
+    previous && NON_TERMINAL_STATUSES.includes(previous) ? previous : "ToDo";
+
+  // A task with no project cannot sit outside Inbox.
+  const target = !current.project_id ? "Inbox" : restored;
+
+  return editTask(
+    db,
+    taskId,
+    workspaceId,
+    { status: target, actor_id: actorId },
+    baseVersion
+  );
 }
 
 /**
@@ -355,11 +727,11 @@ export async function editTask(
 export async function cancelTask(
   db: Database,
   taskId: string,
-  actorId: string
+  workspaceId: string,
+  actorId: string,
+  baseVersion?: number
 ): Promise<Task> {
-  const rows = await db.select().from(task).where(eq(task.id, taskId));
-  const current = rows[0];
-  if (!current) throw new NotFoundError(`Task ${taskId} not found`);
+  const current = await loadScoped(db, taskId, workspaceId);
   if (current.cancelled_at !== null) {
     throw new ValidationError("이미 취소된 업무입니다.");
   }
@@ -367,28 +739,29 @@ export async function cancelTask(
     throw new ValidationError("완료된 업무는 취소할 수 없습니다.");
   }
 
+  const expected = baseVersion ?? current.version;
+  if (expected !== current.version) throw new StaleVersionError();
+
   const now = new Date().toISOString();
-  const updates = {
-    cancelled_at: now,
-    updated_at: now,
-    version: current.version + 1,
-  };
-
-  const updateStmt = db.update(task).set(updates).where(eq(task.id, taskId));
-  const logStmt = db.insert(activity_log).values({
-    id: crypto.randomUUID(),
-    workspace_id: current.workspace_id,
-    task_id: current.id,
-    actor_id: actorId,
-    change_type: "cancelled",
-    from_value: null,
-    to_value: now,
-    created_at: now,
-  });
-
-  await db.batch([updateStmt, logStmt]);
-
-  return { ...current, ...updates } as Task;
+  return commitVersionedUpdate(
+    db,
+    taskId,
+    workspaceId,
+    expected,
+    current,
+    { cancelled_at: now, updated_at: now, version: current.version + 1 },
+    [
+      {
+        workspace_id: current.workspace_id,
+        task_id: current.id,
+        actor_id: actorId,
+        change_type: "cancelled",
+        from_value: null,
+        to_value: now,
+        created_at: now,
+      },
+    ]
+  );
 }
 
 /**
@@ -397,35 +770,98 @@ export async function cancelTask(
 export async function restoreTask(
   db: Database,
   taskId: string,
-  actorId: string
+  workspaceId: string,
+  actorId: string,
+  baseVersion?: number
 ): Promise<Task> {
-  const rows = await db.select().from(task).where(eq(task.id, taskId));
-  const current = rows[0];
-  if (!current) throw new NotFoundError(`Task ${taskId} not found`);
+  const current = await loadScoped(db, taskId, workspaceId);
   if (current.cancelled_at === null) {
     throw new ValidationError("취소된 업무가 아닙니다.");
   }
 
+  const expected = baseVersion ?? current.version;
+  if (expected !== current.version) throw new StaleVersionError();
+
   const now = new Date().toISOString();
-  const updates = {
-    cancelled_at: null,
-    updated_at: now,
-    version: current.version + 1,
-  };
+  return commitVersionedUpdate(
+    db,
+    taskId,
+    workspaceId,
+    expected,
+    current,
+    { cancelled_at: null, updated_at: now, version: current.version + 1 },
+    [
+      {
+        workspace_id: current.workspace_id,
+        task_id: current.id,
+        actor_id: actorId,
+        change_type: "restored",
+        from_value: current.cancelled_at,
+        to_value: null,
+        created_at: now,
+      },
+    ]
+  );
+}
 
-  const updateStmt = db.update(task).set(updates).where(eq(task.id, taskId));
-  const logStmt = db.insert(activity_log).values({
-    id: crypto.randomUUID(),
-    workspace_id: current.workspace_id,
-    task_id: current.id,
-    actor_id: actorId,
-    change_type: "restored",
-    from_value: current.cancelled_at,
-    to_value: null,
-    created_at: now,
-  });
+/**
+ * Persist a manual ordering for a set of sibling tasks.
+ *
+ * orderedIds must name every task the caller intends to position; each is
+ * assigned its index. Ids outside the workspace are rejected so a reorder
+ * cannot be used to probe or touch another workspace's rows.
+ */
+export async function reorderTasks(
+  db: Database,
+  workspaceId: string,
+  orderedIds: string[],
+  actorId: string
+): Promise<void> {
+  if (orderedIds.length === 0) return;
 
-  await db.batch([updateStmt, logStmt]);
+  const unique = new Set(orderedIds);
+  if (unique.size !== orderedIds.length) {
+    throw new ValidationError("업무 순서 목록에 중복이 있습니다.");
+  }
 
-  return { ...current, ...updates } as Task;
+  const rows = await db
+    .select()
+    .from(task)
+    .where(
+      and(eq(task.workspace_id, workspaceId), inArray(task.id, orderedIds))
+    );
+  if (rows.length !== orderedIds.length) {
+    throw new NotFoundError("일부 업무를 찾을 수 없습니다.");
+  }
+
+  // All siblings must share the same parent scope, otherwise the indices are
+  // meaningless across groups.
+  const scope = (t: Task) => `${t.project_id ?? ""}|${t.parent_task_id ?? ""}`;
+  const scopes = new Set(rows.map(scope));
+  if (scopes.size > 1) {
+    throw new ValidationError("서로 다른 목록의 업무는 함께 정렬할 수 없습니다.");
+  }
+
+  const now = new Date().toISOString();
+  const statements = orderedIds.map((id, index) =>
+    db
+      .update(task)
+      .set({ sort_order: index, updated_at: now })
+      .where(and(eq(task.id, id), eq(task.workspace_id, workspaceId)))
+  );
+
+  statements.push(
+    db.insert(activity_log).values({
+      id: crypto.randomUUID(),
+      workspace_id: workspaceId,
+      task_id: orderedIds[0]!,
+      actor_id: actorId,
+      change_type: "reorder",
+      from_value: null,
+      to_value: String(orderedIds.length),
+      created_at: now,
+    }) as never
+  );
+
+  await db.batch(statements as never);
 }

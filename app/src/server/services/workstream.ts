@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import {
   workstream,
   type Workstream,
@@ -6,6 +6,7 @@ import {
 } from "@/server/db/schema";
 import { type Database } from "@/server/db/client";
 import { NotFoundError, ValidationError } from "./errors";
+import { loadScopedProject } from "./project";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -13,8 +14,9 @@ import { NotFoundError, ValidationError } from "./errors";
 
 export interface CreateWorkstreamParams {
   projectId: string;
+  workspaceId: string;
   name: string;
-  /** Non-negative integer display order. Defaults to 0. */
+  /** Non-negative integer display order. Defaults to the end of the list. */
   order?: number;
 }
 
@@ -42,6 +44,27 @@ function validateOrder(order: number): void {
   }
 }
 
+/**
+ * Loads a workstream and verifies its project belongs to the caller's
+ * workspace, so a workstream id from another workspace reads as missing.
+ */
+async function loadScopedWorkstream(
+  db: Database,
+  workstreamId: string,
+  workspaceId: string
+): Promise<Workstream> {
+  const rows = await db
+    .select()
+    .from(workstream)
+    .where(eq(workstream.id, workstreamId));
+  const current = rows[0];
+  if (!current) throw new NotFoundError(`Workstream ${workstreamId} not found`);
+
+  // Throws NotFoundError when the project is outside this workspace.
+  await loadScopedProject(db, current.project_id, workspaceId);
+  return current;
+}
+
 // ---------------------------------------------------------------------------
 // Service functions
 // ---------------------------------------------------------------------------
@@ -51,13 +74,20 @@ export async function createWorkstream(
   params: CreateWorkstreamParams
 ): Promise<Workstream> {
   const name = validateName(params.name);
-  const order = params.order ?? 0;
+  await loadScopedProject(db, params.projectId, params.workspaceId);
+
+  let order = params.order;
+  if (order === undefined) {
+    const [row] = await db
+      .select({ value: sql<number>`coalesce(max(${workstream.order}), -1)` })
+      .from(workstream)
+      .where(eq(workstream.project_id, params.projectId));
+    order = (row?.value ?? -1) + 1;
+  }
   validateOrder(order);
 
-  const id = crypto.randomUUID();
-
   const newWorkstream: NewWorkstream = {
-    id,
+    id: crypto.randomUUID(),
     project_id: params.projectId,
     name,
     order,
@@ -70,14 +100,10 @@ export async function createWorkstream(
 export async function editWorkstream(
   db: Database,
   workstreamId: string,
+  workspaceId: string,
   patch: WorkstreamPatch
 ): Promise<Workstream> {
-  const rows = await db
-    .select()
-    .from(workstream)
-    .where(eq(workstream.id, workstreamId));
-  const current = rows[0];
-  if (!current) throw new NotFoundError(`Workstream ${workstreamId} not found`);
+  const current = await loadScopedWorkstream(db, workstreamId, workspaceId);
 
   const updates: Partial<Workstream> = {};
 
@@ -89,6 +115,45 @@ export async function editWorkstream(
     updates.order = patch.order;
   }
 
-  await db.update(workstream).set(updates).where(eq(workstream.id, workstreamId));
+  await db
+    .update(workstream)
+    .set(updates)
+    .where(eq(workstream.id, workstreamId));
   return { ...current, ...updates } as Workstream;
+}
+
+/**
+ * Persist a manual ordering for a project's workstreams. Every id must belong
+ * to the project; each is assigned its index in the list.
+ */
+export async function reorderWorkstreams(
+  db: Database,
+  projectId: string,
+  workspaceId: string,
+  orderedIds: string[]
+): Promise<void> {
+  if (orderedIds.length === 0) return;
+  await loadScopedProject(db, projectId, workspaceId);
+
+  const rows = await db
+    .select()
+    .from(workstream)
+    .where(eq(workstream.project_id, projectId));
+  const belongs = new Set(rows.map((r) => r.id));
+  for (const id of orderedIds) {
+    if (!belongs.has(id)) {
+      throw new ValidationError("해당 프로젝트의 업무 영역이 아닙니다.");
+    }
+  }
+
+  await db.batch(
+    orderedIds.map((id, index) =>
+      db
+        .update(workstream)
+        .set({ order: index })
+        .where(
+          and(eq(workstream.id, id), eq(workstream.project_id, projectId))
+        )
+    ) as never
+  );
 }

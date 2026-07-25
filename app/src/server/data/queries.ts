@@ -3,7 +3,7 @@
  * These functions are used in server components and server actions only.
  */
 
-import { eq } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
@@ -83,7 +83,7 @@ async function getDefaultMember(db: Database): Promise<Member | null> {
 // Task queries
 // ---------------------------------------------------------------------------
 
-/** Fetch all non-cancelled tasks for a workspace. */
+/** Fetch every task for a workspace, ordered for stable list rendering. */
 export async function getWorkspaceTasks(
   db: Database,
   workspaceId: string
@@ -91,18 +91,44 @@ export async function getWorkspaceTasks(
   return db
     .select()
     .from(task)
-    .where(eq(task.workspace_id, workspaceId));
+    .where(eq(task.workspace_id, workspaceId))
+    .orderBy(asc(task.sort_order), asc(task.created_at));
 }
 
-/** Fetch all tasks for a single project. */
+/**
+ * Fetch all tasks for a single project.
+ * Scoped by workspace so a project id from another workspace returns nothing.
+ */
 export async function getProjectTasks(
   db: Database,
-  projectId: string
+  projectId: string,
+  workspaceId: string
 ): Promise<Task[]> {
   return db
     .select()
     .from(task)
-    .where(eq(task.project_id, projectId));
+    .where(
+      and(eq(task.project_id, projectId), eq(task.workspace_id, workspaceId))
+    )
+    .orderBy(asc(task.sort_order), asc(task.created_at));
+}
+
+/** Fetch the workspace's Inbox — tasks not yet filed under any project. */
+export async function getInboxTasks(
+  db: Database,
+  workspaceId: string
+): Promise<Task[]> {
+  return db
+    .select()
+    .from(task)
+    .where(
+      and(
+        eq(task.workspace_id, workspaceId),
+        isNull(task.project_id),
+        isNull(task.cancelled_at)
+      )
+    )
+    .orderBy(asc(task.sort_order), asc(task.created_at));
 }
 
 // ---------------------------------------------------------------------------
@@ -114,22 +140,41 @@ export async function getWorkspaceProjects(
   db: Database,
   workspaceId: string
 ): Promise<Project[]> {
+  return db
+    .select()
+    .from(project)
+    .where(
+      and(eq(project.workspace_id, workspaceId), isNull(project.archived_at))
+    )
+    .orderBy(asc(project.created_at));
+}
+
+/** Fetch the workspace's archived projects, newest first. */
+export async function getArchivedProjects(
+  db: Database,
+  workspaceId: string
+): Promise<Project[]> {
   const rows = await db
     .select()
     .from(project)
     .where(eq(project.workspace_id, workspaceId));
-  return rows.filter((p) => p.archived_at === null || p.archived_at === undefined);
+  return rows
+    .filter((p) => p.archived_at !== null && p.archived_at !== undefined)
+    .sort((a, b) => (a.archived_at! < b.archived_at! ? 1 : -1));
 }
 
-/** Fetch a single project by ID. */
+/** Fetch a single project by ID, scoped to the caller's workspace. */
 export async function getProjectById(
   db: Database,
-  projectId: string
+  projectId: string,
+  workspaceId: string
 ): Promise<Project | null> {
   const rows = await db
     .select()
     .from(project)
-    .where(eq(project.id, projectId))
+    .where(
+      and(eq(project.id, projectId), eq(project.workspace_id, workspaceId))
+    )
     .limit(1);
   return rows[0] ?? null;
 }
@@ -138,16 +183,27 @@ export async function getProjectById(
 // Workstream queries
 // ---------------------------------------------------------------------------
 
-/** Fetch all workstreams for a project, sorted by order. */
+/**
+ * Fetch all workstreams for a project, sorted by order.
+ * Joined through project so another workspace's project id yields nothing.
+ */
 export async function getProjectWorkstreams(
   db: Database,
-  projectId: string
+  projectId: string,
+  workspaceId: string
 ): Promise<Workstream[]> {
   const rows = await db
-    .select()
+    .select({ ws: workstream })
     .from(workstream)
-    .where(eq(workstream.project_id, projectId));
-  return rows.sort((a, b) => a.order - b.order);
+    .innerJoin(project, eq(workstream.project_id, project.id))
+    .where(
+      and(
+        eq(workstream.project_id, projectId),
+        eq(project.workspace_id, workspaceId)
+      )
+    )
+    .orderBy(asc(workstream.order));
+  return rows.map((r) => r.ws);
 }
 
 // ---------------------------------------------------------------------------
@@ -174,15 +230,40 @@ export function memberMap(members: Member[]): Map<string, Member> {
 // Milestone queries
 // ---------------------------------------------------------------------------
 
-/** Fetch all milestones for a project. */
+/** Fetch all milestones for a project, scoped by workspace, earliest due first. */
 export async function getProjectMilestones(
   db: Database,
-  projectId: string
+  projectId: string,
+  workspaceId: string
 ): Promise<Milestone[]> {
-  return db
-    .select()
+  const rows = await db
+    .select({ ms: milestone })
     .from(milestone)
-    .where(eq(milestone.project_id, projectId));
+    .innerJoin(project, eq(milestone.project_id, project.id))
+    .where(
+      and(
+        eq(milestone.project_id, projectId),
+        eq(project.workspace_id, workspaceId)
+      )
+    )
+    .orderBy(asc(milestone.due_date));
+  return rows.map((r) => r.ms);
+}
+
+/** Fetch every milestone in the workspace, earliest due first. */
+export async function getWorkspaceMilestones(
+  db: Database,
+  workspaceId: string
+): Promise<Milestone[]> {
+  const rows = await db
+    .select({ ms: milestone })
+    .from(milestone)
+    .innerJoin(project, eq(milestone.project_id, project.id))
+    .where(
+      and(eq(project.workspace_id, workspaceId), isNull(project.archived_at))
+    )
+    .orderBy(asc(milestone.due_date));
+  return rows.map((r) => r.ms);
 }
 
 // ---------------------------------------------------------------------------

@@ -2,33 +2,19 @@ import { describe, it, expect } from "vitest";
 import { applyTaskEdit } from "../task";
 import { StaleVersionError, ValidationError } from "../errors";
 import type { Task } from "@/server/db/schema";
+import { makeTaskFixture } from "@/server/db/fixtures";
 
 // ---------------------------------------------------------------------------
 // Fixture helpers
 // ---------------------------------------------------------------------------
 
 function makeTask(overrides: Partial<Task> = {}): Task {
-  return {
-    id: "task-1",
-    workspace_id: "ws-1",
+  return makeTaskFixture({
     project_id: "proj-1",
-    workstream_id: null,
-    parent_task_id: null,
-    title: "Test task",
-    description: null,
     status: "Inbox",
-    assignee_id: null,
-    reviewer_id: null,
-    start_date: null,
-    due_date: null,
-    version: 1,
     created_by: "member-1",
-    created_at: "2024-01-01T00:00:00.000Z",
-    updated_at: "2024-01-01T00:00:00.000Z",
-    completed_at: null,
-    cancelled_at: null,
     ...overrides,
-  };
+  });
 }
 
 const ACTOR = "member-1";
@@ -213,7 +199,7 @@ describe("applyTaskEdit — activity log rows", () => {
     expect(dateRow?.to_value).toBe("2024-12-31");
   });
 
-  it("emits no activity rows when only title changes", () => {
+  it("emits a title activity row on title change", () => {
     const current = makeTask();
     const { activityRows } = applyTaskEdit(
       current,
@@ -222,7 +208,37 @@ describe("applyTaskEdit — activity log rows", () => {
       ACTOR,
       NOW
     );
+    expect(activityRows).toHaveLength(1);
+    expect(activityRows[0]!.change_type).toBe("title");
+    expect(activityRows[0]!.to_value).toBe("New title");
+  });
+
+  it("emits no activity rows when a field is re-set to its current value", () => {
+    const current = makeTask({ title: "Same" });
+    const { activityRows } = applyTaskEdit(
+      current,
+      { title: "Same" },
+      1,
+      ACTOR,
+      NOW
+    );
     expect(activityRows).toHaveLength(0);
+  });
+
+  // The description body is deliberately never copied into the log (plan §4.4).
+  it("logs that the description changed without recording its contents", () => {
+    const current = makeTask({ description: "old secret" });
+    const { activityRows } = applyTaskEdit(
+      current,
+      { description: "new secret" },
+      1,
+      ACTOR,
+      NOW
+    );
+    const row = activityRows.find((r) => r.change_type === "description");
+    expect(row).toBeDefined();
+    expect(row!.from_value).toBeNull();
+    expect(row!.to_value).toBeNull();
   });
 });
 

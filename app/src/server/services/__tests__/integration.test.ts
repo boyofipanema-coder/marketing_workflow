@@ -1,185 +1,104 @@
 /**
  * Integration tests for the core task lifecycle.
  *
- * Uses better-sqlite3 + drizzle's SQLite adapter so tests run in-process
- * without needing a real D1 or wrangler connection.
+ * The database is built by applying the real Drizzle migrations to an in-memory
+ * SQLite file (see server/db/testing.ts), so the schema under test is always the
+ * schema that ships.
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
+import { eq } from "drizzle-orm";
 import * as schema from "@/server/db/schema";
+import { makeTestDb, type TestDb } from "@/server/db/testing";
+import { makeTaskFixture } from "@/server/db/fixtures";
 import {
   createByTitle,
+  createProjectTask,
+  createSubtask,
   editTask,
+  completeTask,
+  reopenTask,
   cancelTask,
   restoreTask,
+  reorderTasks,
 } from "@/server/services/task";
+import {
+  createProject,
+  editProject,
+  archiveProject,
+  restoreProject,
+} from "@/server/services/project";
+import { createWorkstream } from "@/server/services/workstream";
+import { createMilestone, editMilestone } from "@/server/services/milestone";
 import {
   StaleVersionError,
   ValidationError,
   NotFoundError,
 } from "@/server/services/errors";
 import { searchTasks } from "@/lib/search";
-import { myFocus, needsAttention, inProgress, waiting } from "@/lib/derive";
+import { myFocus, needsAttention } from "@/lib/derive";
 
 // ---------------------------------------------------------------------------
-// Test helpers
+// Fixtures
 // ---------------------------------------------------------------------------
-
-/** Create a fresh in-memory SQLite DB with the full schema. */
-function makeDb() {
-  const sqlite = new Database(":memory:");
-
-  // Run schema DDL directly (same tables as D1 migration)
-  sqlite.exec(`
-    PRAGMA foreign_keys = OFF;
-  `);
-
-  sqlite.exec(`
-    CREATE TABLE IF NOT EXISTS workspace (
-      id TEXT PRIMARY KEY NOT NULL,
-      name TEXT NOT NULL,
-      timezone TEXT NOT NULL DEFAULT 'Asia/Seoul',
-      created_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS member (
-      id TEXT PRIMARY KEY NOT NULL,
-      workspace_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      email TEXT NOT NULL,
-      role TEXT NOT NULL DEFAULT 'member',
-      FOREIGN KEY (workspace_id) REFERENCES workspace(id)
-    );
-    CREATE TABLE IF NOT EXISTS project (
-      id TEXT PRIMARY KEY NOT NULL,
-      workspace_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      one_line_objective TEXT,
-      project_lead_id TEXT NOT NULL,
-      target_start_date TEXT,
-      target_end_date TEXT,
-      archived_at TEXT,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      FOREIGN KEY (workspace_id) REFERENCES workspace(id),
-      FOREIGN KEY (project_lead_id) REFERENCES member(id)
-    );
-    CREATE TABLE IF NOT EXISTS workstream (
-      id TEXT PRIMARY KEY NOT NULL,
-      project_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      "order" INTEGER NOT NULL DEFAULT 0,
-      FOREIGN KEY (project_id) REFERENCES project(id)
-    );
-    CREATE TABLE IF NOT EXISTS task (
-      id TEXT PRIMARY KEY NOT NULL,
-      workspace_id TEXT NOT NULL,
-      project_id TEXT,
-      workstream_id TEXT,
-      parent_task_id TEXT REFERENCES task(id),
-      title TEXT NOT NULL,
-      description TEXT,
-      status TEXT NOT NULL DEFAULT 'Inbox',
-      assignee_id TEXT,
-      reviewer_id TEXT,
-      start_date TEXT,
-      due_date TEXT,
-      version INTEGER NOT NULL DEFAULT 1,
-      created_by TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      completed_at TEXT,
-      cancelled_at TEXT,
-      FOREIGN KEY (workspace_id) REFERENCES workspace(id)
-    );
-    CREATE TABLE IF NOT EXISTS session (
-      id TEXT PRIMARY KEY NOT NULL,
-      member_id TEXT NOT NULL,
-      expires_at TEXT NOT NULL,
-      FOREIGN KEY (member_id) REFERENCES member(id)
-    );
-    CREATE TABLE IF NOT EXISTS auth_account (
-      id TEXT PRIMARY KEY NOT NULL,
-      member_id TEXT NOT NULL,
-      email TEXT NOT NULL,
-      credential_hash TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (member_id) REFERENCES member(id)
-    );
-    CREATE TABLE IF NOT EXISTS milestone (
-      id TEXT PRIMARY KEY NOT NULL,
-      project_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      due_date TEXT NOT NULL,
-      FOREIGN KEY (project_id) REFERENCES project(id)
-    );
-    CREATE TABLE IF NOT EXISTS activity_log (
-      id TEXT PRIMARY KEY NOT NULL,
-      workspace_id TEXT NOT NULL,
-      task_id TEXT NOT NULL,
-      actor_id TEXT NOT NULL,
-      change_type TEXT NOT NULL,
-      from_value TEXT,
-      to_value TEXT,
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (workspace_id) REFERENCES workspace(id),
-      FOREIGN KEY (task_id) REFERENCES task(id),
-      FOREIGN KEY (actor_id) REFERENCES member(id)
-    );
-  `);
-
-  const db = drizzle(sqlite, { schema });
-
-  // Polyfill db.batch for better-sqlite3 (D1-only API).
-  // Runs each drizzle statement sequentially (not atomic, but sufficient for tests).
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (db as any).batch = async (stmts: any[]) => {
-    const results = [];
-    for (const stmt of stmts) {
-      results.push(await stmt);
-    }
-    return results;
-  };
-
-  return db;
-}
-
-type TestDb = ReturnType<typeof makeDb>;
 
 const WS_ID = "ws_test";
+const OTHER_WS_ID = "ws_other";
 const MEMBER_ID = "m_test";
+const OTHER_MEMBER_ID = "m_other";
 const PROJECT_ID = "proj_test";
+const OTHER_PROJECT_ID = "proj_other";
 const NOW = new Date().toISOString();
 
+/**
+ * Seeds two independent workspaces so every boundary test has a real
+ * "someone else's row" to aim at rather than just a missing id.
+ */
 function seedFixtures(db: TestDb) {
-  db.insert(schema.workspace).values({
-    id: WS_ID,
-    name: "Test Workspace",
-    timezone: "Asia/Seoul",
-    created_at: NOW,
-  }).run();
+  for (const [wsId, memberId, projectId] of [
+    [WS_ID, MEMBER_ID, PROJECT_ID],
+    [OTHER_WS_ID, OTHER_MEMBER_ID, OTHER_PROJECT_ID],
+  ] as const) {
+    db.insert(schema.workspace)
+      .values({
+        id: wsId,
+        name: `Workspace ${wsId}`,
+        timezone: "Asia/Seoul",
+        created_at: NOW,
+      })
+      .run();
 
-  db.insert(schema.member).values({
-    id: MEMBER_ID,
-    workspace_id: WS_ID,
-    name: "Test User",
-    email: "test@example.com",
-    role: "admin",
-  }).run();
+    db.insert(schema.member)
+      .values({
+        id: memberId,
+        workspace_id: wsId,
+        name: `User ${memberId}`,
+        email: `${memberId}@example.com`,
+        role: "admin",
+      })
+      .run();
 
-  db.insert(schema.project).values({
-    id: PROJECT_ID,
-    workspace_id: WS_ID,
-    name: "Test Project",
-    one_line_objective: null,
-    project_lead_id: MEMBER_ID,
-    target_start_date: null,
-    target_end_date: null,
-    archived_at: null,
-    created_at: NOW,
-    updated_at: NOW,
-  }).run();
+    db.insert(schema.project)
+      .values({
+        id: projectId,
+        workspace_id: wsId,
+        name: `Project ${projectId}`,
+        one_line_objective: null,
+        project_lead_id: memberId,
+        target_start_date: null,
+        target_end_date: null,
+        archived_at: null,
+        created_at: NOW,
+        updated_at: NOW,
+      })
+      .run();
+  }
+}
+
+function freshDb(): TestDb {
+  const db = makeTestDb();
+  seedFixtures(db);
+  return db;
 }
 
 // ---------------------------------------------------------------------------
@@ -190,8 +109,7 @@ describe("Task lifecycle — create → edit → Done → cancel → restore", (
   let db: TestDb;
 
   beforeEach(() => {
-    db = makeDb();
-    seedFixtures(db);
+    db = freshDb();
   });
 
   it("creates an Inbox task and returns it", async () => {
@@ -218,6 +136,7 @@ describe("Task lifecycle — create → edit → Done → cancel → restore", (
     const updated = await editTask(
       db as never,
       task.id,
+      WS_ID,
       { title: "Updated", actor_id: MEMBER_ID },
       1
     );
@@ -233,20 +152,20 @@ describe("Task lifecycle — create → edit → Done → cancel → restore", (
       workspaceId: WS_ID,
     });
 
-    // Move to InProgress first (needs project)
     const inProg = await editTask(
       db as never,
       task.id,
+      WS_ID,
       { status: "InProgress", project_id: PROJECT_ID, actor_id: MEMBER_ID },
       1
     );
     expect(inProg.status).toBe("InProgress");
 
-    // Mark Done
-    const done = await editTask(
+    const done = await completeTask(
       db as never,
       inProg.id,
-      { status: "Done", actor_id: MEMBER_ID },
+      WS_ID,
+      MEMBER_ID,
       2
     );
     expect(done.status).toBe("Done");
@@ -260,12 +179,31 @@ describe("Task lifecycle — create → edit → Done → cancel → restore", (
       workspaceId: WS_ID,
     });
 
-    const cancelled = await cancelTask(db as never, task.id, MEMBER_ID);
+    const cancelled = await cancelTask(db as never, task.id, WS_ID, MEMBER_ID);
     expect(cancelled.cancelled_at).toBeTruthy();
 
-    // Editing should throw
     await expect(
-      editTask(db as never, task.id, { title: "New title", actor_id: MEMBER_ID }, cancelled.version)
+      editTask(
+        db as never,
+        task.id,
+        WS_ID,
+        { title: "New title", actor_id: MEMBER_ID },
+        cancelled.version
+      )
+    ).rejects.toThrow(ValidationError);
+  });
+
+  it("refuses to complete a cancelled task", async () => {
+    const task = await createProjectTask(db as never, {
+      workspaceId: WS_ID,
+      projectId: PROJECT_ID,
+      title: "Cancelled then completed",
+      memberId: MEMBER_ID,
+    });
+    const cancelled = await cancelTask(db as never, task.id, WS_ID, MEMBER_ID);
+
+    await expect(
+      completeTask(db as never, task.id, WS_ID, MEMBER_ID, cancelled.version)
     ).rejects.toThrow(ValidationError);
   });
 
@@ -276,19 +214,108 @@ describe("Task lifecycle — create → edit → Done → cancel → restore", (
       workspaceId: WS_ID,
     });
 
-    const cancelled = await cancelTask(db as never, task.id, MEMBER_ID);
-    const restored = await restoreTask(db as never, task.id, MEMBER_ID);
+    await cancelTask(db as never, task.id, WS_ID, MEMBER_ID);
+    const restored = await restoreTask(db as never, task.id, WS_ID, MEMBER_ID);
 
     expect(restored.cancelled_at).toBeNull();
 
-    // Should be editable again
     const edited = await editTask(
       db as never,
       restored.id,
+      WS_ID,
       { title: "Restored and edited", actor_id: MEMBER_ID },
       restored.version
     );
     expect(edited.title).toBe("Restored and edited");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Complete / reopen
+// ---------------------------------------------------------------------------
+
+describe("Complete and reopen", () => {
+  let db: TestDb;
+
+  beforeEach(() => {
+    db = freshDb();
+  });
+
+  it("reopen restores the status held before completion", async () => {
+    const task = await createProjectTask(db as never, {
+      workspaceId: WS_ID,
+      projectId: PROJECT_ID,
+      title: "Reopen me",
+      memberId: MEMBER_ID,
+    });
+
+    const inProg = await editTask(
+      db as never,
+      task.id,
+      WS_ID,
+      { status: "InProgress", actor_id: MEMBER_ID },
+      task.version
+    );
+    const done = await completeTask(
+      db as never,
+      task.id,
+      WS_ID,
+      MEMBER_ID,
+      inProg.version
+    );
+
+    const reopened = await reopenTask(
+      db as never,
+      task.id,
+      WS_ID,
+      MEMBER_ID,
+      done.version
+    );
+
+    expect(reopened.status).toBe("InProgress");
+    expect(reopened.completed_at).toBeNull();
+  });
+
+  it("reopen falls back to ToDo when no prior status was logged", async () => {
+    const task = await createProjectTask(db as never, {
+      workspaceId: WS_ID,
+      projectId: PROJECT_ID,
+      title: "No history",
+      memberId: MEMBER_ID,
+    });
+
+    // Complete straight from ToDo, then wipe the status history so the lookup
+    // finds nothing — mirrors a task completed before logging existed.
+    const done = await completeTask(
+      db as never,
+      task.id,
+      WS_ID,
+      MEMBER_ID,
+      task.version
+    );
+    db.delete(schema.activity_log).run();
+
+    const reopened = await reopenTask(
+      db as never,
+      task.id,
+      WS_ID,
+      MEMBER_ID,
+      done.version
+    );
+    expect(reopened.status).toBe("ToDo");
+  });
+
+  it("reopen rejects a task that is not Done", async () => {
+    const task = await createProjectTask(db as never, {
+      workspaceId: WS_ID,
+      projectId: PROJECT_ID,
+      title: "Still open",
+      memberId: MEMBER_ID,
+    });
+
+    await expect(
+      reopenTask(db as never, task.id, WS_ID, MEMBER_ID, task.version)
+    ).rejects.toThrow(ValidationError);
   });
 });
 
@@ -300,8 +327,7 @@ describe("Optimistic concurrency — stale version", () => {
   let db: TestDb;
 
   beforeEach(() => {
-    db = makeDb();
-    seedFixtures(db);
+    db = freshDb();
   });
 
   it("throws StaleVersionError when baseVersion is stale", async () => {
@@ -311,13 +337,92 @@ describe("Optimistic concurrency — stale version", () => {
       workspaceId: WS_ID,
     });
 
-    // First edit succeeds → version is now 2
-    await editTask(db as never, task.id, { title: "First edit", actor_id: MEMBER_ID }, 1);
+    await editTask(
+      db as never,
+      task.id,
+      WS_ID,
+      { title: "First edit", actor_id: MEMBER_ID },
+      1
+    );
 
-    // Second edit with old baseVersion should fail
     await expect(
-      editTask(db as never, task.id, { title: "Stale edit", actor_id: MEMBER_ID }, 1)
+      editTask(
+        db as never,
+        task.id,
+        WS_ID,
+        { title: "Stale edit", actor_id: MEMBER_ID },
+        1
+      )
     ).rejects.toThrow(StaleVersionError);
+  });
+
+  it("a rejected stale write leaves the winner's value intact", async () => {
+    const task = await createByTitle(db as never, {
+      title: "Original",
+      memberId: MEMBER_ID,
+      workspaceId: WS_ID,
+    });
+
+    await editTask(
+      db as never,
+      task.id,
+      WS_ID,
+      { title: "Winner", actor_id: MEMBER_ID },
+      1
+    );
+    await expect(
+      editTask(
+        db as never,
+        task.id,
+        WS_ID,
+        { title: "Loser", actor_id: MEMBER_ID },
+        1
+      )
+    ).rejects.toThrow(StaleVersionError);
+
+    const [stored] = db
+      .select()
+      .from(schema.task)
+      .where(eqId(task.id))
+      .all() as schema.Task[];
+    expect(stored!.title).toBe("Winner");
+    expect(stored!.version).toBe(2);
+  });
+
+  /**
+   * The version guard must live in the UPDATE's WHERE clause, not only in the
+   * read-then-compare step — otherwise two writers that both read version N
+   * would both pass the check and the second would clobber the first.
+   */
+  it("the SQL guard itself rejects a write whose version moved underneath it", async () => {
+    const task = await createByTitle(db as never, {
+      title: "Guarded",
+      memberId: MEMBER_ID,
+      workspaceId: WS_ID,
+    });
+
+    // Simulate a concurrent writer landing between our read and our write.
+    db.update(schema.task)
+      .set({ version: 2, title: "Snuck in" })
+      .where(eqId(task.id))
+      .run();
+
+    await expect(
+      editTask(
+        db as never,
+        task.id,
+        WS_ID,
+        { title: "Should not land", actor_id: MEMBER_ID },
+        1
+      )
+    ).rejects.toThrow(StaleVersionError);
+
+    const [stored] = db
+      .select()
+      .from(schema.task)
+      .where(eqId(task.id))
+      .all() as schema.Task[];
+    expect(stored!.title).toBe("Snuck in");
   });
 
   it("edit succeeds with correct version after a prior edit", async () => {
@@ -327,11 +432,355 @@ describe("Optimistic concurrency — stale version", () => {
       workspaceId: WS_ID,
     });
 
-    const v2 = await editTask(db as never, task.id, { title: "Edit 1", actor_id: MEMBER_ID }, 1);
+    const v2 = await editTask(
+      db as never,
+      task.id,
+      WS_ID,
+      { title: "Edit 1", actor_id: MEMBER_ID },
+      1
+    );
     expect(v2.version).toBe(2);
 
-    const v3 = await editTask(db as never, v2.id, { title: "Edit 2", actor_id: MEMBER_ID }, 2);
+    const v3 = await editTask(
+      db as never,
+      v2.id,
+      WS_ID,
+      { title: "Edit 2", actor_id: MEMBER_ID },
+      2
+    );
     expect(v3.version).toBe(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Workspace boundary
+// ---------------------------------------------------------------------------
+
+describe("Workspace boundary", () => {
+  let db: TestDb;
+
+  beforeEach(() => {
+    db = freshDb();
+  });
+
+  it("cannot edit a task belonging to another workspace", async () => {
+    const task = await createByTitle(db as never, {
+      title: "Private",
+      memberId: MEMBER_ID,
+      workspaceId: WS_ID,
+    });
+
+    await expect(
+      editTask(
+        db as never,
+        task.id,
+        OTHER_WS_ID,
+        { title: "Stolen", actor_id: OTHER_MEMBER_ID },
+        1
+      )
+    ).rejects.toThrow(NotFoundError);
+  });
+
+  it("cannot cancel or restore a task in another workspace", async () => {
+    const task = await createByTitle(db as never, {
+      title: "Private",
+      memberId: MEMBER_ID,
+      workspaceId: WS_ID,
+    });
+
+    await expect(
+      cancelTask(db as never, task.id, OTHER_WS_ID, OTHER_MEMBER_ID)
+    ).rejects.toThrow(NotFoundError);
+  });
+
+  it("cannot move a task into another workspace's project", async () => {
+    const task = await createByTitle(db as never, {
+      title: "Cross-workspace move",
+      memberId: MEMBER_ID,
+      workspaceId: WS_ID,
+    });
+
+    await expect(
+      editTask(
+        db as never,
+        task.id,
+        WS_ID,
+        { project_id: OTHER_PROJECT_ID, actor_id: MEMBER_ID },
+        1
+      )
+    ).rejects.toThrow(NotFoundError);
+  });
+
+  it("cannot create a task inside another workspace's project", async () => {
+    await expect(
+      createProjectTask(db as never, {
+        workspaceId: WS_ID,
+        projectId: OTHER_PROJECT_ID,
+        title: "Trespassing",
+        memberId: MEMBER_ID,
+      })
+    ).rejects.toThrow(NotFoundError);
+  });
+
+  it("cannot edit or archive another workspace's project", async () => {
+    await expect(
+      editProject(db as never, OTHER_PROJECT_ID, WS_ID, { name: "Renamed" })
+    ).rejects.toThrow(NotFoundError);
+
+    await expect(
+      archiveProject(db as never, OTHER_PROJECT_ID, WS_ID)
+    ).rejects.toThrow(NotFoundError);
+  });
+
+  it("cannot attach a workstream from another project", async () => {
+    const foreignWs = await createWorkstream(db as never, {
+      projectId: OTHER_PROJECT_ID,
+      workspaceId: OTHER_WS_ID,
+      name: "Foreign stream",
+    });
+    const task = await createProjectTask(db as never, {
+      workspaceId: WS_ID,
+      projectId: PROJECT_ID,
+      title: "Mine",
+      memberId: MEMBER_ID,
+    });
+
+    await expect(
+      editTask(
+        db as never,
+        task.id,
+        WS_ID,
+        { workstream_id: foreignWs.id, actor_id: MEMBER_ID },
+        task.version
+      )
+    ).rejects.toThrow(ValidationError);
+  });
+
+  it("cannot reorder tasks from another workspace", async () => {
+    const mine = await createProjectTask(db as never, {
+      workspaceId: WS_ID,
+      projectId: PROJECT_ID,
+      title: "Mine",
+      memberId: MEMBER_ID,
+    });
+    const theirs = await createProjectTask(db as never, {
+      workspaceId: OTHER_WS_ID,
+      projectId: OTHER_PROJECT_ID,
+      title: "Theirs",
+      memberId: OTHER_MEMBER_ID,
+    });
+
+    await expect(
+      reorderTasks(db as never, WS_ID, [mine.id, theirs.id], MEMBER_ID)
+    ).rejects.toThrow(NotFoundError);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Project / workstream / milestone
+// ---------------------------------------------------------------------------
+
+describe("Project, workstream, milestone", () => {
+  let db: TestDb;
+
+  beforeEach(() => {
+    db = freshDb();
+  });
+
+  it("creates and edits a project", async () => {
+    const created = await createProject(db as never, {
+      workspaceId: WS_ID,
+      name: "New campaign",
+      projectLeadId: MEMBER_ID,
+      oneLineObjective: "Ship it",
+    });
+    expect(created.name).toBe("New campaign");
+
+    const edited = await editProject(db as never, created.id, WS_ID, {
+      name: "Renamed campaign",
+    });
+    expect(edited.name).toBe("Renamed campaign");
+  });
+
+  it("rejects a project lead from another workspace", async () => {
+    await expect(
+      createProject(db as never, {
+        workspaceId: WS_ID,
+        name: "Bad lead",
+        projectLeadId: OTHER_MEMBER_ID,
+      })
+    ).rejects.toThrow(ValidationError);
+  });
+
+  it("rejects a start date after the end date", async () => {
+    await expect(
+      createProject(db as never, {
+        workspaceId: WS_ID,
+        name: "Backwards",
+        projectLeadId: MEMBER_ID,
+        targetStartDate: "2026-09-01",
+        targetEndDate: "2026-08-01",
+      })
+    ).rejects.toThrow(ValidationError);
+  });
+
+  it("archives and restores a project instead of deleting it", async () => {
+    const created = await createProject(db as never, {
+      workspaceId: WS_ID,
+      name: "Archivable",
+      projectLeadId: MEMBER_ID,
+    });
+
+    const archived = await archiveProject(db as never, created.id, WS_ID);
+    expect(archived.archived_at).toBeTruthy();
+
+    // An archived project rejects further edits and new tasks.
+    await expect(
+      editProject(db as never, created.id, WS_ID, { name: "Nope" })
+    ).rejects.toThrow(ValidationError);
+    await expect(
+      createProjectTask(db as never, {
+        workspaceId: WS_ID,
+        projectId: created.id,
+        title: "Nope",
+        memberId: MEMBER_ID,
+      })
+    ).rejects.toThrow(ValidationError);
+
+    const restored = await restoreProject(db as never, created.id, WS_ID);
+    expect(restored.archived_at).toBeNull();
+  });
+
+  it("appends new workstreams to the end of the project's order", async () => {
+    const first = await createWorkstream(db as never, {
+      projectId: PROJECT_ID,
+      workspaceId: WS_ID,
+      name: "First",
+    });
+    const second = await createWorkstream(db as never, {
+      projectId: PROJECT_ID,
+      workspaceId: WS_ID,
+      name: "Second",
+    });
+
+    expect(first.order).toBe(0);
+    expect(second.order).toBe(1);
+  });
+
+  it("creates and edits a milestone", async () => {
+    const created = await createMilestone(db as never, {
+      projectId: PROJECT_ID,
+      workspaceId: WS_ID,
+      name: "Launch",
+      dueDate: "2026-09-01",
+    });
+    const edited = await editMilestone(db as never, created.id, WS_ID, {
+      dueDate: "2026-09-15",
+    });
+    expect(edited.due_date).toBe("2026-09-15");
+  });
+
+  it("rejects a malformed milestone due date", async () => {
+    await expect(
+      createMilestone(db as never, {
+        projectId: PROJECT_ID,
+        workspaceId: WS_ID,
+        name: "Bad date",
+        dueDate: "2026/09/01",
+      })
+    ).rejects.toThrow(ValidationError);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Ordering
+// ---------------------------------------------------------------------------
+
+describe("Task ordering", () => {
+  let db: TestDb;
+
+  beforeEach(() => {
+    db = freshDb();
+  });
+
+  it("assigns increasing sort_order to new project tasks", async () => {
+    const a = await createProjectTask(db as never, {
+      workspaceId: WS_ID,
+      projectId: PROJECT_ID,
+      title: "A",
+      memberId: MEMBER_ID,
+    });
+    const b = await createProjectTask(db as never, {
+      workspaceId: WS_ID,
+      projectId: PROJECT_ID,
+      title: "B",
+      memberId: MEMBER_ID,
+    });
+    expect(b.sort_order).toBe(a.sort_order + 1);
+  });
+
+  it("persists a manual reorder", async () => {
+    const a = await createProjectTask(db as never, {
+      workspaceId: WS_ID,
+      projectId: PROJECT_ID,
+      title: "A",
+      memberId: MEMBER_ID,
+    });
+    const b = await createProjectTask(db as never, {
+      workspaceId: WS_ID,
+      projectId: PROJECT_ID,
+      title: "B",
+      memberId: MEMBER_ID,
+    });
+
+    await reorderTasks(db as never, WS_ID, [b.id, a.id], MEMBER_ID);
+
+    const rows = db.select().from(schema.task).all() as schema.Task[];
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    expect(byId.get(b.id)!.sort_order).toBe(0);
+    expect(byId.get(a.id)!.sort_order).toBe(1);
+  });
+
+  it("refuses to reorder tasks that live in different lists", async () => {
+    const inProject = await createProjectTask(db as never, {
+      workspaceId: WS_ID,
+      projectId: PROJECT_ID,
+      title: "In project",
+      memberId: MEMBER_ID,
+    });
+    const inInbox = await createByTitle(db as never, {
+      title: "In inbox",
+      memberId: MEMBER_ID,
+      workspaceId: WS_ID,
+    });
+
+    await expect(
+      reorderTasks(db as never, WS_ID, [inProject.id, inInbox.id], MEMBER_ID)
+    ).rejects.toThrow(ValidationError);
+  });
+
+  it("subtasks are ordered within their parent", async () => {
+    const parent = await createProjectTask(db as never, {
+      workspaceId: WS_ID,
+      projectId: PROJECT_ID,
+      title: "Parent",
+      memberId: MEMBER_ID,
+    });
+    const first = await createSubtask(db as never, {
+      parentId: parent.id,
+      workspaceId: WS_ID,
+      title: "Child 1",
+      memberId: MEMBER_ID,
+    });
+    const second = await createSubtask(db as never, {
+      parentId: parent.id,
+      workspaceId: WS_ID,
+      title: "Child 2",
+      memberId: MEMBER_ID,
+    });
+
+    expect(first.sort_order).toBe(0);
+    expect(second.sort_order).toBe(1);
   });
 });
 
@@ -343,8 +792,7 @@ describe("Validation errors", () => {
   let db: TestDb;
 
   beforeEach(() => {
-    db = makeDb();
-    seedFixtures(db);
+    db = freshDb();
   });
 
   it("throws ValidationError for empty title", async () => {
@@ -357,9 +805,25 @@ describe("Validation errors", () => {
     ).rejects.toThrow(ValidationError);
   });
 
+  it("throws ValidationError for a title over 200 characters", async () => {
+    await expect(
+      createByTitle(db as never, {
+        title: "a".repeat(201),
+        memberId: MEMBER_ID,
+        workspaceId: WS_ID,
+      })
+    ).rejects.toThrow(ValidationError);
+  });
+
   it("throws NotFoundError for a missing task id", async () => {
     await expect(
-      editTask(db as never, "nonexistent-task", { actor_id: MEMBER_ID }, 1)
+      editTask(
+        db as never,
+        "nonexistent-task",
+        WS_ID,
+        { actor_id: MEMBER_ID },
+        1
+      )
     ).rejects.toThrow(NotFoundError);
   });
 
@@ -371,7 +835,89 @@ describe("Validation errors", () => {
     });
 
     await expect(
-      editTask(db as never, task.id, { status: "ToDo", actor_id: MEMBER_ID }, 1)
+      editTask(
+        db as never,
+        task.id,
+        WS_ID,
+        { status: "ToDo", actor_id: MEMBER_ID },
+        1
+      )
+    ).rejects.toThrow(ValidationError);
+  });
+
+  it("rejects a malformed due date", async () => {
+    const task = await createByTitle(db as never, {
+      title: "Bad date",
+      memberId: MEMBER_ID,
+      workspaceId: WS_ID,
+    });
+
+    await expect(
+      editTask(
+        db as never,
+        task.id,
+        WS_ID,
+        { due_date: "07/25/2026", actor_id: MEMBER_ID },
+        1
+      )
+    ).rejects.toThrow(ValidationError);
+  });
+
+  it("rejects a due time with no due date", async () => {
+    const task = await createByTitle(db as never, {
+      title: "Time without date",
+      memberId: MEMBER_ID,
+      workspaceId: WS_ID,
+    });
+
+    await expect(
+      editTask(
+        db as never,
+        task.id,
+        WS_ID,
+        { due_time: "14:00", actor_id: MEMBER_ID },
+        1
+      )
+    ).rejects.toThrow(ValidationError);
+  });
+
+  it("rejects a malformed due time", async () => {
+    const task = await createByTitle(db as never, {
+      title: "Bad time",
+      memberId: MEMBER_ID,
+      workspaceId: WS_ID,
+    });
+
+    await expect(
+      editTask(
+        db as never,
+        task.id,
+        WS_ID,
+        { due_date: "2026-08-01", due_time: "25:99", actor_id: MEMBER_ID },
+        1
+      )
+    ).rejects.toThrow(ValidationError);
+  });
+
+  it("rejects a start date later than the due date", async () => {
+    const task = await createByTitle(db as never, {
+      title: "Backwards dates",
+      memberId: MEMBER_ID,
+      workspaceId: WS_ID,
+    });
+
+    await expect(
+      editTask(
+        db as never,
+        task.id,
+        WS_ID,
+        {
+          start_date: "2026-09-01",
+          due_date: "2026-08-01",
+          actor_id: MEMBER_ID,
+        },
+        1
+      )
     ).rejects.toThrow(ValidationError);
   });
 });
@@ -382,7 +928,6 @@ describe("Validation errors", () => {
 
 describe("Filter semantics — derive.ts predicates", () => {
   it("myFocus returns InProgress + Review tasks for the viewer", () => {
-    const now = new Date();
     const tasks: schema.Task[] = [
       makeTask({ id: "t1", assignee_id: "user1", status: "InProgress" }),
       makeTask({ id: "t2", assignee_id: "user1", status: "Review" }),
@@ -459,29 +1004,22 @@ describe("Filter semantics — derive.ts predicates", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Fixture helper
+// Fixture helpers
 // ---------------------------------------------------------------------------
 
+function eqId(id: string) {
+  return eq(schema.task.id, id);
+}
+
 function makeTask(overrides: Partial<schema.Task> = {}): schema.Task {
-  return {
+  return makeTaskFixture({
     id: crypto.randomUUID(),
     workspace_id: WS_ID,
     project_id: PROJECT_ID,
-    workstream_id: null,
-    parent_task_id: null,
-    title: "Default task",
-    description: null,
     status: "Inbox",
-    assignee_id: null,
-    reviewer_id: null,
-    start_date: null,
-    due_date: null,
-    version: 1,
     created_by: MEMBER_ID,
     created_at: NOW,
     updated_at: NOW,
-    completed_at: null,
-    cancelled_at: null,
     ...overrides,
-  };
+  });
 }

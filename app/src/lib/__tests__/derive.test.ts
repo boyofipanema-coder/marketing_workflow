@@ -15,33 +15,14 @@ import {
   currentISOWeekKST,
 } from "../derive";
 import type { Task } from "@/server/db/schema";
+import { makeTaskFixture } from "@/server/db/fixtures";
 
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
 
 function makeTask(overrides: Partial<Task> = {}): Task {
-  return {
-    id: "task-1",
-    workspace_id: "ws-1",
-    project_id: null,
-    workstream_id: null,
-    parent_task_id: null,
-    title: "Test Task",
-    description: null,
-    status: "ToDo",
-    assignee_id: null,
-    reviewer_id: null,
-    start_date: null,
-    due_date: null,
-    version: 1,
-    created_by: "user-1",
-    created_at: "2024-01-01T00:00:00Z",
-    updated_at: "2024-01-01T00:00:00Z",
-    completed_at: null,
-    cancelled_at: null,
-    ...overrides,
-  };
+  return makeTaskFixture(overrides);
 }
 
 // A fixed "now" in UTC that corresponds to 2024-03-15 in KST

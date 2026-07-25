@@ -22,16 +22,18 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
   const { projectId } = await params;
   const { member: viewer, db } = await getCurrentMember();
 
-  const project = await getProjectById(db, projectId);
+  const workspaceId = viewer.workspace_id;
+
+  const project = await getProjectById(db, projectId, workspaceId);
   if (!project) {
     notFound();
   }
 
   const [tasks, workstreams, milestones, members] = await Promise.all([
-    getProjectTasks(db, projectId),
-    getProjectWorkstreams(db, projectId),
-    getProjectMilestones(db, projectId),
-    getWorkspaceMembers(db, viewer.workspace_id),
+    getProjectTasks(db, projectId, workspaceId),
+    getProjectWorkstreams(db, projectId, workspaceId),
+    getProjectMilestones(db, projectId, workspaceId),
+    getWorkspaceMembers(db, workspaceId),
   ]);
 
   const members_map = memberMap(members);

@@ -114,6 +114,30 @@ export const task = sqliteTable("task", {
   reviewer_id: text("reviewer_id").references(() => member.id),
   start_date: text("start_date"),
   due_date: text("due_date"),
+  /** Optional wall-clock time for due_date, "HH:mm" in the workspace timezone. */
+  due_time: text("due_time"),
+  /** Manual ordering within a (project_id, parent_task_id) group. */
+  sort_order: integer("sort_order").notNull().default(0),
+  // Waiting-state detail. Populated when status = "Waiting"; see MVP plan §2.8.
+  waiting_type: text("waiting_type", {
+    enum: [
+      "ExternalReply",
+      "InternalApproval",
+      "Material",
+      "PredecessorTask",
+      "Decision",
+      "Blocked",
+      "Other",
+    ],
+  }),
+  waiting_on_text: text("waiting_on_text"),
+  waiting_party_text: text("waiting_party_text"),
+  waiting_owner_member_id: text("waiting_owner_member_id").references(
+    () => member.id,
+  ),
+  follow_up_at: text("follow_up_at"),
+  blocked_reason: text("blocked_reason"),
+  blocked_resolution_action: text("blocked_resolution_action"),
   version: integer("version").notNull().default(1),
   created_by: text("created_by")
     .notNull()
@@ -134,6 +158,26 @@ export const milestone = sqliteTable("milestone", {
     .references(() => project.id),
   name: text("name").notNull(),
   due_date: text("due_date").notNull(),
+});
+
+// ---------------------------------------------------------------------------
+// task_dependency  — Finish-to-Start only for this recovery scope
+// ---------------------------------------------------------------------------
+export const task_dependency = sqliteTable("task_dependency", {
+  id: text("id").primaryKey(),
+  workspace_id: text("workspace_id")
+    .notNull()
+    .references(() => workspace.id),
+  predecessor_task_id: text("predecessor_task_id")
+    .notNull()
+    .references((): AnySQLiteColumn => task.id),
+  successor_task_id: text("successor_task_id")
+    .notNull()
+    .references((): AnySQLiteColumn => task.id),
+  dependency_type: text("dependency_type", { enum: ["finish_to_start"] })
+    .notNull()
+    .default("finish_to_start"),
+  created_at: text("created_at").notNull(),
 });
 
 // ---------------------------------------------------------------------------
@@ -303,3 +347,6 @@ export type NewMilestone = typeof milestone.$inferInsert;
 
 export type ActivityLog = typeof activity_log.$inferSelect;
 export type NewActivityLog = typeof activity_log.$inferInsert;
+
+export type TaskDependency = typeof task_dependency.$inferSelect;
+export type NewTaskDependency = typeof task_dependency.$inferInsert;
