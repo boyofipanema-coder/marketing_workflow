@@ -1,33 +1,26 @@
 import {
   getCurrentMember,
-  getWorkspaceTasks,
+  getInboxTasks,
   getWorkspaceProjects,
   getWorkspaceWorkstreams,
   getWorkspaceMembers,
 } from "@/server/data/queries";
-import MyWorkContent from "@/components/MyWorkContent";
+import InboxContent from "./InboxContent";
 
-/**
- * My Work page — server component.
- *
- * Sections are derived client-side so changing a due date or status moves the
- * task between sections immediately.
- */
-export default async function MyWorkPage() {
+/** Team Inbox — tasks captured via Quick Add that have no project yet. */
+export default async function InboxPage() {
   const { member: viewer, db } = await getCurrentMember();
   const workspaceId = viewer.workspace_id;
 
   const [tasks, projects, workstreams, members] = await Promise.all([
-    getWorkspaceTasks(db, workspaceId),
+    getInboxTasks(db, workspaceId),
     getWorkspaceProjects(db, workspaceId),
     getWorkspaceWorkstreams(db, workspaceId),
     getWorkspaceMembers(db, workspaceId),
   ]);
 
   return (
-    <MyWorkContent
-      viewerId={viewer.id}
-      viewerName={viewer.name}
+    <InboxContent
       tasks={tasks}
       projects={projects}
       workstreams={workstreams}

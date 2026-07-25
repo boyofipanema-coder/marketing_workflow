@@ -1,53 +1,52 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ClipboardList } from "lucide-react";
-import TaskCard, { type TaskItem } from "@/components/TaskCard";
-import TaskDetailPanel from "@/components/TaskDetailPanel";
-import EmptyState from "@/components/EmptyState";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import { Archive, MoreHorizontal, Pencil, RotateCcw } from "lucide-react";
+import TaskList from "@/components/tasks/TaskList";
+import InlineAdd from "@/components/tasks/InlineAdd";
+import TaskDetailPanel from "@/components/tasks/TaskDetailPanel";
+import { useTaskController } from "@/components/tasks/useTaskController";
+import ProjectFormDialog from "@/components/projects/ProjectFormDialog";
+import WorkstreamManager from "@/components/projects/WorkstreamManager";
+import MilestoneManager from "@/components/projects/MilestoneManager";
 import WorkflowCanvas from "@/components/workflow/WorkflowCanvas";
-import type { Project, Task, Workstream, Member } from "@/server/db/schema";
-
-// ── Types ─────────────────────────────────────────────────────────────────────
+import EmptyState from "@/components/EmptyState";
+import { createProjectTaskAction } from "@/app/actions/tasks";
+import {
+  archiveProjectAction,
+  restoreProjectAction,
+} from "@/app/actions/projects";
+import type {
+  Project,
+  Task,
+  Workstream,
+  Member,
+  Milestone,
+} from "@/server/db/schema";
 
 export interface ProjectWorkspaceProps {
   project: Project;
   workstreams: Workstream[];
   tasks: Task[];
   members: Record<string, Member>;
-  milestones: { id: string; name: string; due_date: string }[];
+  milestones: Milestone[];
+  viewerId: string;
+  /** Projects the task detail panel can move a task into. */
+  allProjects: Project[];
+  /** Workstreams across the workspace, for the detail panel's picker. */
+  allWorkstreams: Workstream[];
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+type Tab = "tasks" | "workflow" | "settings";
 
-/**
- * Convert a DB Task to a TaskItem suitable for TaskCard. The DB status enum is
- * the shared status vocabulary (lib/status.ts), so it passes through directly.
- */
-function toTaskItem(task: Task, members: Record<string, Member>): TaskItem {
-  const assignee = task.assignee_id ? members[task.assignee_id] : undefined;
-  const today = new Date().toISOString().slice(0, 10);
-  const cancelled = task.cancelled_at !== null && task.cancelled_at !== undefined;
-  const isOverdue =
-    task.due_date !== null &&
-    task.due_date !== undefined &&
-    task.due_date < today &&
-    task.status !== "Done" &&
-    !cancelled;
+const TABS: { id: Tab; label: string }[] = [
+  { id: "tasks", label: "업무" },
+  { id: "workflow", label: "업무 흐름" },
+  { id: "settings", label: "영역·마일스톤" },
+];
 
-  return {
-    id: task.id,
-    title: task.title,
-    assigneeName: assignee?.name,
-    status: task.status,
-    cancelled,
-    dueDate: task.due_date ?? undefined,
-    flags: isOverdue ? { overdue: true } : undefined,
-  };
-}
-
-/** Format an ISO date to a short display string */
 function fmtDate(iso: string | null): string {
   if (!iso) return "";
   return new Date(iso).toLocaleDateString("ko-KR", {
@@ -57,31 +56,25 @@ function fmtDate(iso: string | null): string {
   });
 }
 
-// ── Tab types ─────────────────────────────────────────────────────────────────
-
-type Tab = "workflow" | "tasks" | "milestones";
-
-// ── ProjectWorkspace ──────────────────────────────────────────────────────────
-
 export default function ProjectWorkspace({
   project,
   workstreams,
   tasks,
   members,
   milestones,
+  viewerId,
+  allProjects,
+  allWorkstreams,
 }: ProjectWorkspaceProps) {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<Tab>("workflow");
-  const [selectedTask, setSelectedTask] = useState<TaskItem | null>(null);
-  const [panelOpen, setPanelOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<Tab>("tasks");
+  const [editOpen, setEditOpen] = useState(false);
+  const [projectError, setProjectError] = useState<string | null>(null);
 
-  // Poll every 30 seconds
-  useEffect(() => {
-    const id = setInterval(() => router.refresh(), 30_000);
-    return () => clearInterval(id);
-  }, [router]);
+  const controller = useTaskController(tasks);
+  const { store } = controller;
 
-  // Refetch on tab focus
+  // Refresh on focus so a change made in another tab shows up on return.
   useEffect(() => {
     function onFocus() {
       router.refresh();
@@ -90,110 +83,142 @@ export default function ProjectWorkspace({
     return () => window.removeEventListener("focus", onFocus);
   }, [router]);
 
-  const lead = project.project_lead_id ? members[project.project_lead_id] : undefined;
+  const memberList = Object.values(members);
+  const lead = project.project_lead_id
+    ? members[project.project_lead_id]
+    : undefined;
+  const archived = project.archived_at !== null;
 
-  // All tasks for the Tasks tab (exclude Done and Inbox for primary list)
-  const allActiveTaskItems = useMemo(
-    () =>
-      tasks
-        .filter(
-          (t) =>
-            (t.cancelled_at === null || t.cancelled_at === undefined) &&
-            t.status !== "Done" &&
-            t.status !== "Inbox"
-        )
-        .map((t) => toTaskItem(t, members)),
-    [tasks, members],
-  );
-  const doneTaskItems = useMemo(
-    () =>
-      tasks
-        .filter((t) => t.status === "Done")
-        .map((t) => toTaskItem(t, members)),
-    [tasks, members],
-  );
-
-  // Event handlers
-  function handleTaskClick(task: TaskItem) {
-    setSelectedTask(task);
-    setPanelOpen(true);
+  async function addTask(title: string) {
+    const result = await createProjectTaskAction(project.id, title);
+    if (!result.success) {
+      setProjectError(result.error ?? "업무를 추가하지 못했습니다.");
+      return false;
+    }
+    setProjectError(null);
+    router.refresh();
+    return true;
   }
 
-  // Project summary for the detail panel
-  const projectSummary = { id: project.id, name: project.name };
+  async function toggleArchive() {
+    const result = archived
+      ? await restoreProjectAction(project.id)
+      : await archiveProjectAction(project.id);
+    if (!result.success) {
+      setProjectError(result.error ?? "처리하지 못했습니다.");
+      return;
+    }
+    setProjectError(null);
+    router.refresh();
+  }
 
-  // Lead initials
-  const leadInitials = lead
-    ? lead.name
-        .split(" ")
-        .slice(0, 2)
-        .map((w) => w[0])
-        .join("")
-        .toUpperCase()
-    : null;
+  const visibleTasks = controller.tasks.filter(
+    (t) => t.parent_task_id === null
+  );
 
   return (
     <>
-      <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6">
-        {/* ── Project header ──────────────────────────────────────────────── */}
-        <header className="mb-8">
-          <h1 className="font-serif text-2xl font-semibold text-text leading-tight">
-            {project.name}
-          </h1>
+      <div className="mx-auto max-w-3xl px-4 py-6 sm:px-6 sm:py-8">
+        {/* Header */}
+        <header className="mb-6">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <h1 className="font-serif text-2xl font-semibold leading-tight text-text">
+                {project.name}
+              </h1>
+              {project.one_line_objective && (
+                <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-text-secondary">
+                  {project.one_line_objective}
+                </p>
+              )}
+            </div>
 
-          {project.one_line_objective && (
-            <p className="mt-1.5 text-sm text-text-secondary leading-relaxed max-w-2xl">
-              {project.one_line_objective}
-            </p>
-          )}
-
-          <div className="mt-4 flex flex-wrap items-center gap-4 text-xs text-text-secondary">
-            {lead && (
-              <div className="flex items-center gap-1.5">
-                <span
-                  className="flex h-5 w-5 items-center justify-center rounded-full bg-surface-3 text-[9px] font-semibold text-text-secondary"
-                  aria-hidden
+            <DropdownMenu.Root>
+              <DropdownMenu.Trigger asChild>
+                <button
+                  type="button"
+                  aria-label="프로젝트 추가 작업"
+                  className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                  {leadInitials}
-                </span>
-                <span>
-                  <span className="font-medium text-text-tertiary">리드 · </span>
-                  {lead.name}
-                </span>
-              </div>
-            )}
+                  <MoreHorizontal className="h-4 w-4" aria-hidden />
+                </button>
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.Content
+                  align="end"
+                  sideOffset={4}
+                  className="z-50 min-w-[11rem] rounded-lg border border-separator bg-elevated p-1 shadow-xl"
+                >
+                  <DropdownMenu.Item
+                    onSelect={() => setEditOpen(true)}
+                    disabled={archived}
+                    className="flex cursor-pointer items-center gap-2 rounded px-2 py-2 text-sm text-text outline-none data-[disabled]:opacity-40 data-[highlighted]:bg-surface-2"
+                  >
+                    <Pencil className="h-3.5 w-3.5" aria-hidden />
+                    프로젝트 수정
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Item
+                    onSelect={() => void toggleArchive()}
+                    className="flex cursor-pointer items-center gap-2 rounded px-2 py-2 text-sm text-text outline-none data-[highlighted]:bg-surface-2"
+                  >
+                    {archived ? (
+                      <>
+                        <RotateCcw className="h-3.5 w-3.5" aria-hidden />
+                        보관 해제
+                      </>
+                    ) : (
+                      <>
+                        <Archive className="h-3.5 w-3.5" aria-hidden />
+                        프로젝트 보관
+                      </>
+                    )}
+                  </DropdownMenu.Item>
+                </DropdownMenu.Content>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Root>
+          </div>
 
+          <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-text-secondary">
+            {archived && (
+              <span className="rounded-full border border-separator bg-surface-2 px-2.5 py-0.5 font-medium text-text-tertiary">
+                보관됨
+              </span>
+            )}
+            {lead && <span>리드 · {lead.name}</span>}
             {project.target_start_date && project.target_end_date && (
-              <span className="text-text-tertiary">
+              <span className="tabular-nums text-text-tertiary">
                 {fmtDate(project.target_start_date)} –{" "}
                 {fmtDate(project.target_end_date)}
               </span>
             )}
           </div>
+
+          {(projectError || store.error) && (
+            <p
+              role="alert"
+              className="mt-3 rounded-lg border border-flag-blocked/30 bg-flag-blocked/10 px-3 py-2 text-xs text-flag-blocked"
+            >
+              {projectError ?? store.error}
+            </p>
+          )}
         </header>
 
-        {/* ── Tab bar ─────────────────────────────────────────────────────── */}
+        {/* Tabs */}
         <nav
-          className="mb-6 flex gap-1 border-b border-separator"
+          className="mb-4 flex gap-1 border-b border-separator"
           aria-label="프로젝트 탭"
         >
-          {(
-            [
-              { id: "workflow", label: "업무 흐름" },
-              { id: "tasks", label: "업무" },
-              { id: "milestones", label: "마일스톤" },
-            ] as { id: Tab; label: string }[]
-          ).map(({ id, label }) => (
+          {TABS.map(({ id, label }) => (
             <button
               key={id}
               type="button"
               role="tab"
               aria-selected={activeTab === id}
               onClick={() => setActiveTab(id)}
-              className={`px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
+              className={`-mb-px border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
                 activeTab === id
                   ? "border-accent text-text"
-                  : "border-transparent text-text-secondary hover:text-text hover:border-border-strong"
+                  : "border-transparent text-text-secondary hover:border-border-strong hover:text-text"
               }`}
             >
               {label}
@@ -201,113 +226,88 @@ export default function ProjectWorkspace({
           ))}
         </nav>
 
-        {/* ── Workflow tab — swimlane Kanban canvas ────────────────────────── */}
+        {activeTab === "tasks" && (
+          <TaskList
+            tasks={visibleTasks}
+            members={members}
+            store={store}
+            selectedId={controller.selectedId}
+            onSelect={controller.select}
+            onToggleComplete={controller.toggleComplete}
+            onCancel={controller.cancel}
+            onRestore={controller.restore}
+            onReorder={controller.reorder}
+            emptyTitle="아직 업무가 없습니다"
+            emptyDescription="아래 입력란에 제목만 적어도 업무가 만들어집니다."
+            footer={
+              archived ? undefined : (
+                <InlineAdd onAdd={addTask} label="업무 추가" />
+              )
+            }
+          />
+        )}
+
         {activeTab === "workflow" &&
-          (tasks.some((t) => !t.cancelled_at) ? (
+          (visibleTasks.some((t) => !t.cancelled_at) ? (
             <WorkflowCanvas
-              tasks={tasks}
+              tasks={controller.tasks}
               workstreams={workstreams}
               members={members}
-              onSelect={(t) => handleTaskClick(toTaskItem(t, members))}
+              onSelect={controller.select}
             />
           ) : (
             <EmptyState
-              icon={<ClipboardList className="h-5 w-5" aria-hidden />}
-              title="등록된 업무가 없습니다"
-              description="이 프로젝트에 추가된 업무가 업무 흐름 보드에 표시됩니다."
+              title="표시할 업무가 없습니다"
+              description="업무 탭에서 업무를 추가하면 흐름 보드에 나타납니다."
             />
           ))}
 
-        {/* ── Tasks tab ────────────────────────────────────────────────────── */}
-        {activeTab === "tasks" && (
-          <div className="flex flex-col gap-6">
-            {allActiveTaskItems.length > 0 ? (
-              <>
-                <section aria-label="진행 중인 업무">
-                  <div className="mb-3 flex items-center gap-2">
-                    <h3 className="text-xs font-semibold uppercase tracking-wider text-text-secondary">진행 중</h3>
-                    <span className="flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-surface-2 px-1.5 text-[10px] font-semibold text-text-secondary">
-                      {allActiveTaskItems.length}
-                    </span>
-                  </div>
-                  <ul className="flex flex-col gap-2" role="list">
-                    {allActiveTaskItems.map((task) => (
-                      <li key={task.id}>
-                        <TaskCard task={task} onClick={handleTaskClick} />
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-
-                {doneTaskItems.length > 0 && (
-                  <section aria-label="완료한 업무">
-                    <div className="mb-3 flex items-center gap-2">
-                      <h3 className="text-xs font-semibold uppercase tracking-wider text-text-tertiary">완료</h3>
-                      <span className="flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-surface-2 px-1.5 text-[10px] font-semibold text-text-tertiary">
-                        {doneTaskItems.length}
-                      </span>
-                    </div>
-                    <ul className="flex flex-col gap-2 opacity-60" role="list">
-                      {doneTaskItems.map((task) => (
-                        <li key={task.id}>
-                          <TaskCard task={task} onClick={handleTaskClick} />
-                        </li>
-                      ))}
-                    </ul>
-                  </section>
-                )}
-              </>
-            ) : (
-              <EmptyState
-                icon={<ClipboardList className="h-5 w-5" aria-hidden />}
-                title="등록된 업무가 없습니다"
-                description="이 프로젝트에 추가된 업무가 여기에 표시됩니다."
+        {activeTab === "settings" && (
+          <div className="flex flex-col gap-8">
+            <WorkstreamManager
+              projectId={project.id}
+              workstreams={workstreams}
+            />
+            <div className="flex flex-col gap-2">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-text-secondary">
+                마일스톤
+              </h3>
+              <MilestoneManager
+                projectId={project.id}
+                milestones={milestones}
               />
-            )}
-          </div>
-        )}
-
-        {/* ── Milestones tab ───────────────────────────────────────────────── */}
-        {activeTab === "milestones" && (
-          <div>
-            {milestones.length > 0 ? (
-              <section aria-label="마일스톤">
-                <div className="mb-3 flex items-center gap-2">
-                  <h3 className="text-xs font-semibold uppercase tracking-wider text-text-secondary">마일스톤</h3>
-                  <span className="flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-surface-2 px-1.5 text-[10px] font-semibold text-text-secondary">
-                    {milestones.length}
-                  </span>
-                </div>
-                <ul className="flex flex-col gap-2" role="list">
-                  {milestones.map((ms) => (
-                    <li
-                      key={ms.id}
-                      className="flex items-center justify-between rounded-lg border border-separator bg-surface px-4 py-3 text-sm shadow-sm"
-                    >
-                      <span className="font-medium text-text">{ms.name}</span>
-                      <span className="text-xs text-text-secondary">
-                        {fmtDate(ms.due_date)}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ) : (
-              <EmptyState
-                title="등록된 마일스톤이 없습니다"
-                description="이 프로젝트의 마일스톤이 여기에 표시됩니다."
-              />
-            )}
+            </div>
           </div>
         )}
       </div>
 
-      {/* ── Task detail panel ────────────────────────────────────────────── */}
       <TaskDetailPanel
-        task={selectedTask}
-        project={projectSummary}
-        open={panelOpen}
-        onOpenChange={setPanelOpen}
+        task={controller.selected}
+        projects={allProjects}
+        workstreams={allWorkstreams}
+        members={memberList}
+        open={controller.panelOpen}
+        saveState={
+          controller.selected ? store.stateOf(controller.selected.id) : "idle"
+        }
+        error={store.error}
+        conflict={store.conflict}
+        onOpenChange={(open) => {
+          controller.setPanelOpen(open);
+          if (!open) store.dismissError();
+        }}
+        onPatch={controller.patch}
+        onCancelTask={controller.cancel}
+        onRestoreTask={controller.restore}
+      />
+
+      <ProjectFormDialog
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        members={memberList}
+        project={project}
+        defaultLeadId={viewerId}
+        onSaved={() => router.refresh()}
       />
     </>
   );

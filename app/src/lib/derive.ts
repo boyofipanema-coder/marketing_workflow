@@ -108,6 +108,21 @@ export function needsAttention(tasks: Task[], now: Date): Task[] {
   return applyFilter(tasks, (t) => isOverdue(t, now));
 }
 
+/** status=InProgress across the whole team — what the workspace is working on now */
+export function teamInMotion(tasks: Task[]): Task[] {
+  return applyFilter(tasks, (t) => t.status === "InProgress");
+}
+
+/** status=Waiting across the whole team — what the workspace is blocked on */
+export function teamWaiting(tasks: Task[]): Task[] {
+  return applyFilter(tasks, (t) => t.status === "Waiting");
+}
+
+/** Tasks with no project yet — the workspace Inbox. */
+export function inbox(tasks: Task[]): Task[] {
+  return applyFilter(tasks, (t) => t.project_id === null);
+}
+
 /** status=ToDo AND today <= startDate <= today+7 (KST) */
 export function comingNext(tasks: Task[], now: Date): Task[] {
   const today = todayKST(now);

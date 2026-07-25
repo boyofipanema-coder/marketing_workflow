@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { searchTasks } from "../search";
+import {
+  searchTasks,
+  searchWorkspaceTasks,
+  hasActiveFilters,
+} from "../search";
 import type { Task } from "@/server/db/schema";
 import { makeTaskFixture } from "@/server/db/fixtures";
 
@@ -173,5 +177,131 @@ describe("searchTasks — due filter", () => {
     expect(result.map((t) => t.id)).toContain("later");
     expect(result.map((t) => t.id)).not.toContain("early");
     expect(result.map((t) => t.id)).not.toContain("late");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// searchWorkspaceTasks — the nav bar's search
+// ---------------------------------------------------------------------------
+
+describe("searchWorkspaceTasks", () => {
+  const projects = [
+    { id: "p1", name: "Spring Campaign" },
+    { id: "p2", name: "Website Refresh" },
+  ] as never;
+  const members = [
+    { id: "m1", name: "Jamie Park" },
+    { id: "m2", name: "Alex Kim" },
+  ] as never;
+  const index = { projects, members };
+
+  const tasks = [
+    makeTaskFixture({
+      id: "t1",
+      title: "Draft launch copy",
+      project_id: "p1",
+      assignee_id: "m1",
+      due_date: "2024-03-20",
+      status: "InProgress",
+    }),
+    makeTaskFixture({
+      id: "t2",
+      title: "Update pricing page",
+      project_id: "p2",
+      assignee_id: "m2",
+      due_date: null,
+      status: "ToDo",
+    }),
+    makeTaskFixture({
+      id: "t3",
+      title: "Archive old assets",
+      project_id: "p2",
+      assignee_id: null,
+      due_date: "2024-03-25",
+      cancelled_at: "2024-03-01T00:00:00Z",
+    }),
+  ];
+
+  const ids = (result: { id: string }[]) => result.map((t) => t.id);
+
+  it("matches on the project name, not just the task title", () => {
+    expect(ids(searchWorkspaceTasks(tasks, index, { query: "spring" }))).toEqual([
+      "t1",
+    ]);
+  });
+
+  it("matches on the assignee name", () => {
+    expect(ids(searchWorkspaceTasks(tasks, index, { query: "alex" }))).toEqual([
+      "t2",
+    ]);
+  });
+
+  // The older searchTasks hides undated rows unless you ask for them, which
+  // would silently drop results from a plain text search.
+  it("keeps undated tasks in the results", () => {
+    expect(ids(searchWorkspaceTasks(tasks, index, { query: "pricing" }))).toEqual([
+      "t2",
+    ]);
+  });
+
+  it("hides cancelled tasks unless asked", () => {
+    expect(ids(searchWorkspaceTasks(tasks, index, { query: "archive" }))).toEqual(
+      []
+    );
+    expect(
+      ids(
+        searchWorkspaceTasks(tasks, index, {
+          query: "archive",
+          includeCancelled: true,
+        })
+      )
+    ).toEqual(["t3"]);
+  });
+
+  it("returns everything when no query is given", () => {
+    expect(ids(searchWorkspaceTasks(tasks, index, {}))).toEqual(["t1", "t2"]);
+  });
+
+  it("combines a query with filters using AND", () => {
+    expect(
+      ids(
+        searchWorkspaceTasks(tasks, index, {
+          query: "page",
+          status: "InProgress",
+        })
+      )
+    ).toEqual([]);
+    expect(
+      ids(searchWorkspaceTasks(tasks, index, { query: "page", status: "ToDo" }))
+    ).toEqual(["t2"]);
+  });
+
+  it("filters undated tasks with the Undated due filter", () => {
+    expect(
+      ids(searchWorkspaceTasks(tasks, index, { due: { type: "undated" } }))
+    ).toEqual(["t2"]);
+  });
+
+  it("filters by an inclusive due range", () => {
+    expect(
+      ids(
+        searchWorkspaceTasks(tasks, index, {
+          due: { type: "range", start: "2024-03-01", end: "2024-03-20" },
+        })
+      )
+    ).toEqual(["t1"]);
+  });
+});
+
+describe("hasActiveFilters", () => {
+  it("is false for an empty or whitespace-only query", () => {
+    expect(hasActiveFilters({})).toBe(false);
+    expect(hasActiveFilters({ query: "   " })).toBe(false);
+  });
+
+  it("is true when any filter is set", () => {
+    expect(hasActiveFilters({ query: "copy" })).toBe(true);
+    expect(hasActiveFilters({ projectId: "p1" })).toBe(true);
+    expect(hasActiveFilters({ due: { type: "undated" } })).toBe(true);
   });
 });

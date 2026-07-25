@@ -5,6 +5,8 @@ import {
   getProjectTasks,
   getProjectWorkstreams,
   getWorkspaceMembers,
+  getWorkspaceProjects,
+  getWorkspaceWorkstreams,
   getProjectMilestones,
   memberMap,
 } from "@/server/data/queries";
@@ -21,7 +23,6 @@ interface ProjectPageProps {
 export default async function ProjectPage({ params }: ProjectPageProps) {
   const { projectId } = await params;
   const { member: viewer, db } = await getCurrentMember();
-
   const workspaceId = viewer.workspace_id;
 
   const project = await getProjectById(db, projectId, workspaceId);
@@ -29,15 +30,23 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
     notFound();
   }
 
-  const [tasks, workstreams, milestones, members] = await Promise.all([
+  const [
+    tasks,
+    workstreams,
+    milestones,
+    members,
+    allProjects,
+    allWorkstreams,
+  ] = await Promise.all([
     getProjectTasks(db, projectId, workspaceId),
     getProjectWorkstreams(db, projectId, workspaceId),
     getProjectMilestones(db, projectId, workspaceId),
     getWorkspaceMembers(db, workspaceId),
+    getWorkspaceProjects(db, workspaceId),
+    getWorkspaceWorkstreams(db, workspaceId),
   ]);
 
-  const members_map = memberMap(members);
-  const membersRecord = Object.fromEntries(members_map);
+  const membersRecord = Object.fromEntries(memberMap(members));
 
   return (
     <ProjectWorkspace
@@ -46,6 +55,9 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
       tasks={tasks}
       members={membersRecord}
       milestones={milestones}
+      viewerId={viewer.id}
+      allProjects={allProjects}
+      allWorkstreams={allWorkstreams}
     />
   );
 }

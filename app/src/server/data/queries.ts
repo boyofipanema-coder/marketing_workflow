@@ -206,6 +206,25 @@ export async function getProjectWorkstreams(
   return rows.map((r) => r.ws);
 }
 
+/**
+ * Fetch every workstream in the workspace's active projects — the detail
+ * panel needs these to offer a picker after a task moves between projects.
+ */
+export async function getWorkspaceWorkstreams(
+  db: Database,
+  workspaceId: string
+): Promise<Workstream[]> {
+  const rows = await db
+    .select({ ws: workstream })
+    .from(workstream)
+    .innerJoin(project, eq(workstream.project_id, project.id))
+    .where(
+      and(eq(project.workspace_id, workspaceId), isNull(project.archived_at))
+    )
+    .orderBy(asc(workstream.order));
+  return rows.map((r) => r.ws);
+}
+
 // ---------------------------------------------------------------------------
 // Member queries
 // ---------------------------------------------------------------------------
@@ -264,43 +283,4 @@ export async function getWorkspaceMilestones(
     )
     .orderBy(asc(milestone.due_date));
   return rows.map((r) => r.ms);
-}
-
-// ---------------------------------------------------------------------------
-// TaskItem mapping (DB Task → UI TaskItem)
-// ---------------------------------------------------------------------------
-
-import type { TaskItem } from "@/components/TaskCard";
-
-export type DbTaskStatus = Task["status"];
-
-/**
- * Converts a DB Task to a TaskItem suitable for TaskCard/SectionList.
- * Resolves assignee name from the provided member map. The DB status enum IS
- * the shared status vocabulary (lib/status.ts), so it is passed through
- * directly — no collapsing map, so Inbox and Waiting stay distinct.
- */
-export function toTaskItem(
-  t: Task,
-  members: Map<string, Member>,
-  now: Date = new Date()
-): TaskItem {
-  const assignee = t.assignee_id ? members.get(t.assignee_id) : undefined;
-  const cancelled = t.cancelled_at !== null && t.cancelled_at !== undefined;
-  const isOverdue =
-    t.due_date !== null &&
-    t.due_date !== undefined &&
-    t.due_date < now.toISOString().slice(0, 10) &&
-    t.status !== "Done" &&
-    !cancelled;
-
-  return {
-    id: t.id,
-    title: t.title,
-    assigneeName: assignee?.name,
-    status: t.status,
-    cancelled,
-    dueDate: t.due_date ?? undefined,
-    flags: isOverdue ? { overdue: true } : undefined,
-  };
 }

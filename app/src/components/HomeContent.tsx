@@ -1,48 +1,53 @@
 "use client";
 
-import { useState, useEffect, useTransition } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Inbox, AlertTriangle, ArrowRight, Plus } from "lucide-react";
-import SectionList from "@/components/SectionList";
-import TaskDetailPanel from "@/components/TaskDetailPanel";
-import QuickAdd from "@/components/QuickAdd";
-import { type TaskItem } from "@/components/TaskCard";
+import { Plus } from "lucide-react";
+import { Button } from "@/components/ui";
+import TaskSection from "@/components/tasks/TaskSection";
+import TaskDetailPanel from "@/components/tasks/TaskDetailPanel";
+import InlineAdd from "@/components/tasks/InlineAdd";
+import { useTaskController } from "@/components/tasks/useTaskController";
 import { createTaskAction } from "@/app/actions/tasks";
-
-// ── Props ─────────────────────────────────────────────────────────────────────
-
-export interface HomeContentProps {
-  viewerName: string;
-  myFocus: TaskItem[];
-  needsAttention: TaskItem[];
-  comingNext: TaskItem[];
-  /** Task ID → project name, for the detail panel */
-  taskProjects: Record<string, { id: string; name: string }>;
-}
-
-// ── Component ─────────────────────────────────────────────────────────────────
-
-export default function HomeContent({
-  viewerName,
+import {
   myFocus,
   needsAttention,
   comingNext,
-  taskProjects,
+  teamInMotion,
+  teamWaiting,
+} from "@/lib/derive";
+import type { Task, Project, Workstream, Member } from "@/server/db/schema";
+
+export interface HomeContentProps {
+  viewerId: string;
+  viewerName: string;
+  tasks: Task[];
+  projects: Project[];
+  workstreams: Workstream[];
+  members: Member[];
+}
+
+/**
+ * Home — the "what needs me right now" screen.
+ *
+ * Sections are computed from the client-side task list rather than server-side,
+ * so completing or rescheduling a task moves it between sections immediately
+ * instead of waiting for a round trip.
+ */
+export default function HomeContent({
+  viewerId,
+  viewerName,
+  tasks,
+  projects,
+  workstreams,
+  members,
 }: HomeContentProps) {
   const router = useRouter();
-  const [selectedTask, setSelectedTask] = useState<TaskItem | null>(null);
-  const [panelOpen, setPanelOpen] = useState(false);
-  const [showQuickAdd, setShowQuickAdd] = useState(false);
-  const [quickAddError, setQuickAddError] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
+  const controller = useTaskController(tasks);
+  const { store } = controller;
+  const [addOpen, setAddOpen] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
 
-  // Poll for updates every 30 seconds
-  useEffect(() => {
-    const id = setInterval(() => router.refresh(), 30_000);
-    return () => clearInterval(id);
-  }, [router]);
-
-  // Refetch on tab focus
   useEffect(() => {
     function onFocus() {
       router.refresh();
@@ -51,114 +56,161 @@ export default function HomeContent({
     return () => window.removeEventListener("focus", onFocus);
   }, [router]);
 
-  function handleTaskClick(item: TaskItem) {
-    setSelectedTask(item);
-    setPanelOpen(true);
+  const membersRecord = useMemo(
+    () => Object.fromEntries(members.map((m) => [m.id, m])),
+    [members]
+  );
+
+  const sections = useMemo(() => {
+    const now = new Date();
+    const active = controller.tasks;
+    return {
+      focus: myFocus(active, viewerId),
+      // "Team in motion" is what other people are on — my own in-progress work
+      // is already the section above it.
+      motion: teamInMotion(active).filter((t) => t.assignee_id !== viewerId),
+      waiting: teamWaiting(active),
+      attention: needsAttention(active, now),
+      next: comingNext(active, now),
+    };
+  }, [controller.tasks, viewerId]);
+
+  async function quickAdd(title: string) {
+    const result = await createTaskAction(title);
+    if (!result.success) {
+      setAddError(result.error ?? "업무를 추가하지 못했습니다.");
+      return false;
+    }
+    setAddError(null);
+    router.refresh();
+    return true;
   }
 
-  async function handleCreate(title: string) {
-    setQuickAddError(null);
-    startTransition(async () => {
-      const result = await createTaskAction(title);
-      if (result.success) {
-        setShowQuickAdd(false);
-        router.refresh();
-      } else {
-        setQuickAddError(result.error ?? "업무를 추가하지 못했습니다. 다시 시도해 주세요.");
-      }
-    });
-  }
-
-  const selectedProject = selectedTask
-    ? taskProjects[selectedTask.id]
-    : undefined;
+  const shared = {
+    members: membersRecord,
+    store,
+    selectedId: controller.selectedId,
+    onSelect: controller.select,
+    onToggleComplete: controller.toggleComplete,
+    onCancel: controller.cancel,
+    onRestore: controller.restore,
+  };
 
   return (
     <>
-      <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6">
-        {/* Page header */}
-        <header className="mb-10 flex items-start justify-between gap-4">
+      <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
+        <header className="mb-8 flex items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-widest text-text-tertiary mb-1.5">
-              개요
-            </p>
-            <h1 className="font-serif text-2xl font-semibold text-text leading-tight">
+            <h1 className="font-serif text-2xl font-semibold leading-tight text-text">
               홈
             </h1>
             <p className="mt-1.5 text-sm text-text-secondary">
-              {viewerName ? `${viewerName}님으로 로그인했습니다. ` : ""}
-              진행 중인 모든 프로젝트에서 오늘 집중할 업무입니다.
+              {viewerName ? `${viewerName}님, ` : ""}
+              지금 챙겨야 할 업무입니다.
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setShowQuickAdd(true)}
-            className="flex-shrink-0 flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-text-on-accent hover:bg-accent-hover transition-colors"
-            aria-label="업무 빠른 추가"
+          <Button
+            variant="primary"
+            onClick={() => setAddOpen((v) => !v)}
+            className="flex-shrink-0"
           >
-            <Plus className="h-3.5 w-3.5" />
+            <Plus aria-hidden />
             업무 추가
-          </button>
+          </Button>
         </header>
 
-        {/* Quick add */}
-        {showQuickAdd && (
+        {addOpen && (
           <div className="mb-8">
-            <QuickAdd
-              onCreate={handleCreate}
-              onCancel={() => {
-                setShowQuickAdd(false);
-                setQuickAddError(null);
-              }}
-              placeholder="해야 할 업무를 입력하세요"
+            <InlineAdd
+              onAdd={quickAdd}
+              label="업무 추가"
+              placeholder="해야 할 업무를 입력하고 Enter"
             />
-            {quickAddError && (
-              <p className="mt-2 text-xs text-flag-blocked">{quickAddError}</p>
+            {addError && (
+              <p role="alert" className="mt-2 text-xs text-flag-blocked">
+                {addError}
+              </p>
             )}
           </div>
         )}
 
-        {/* Sections */}
-        <div className="flex flex-col gap-10">
-          {/* My Focus */}
-          <SectionList
+        {store.error && (
+          <p
+            role="alert"
+            className="mb-6 rounded-lg border border-flag-blocked/30 bg-flag-blocked/10 px-3 py-2 text-xs text-flag-blocked"
+          >
+            {store.error}
+          </p>
+        )}
+
+        <div className="flex flex-col gap-8">
+          {/* Only the first section shows an empty state — the rest disappear
+              when empty so the page stays a short, scannable list. */}
+          <TaskSection
+            {...shared}
             title="내 우선 업무"
-            tasks={myFocus}
-            onTaskClick={handleTaskClick}
-            emptyTitle="오늘의 우선 업무가 없습니다"
-            emptyDescription="진행 중이거나 검토 중인 업무가 여기에 표시됩니다."
-            emptyIcon={<Inbox className="h-5 w-5" />}
+            tasks={sections.focus}
+            emptyTitle="지금 진행 중인 내 업무가 없습니다"
+            emptyDescription="진행 중이거나 검토 중인 내 업무가 여기에 표시됩니다."
           />
 
-          {/* Needs Attention */}
-          <SectionList
+          <TaskSection
+            {...shared}
             title="확인 필요"
-            tasks={needsAttention}
-            onTaskClick={handleTaskClick}
-            emptyTitle="확인이 필요한 업무가 없습니다"
-            emptyDescription="기한이 지났거나 팔로업이 필요한 업무가 없습니다."
-            emptyIcon={<AlertTriangle className="h-5 w-5" />}
+            tasks={sections.attention}
+            hideWhenEmpty
+            emptyTitle=""
+            emptyDescription=""
           />
 
-          {/* Coming Next */}
-          <SectionList
+          <TaskSection
+            {...shared}
+            title="대기 중"
+            tasks={sections.waiting}
+            hideWhenEmpty
+            emptyTitle=""
+            emptyDescription=""
+          />
+
+          <TaskSection
+            {...shared}
+            title="팀 진행 중"
+            tasks={sections.motion}
+            hideWhenEmpty
+            emptyTitle=""
+            emptyDescription=""
+          />
+
+          <TaskSection
+            {...shared}
             title="다음 업무"
-            tasks={comingNext}
-            onTaskClick={handleTaskClick}
-            emptyTitle="예정된 다음 업무가 없습니다"
-            emptyDescription="앞으로 7일 안에 시작할 업무가 여기에 표시됩니다."
-            emptyIcon={<ArrowRight className="h-5 w-5" />}
+            tasks={sections.next}
+            hideWhenEmpty
+            emptyTitle=""
+            emptyDescription=""
           />
         </div>
       </div>
 
-      {/* Detail panel */}
       <TaskDetailPanel
-        task={selectedTask}
-        project={selectedProject}
-        open={panelOpen}
-        onOpenChange={setPanelOpen}
+        task={controller.selected}
+        projects={projects}
+        workstreams={workstreams}
+        members={members}
+        open={controller.panelOpen}
+        saveState={
+          controller.selected ? store.stateOf(controller.selected.id) : "idle"
+        }
+        error={store.error}
+        conflict={store.conflict}
+        onOpenChange={(open) => {
+          controller.setPanelOpen(open);
+          if (!open) store.dismissError();
+        }}
+        onPatch={controller.patch}
+        onCancelTask={controller.cancel}
+        onRestoreTask={controller.restore}
       />
     </>
   );

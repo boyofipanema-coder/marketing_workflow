@@ -6,6 +6,7 @@ import { Minus, Plus, Maximize2, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { statusMeta, type TaskStatus } from "@/lib/status";
 import { createSubtaskAction } from "@/app/actions/tasks";
+import InlineAdd from "@/components/tasks/InlineAdd";
 import type { Task, Workstream, Member } from "@/server/db/schema";
 
 /**
@@ -23,18 +24,29 @@ import type { Task, Workstream, Member } from "@/server/db/schema";
  */
 
 // ── stage flow ────────────────────────────────────────────────────────────────
-const STAGE_LABELS = ["예정", "진행 중", "검토 중", "완료"] as const;
-const STAGE_TOKENS = ["status-todo", "status-inprogress", "status-review", "status-done"] as const;
+// Waiting is its own column rather than being folded into "in progress": the
+// board's main job on entry is to show what is moving and what is stuck, and a
+// blocked task hidden inside the in-progress column reads as healthy work.
+const STAGE_LABELS = ["예정", "진행 중", "대기", "검토 중", "완료"] as const;
+const STAGE_TOKENS = [
+  "status-todo",
+  "status-inprogress",
+  "status-waiting",
+  "status-review",
+  "status-done",
+] as const;
+const STAGE_COUNT = STAGE_LABELS.length;
 
 function stageIndex(s: TaskStatus): number {
   switch (s) {
     case "InProgress":
-    case "Waiting":
       return 1;
-    case "Review":
+    case "Waiting":
       return 2;
-    case "Done":
+    case "Review":
       return 3;
+    case "Done":
+      return 4;
     default:
       return 0;
   }
@@ -92,7 +104,7 @@ const GROUP_OPTS: { id: GroupBy; label: string }[] = [
   { id: "owner", label: "담당자" },
   { id: "due", label: "마감" },
 ];
-type Focus = "all" | "do" | "wait" | "over";
+export type Focus = "all" | "do" | "wait" | "over";
 
 interface Lane {
   key: string;
@@ -222,7 +234,7 @@ function computeLayout(
     const done = laneTasks.filter((t) => effStatus(t, cm) === "Done").length;
     const laneTop = y;
     let laneMaxBottom = laneTop + CARD_BASE;
-    for (let s = 0; s < 4; s++) {
+    for (let s = 0; s < STAGE_COUNT; s++) {
       const arr = cell.get(`${lane.key}|${s}`) ?? [];
       const isOpen = cellsOpen.has(`${lane.key}|${s}`);
       const shown = isOpen ? arr : arr.slice(0, CAP);
@@ -252,7 +264,7 @@ function computeLayout(
   const edges: Layout["edges"] = [];
   for (const lane of laneOut) {
     const firsts: Positioned[] = [];
-    for (let s = 0; s < 4; s++) {
+    for (let s = 0; s < STAGE_COUNT; s++) {
       const n = nodes.find((p) => stageIndex(effStatus(p.task, cm)) === s && laneKeyOf(p.task) === lane.key);
       if (n) firsts.push(n);
     }
@@ -263,7 +275,7 @@ function computeLayout(
     }
   }
 
-  return { lanes: laneOut, columns, nodes, overflow, edges, worldW: LANEPAD + 4 * COLW + 40, worldH: contentBottom + 40 };
+  return { lanes: laneOut, columns, nodes, overflow, edges, worldW: LANEPAD + STAGE_COUNT * COLW + 40, worldH: contentBottom + 40 };
 }
 
 // ── component ─────────────────────────────────────────────────────────────────
@@ -272,11 +284,29 @@ export interface WorkflowCanvasProps {
   workstreams: Workstream[];
   members: Record<string, Member>;
   onSelect: (task: Task) => void;
+  /** Creates a top-level task in this project. Omit to hide the add affordance. */
+  onAddTask?: (title: string) => Promise<boolean>;
+  /** Controls the focus filter from outside (e.g. the project summary strip). */
+  focus?: Focus;
+  onFocusChange?: (focus: Focus) => void;
 }
 
-export default function WorkflowCanvas({ tasks, workstreams, members, onSelect }: WorkflowCanvasProps) {
+export default function WorkflowCanvas({
+  tasks,
+  workstreams,
+  members,
+  onSelect,
+  onAddTask,
+  focus: focusProp,
+  onFocusChange,
+}: WorkflowCanvasProps) {
   const [groupBy, setGroupBy] = useState<GroupBy>("workstream");
-  const [focus, setFocus] = useState<Focus>("all");
+  const [focusState, setFocusState] = useState<Focus>("all");
+  const focus = focusProp ?? focusState;
+  const setFocus = (next: Focus) => {
+    setFocusState(next);
+    onFocusChange?.(next);
+  };
   const [cellsOpen, setCellsOpen] = useState<Set<string>>(new Set());
   const [subsOpen, setSubsOpen] = useState<Set<string>>(new Set());
   const [zoomPct, setZoomPct] = useState(100);
@@ -489,6 +519,12 @@ export default function WorkflowCanvas({ tasks, workstreams, members, onSelect }
             ))}
           </div>
         </div>
+        {onAddTask && (
+          <div className="min-w-[9rem] max-w-xs flex-1">
+            <InlineAdd onAdd={onAddTask} label="업무 추가" placeholder="업무명 입력 후 Enter" />
+          </div>
+        )}
+
         <div className="ml-auto flex gap-1.5">
           {([["all", "전체", ""], ["do", "지금 할 일", "bg-status-inprogress"], ["wait", "대기", "bg-status-waiting"], ["over", "기한 초과", "bg-flag-overdue"]] as [Focus, string, string][]).map(([f, label, dot]) => (
             <button key={f} type="button" aria-pressed={focus === f} onClick={() => setFocus(f)}
@@ -520,7 +556,7 @@ export default function WorkflowCanvas({ tasks, workstreams, members, onSelect }
           {/* lanes */}
           {layout.lanes.map((l, i) => (
             <div key={l.key}>
-              {i > 0 && <div className="absolute h-px bg-separator/70" style={{ top: l.y - LANE_GAP / 2, left: 0, width: LANEPAD + 4 * COLW }} />}
+              {i > 0 && <div className="absolute h-px bg-separator/70" style={{ top: l.y - LANE_GAP / 2, left: 0, width: LANEPAD + STAGE_COUNT * COLW }} />}
               <div className="absolute flex flex-col gap-1.5 rounded-xl border border-separator bg-surface/75 p-3 backdrop-blur" style={{ top: l.y + 8, left: 0, width: LANEPAD - 16 }}>
                 <div className="flex items-center gap-2 text-[13px] font-semibold text-text">
                   {l.avatar ? <span className="grid size-5 place-items-center rounded-full text-[9px] font-bold text-white" style={{ background: l.color }}>{l.avatar}</span> : <span className="size-2.5 rounded" style={{ background: l.color }} />}
