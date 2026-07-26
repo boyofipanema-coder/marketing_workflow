@@ -405,6 +405,13 @@ export interface WorkflowCanvasProps {
   /** Controls the focus filter from outside (e.g. the project summary strip). */
   focus?: Focus;
   onFocusChange?: (focus: Focus) => void;
+  /**
+   * Height of the pan/zoom stage. Defaults to "everything the viewport has left
+   * under the page chrome" — the board is the workspace, so it should claim the
+   * screen rather than sit in a fixed-height window. Callers with more chrome
+   * above them (a project header, tabs) pass a larger subtrahend.
+   */
+  stageHeightClass?: string;
 }
 
 export default function WorkflowCanvas({
@@ -417,6 +424,9 @@ export default function WorkflowCanvas({
   onAddTask,
   focus: focusProp,
   onFocusChange,
+  // 8.5rem = nav 3rem + page padding + the count row + this component's own
+  // toolbar. Measured, not guessed: leaves the stage ~85% of the viewport.
+  stageHeightClass = "h-[calc(100dvh-8.5rem)]",
 }: WorkflowCanvasProps) {
   const [groupBy, setGroupBy] = useState<GroupBy>(defaultGroupBy);
   const [focusState, setFocusState] = useState<Focus>("all");
@@ -649,7 +659,7 @@ export default function WorkflowCanvas({
 
       {/* viewport */}
       <div ref={stageRef} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerLeave={onPointerUp}
-        className="relative h-[72vh] min-h-[440px] w-full cursor-grab touch-none select-none overflow-hidden border-y border-separator bg-surface-2/40"
+        className={cn("relative min-h-[440px] w-full cursor-grab touch-none select-none overflow-hidden border-y border-separator bg-surface-2/40", stageHeightClass)}
         style={{ backgroundImage: "radial-gradient(rgb(var(--text-quaternary)/0.28) 1px, transparent 1.4px)", backgroundSize: "24px 24px" }}>
         <div ref={worldRef} className="absolute left-0 top-0 origin-top-left will-change-transform">
           {/* columns */}

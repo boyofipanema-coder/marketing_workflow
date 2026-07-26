@@ -26,8 +26,8 @@ export default async function AppLayout({
   return (
     <div className="min-h-screen bg-bg">
       <NavBar />
-      {/* Offset for the fixed 56px (h-14) nav */}
-      <main className="pt-14">{children}</main>
+      {/* Offset for the fixed 48px (h-12) nav */}
+      <main className="pt-12">{children}</main>
     </div>
   );
 }

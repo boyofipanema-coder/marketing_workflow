@@ -56,7 +56,9 @@ export default function NavBar() {
   return (
     <>
       {/* ── Top bar — translucent chrome; content scrolls underneath ──────── */}
-      <header className="material-chrome fixed inset-x-0 top-0 z-40 h-14">
+      {/* 48px, not 56 — chrome should cost the workspace as little vertical
+          space as possible while keeping 44px touch targets inside it. */}
+      <header className="material-chrome fixed inset-x-0 top-0 z-40 h-12">
         <div className="mx-auto flex h-full max-w-7xl items-center gap-5 px-4 sm:px-6">
           {/* Wordmark — editorial serif accent */}
           <Link

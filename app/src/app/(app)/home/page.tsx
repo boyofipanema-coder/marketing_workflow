@@ -27,7 +27,6 @@ export default async function HomePage() {
   return (
     <HomeContent
       viewerId={viewer.id}
-      viewerName={viewer.name}
       tasks={tasks}
       projects={projects}
       workstreams={workstreams}

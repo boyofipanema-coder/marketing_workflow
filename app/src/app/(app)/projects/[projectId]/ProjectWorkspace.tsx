@@ -260,6 +260,9 @@ export default function ProjectWorkspace({
               onAddTask={archived ? undefined : addTask}
               focus={boardFocus}
               onFocusChange={setBoardFocus}
+              // Project header, pulse strip and tabs sit above the board here,
+              // so the stage gets what is left rather than Home's allowance.
+              stageHeightClass="h-[calc(100dvh-20rem)]"
             />
           ) : (
             // An empty board is the first thing a new project shows, so it has

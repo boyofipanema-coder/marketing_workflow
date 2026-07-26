@@ -2,14 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus } from "lucide-react";
-import { Button } from "@/components/ui";
 import TaskSection from "@/components/tasks/TaskSection";
 import TaskDetailPanel from "@/components/tasks/TaskDetailPanel";
-import InlineAdd from "@/components/tasks/InlineAdd";
 import WorkflowCanvas, { type Focus } from "@/components/workflow/WorkflowCanvas";
 import { useTaskController } from "@/components/tasks/useTaskController";
-import { createTaskAction } from "@/app/actions/tasks";
 import {
   myFocus,
   needsAttention,
@@ -21,7 +17,6 @@ import type { Task, Project, Workstream, Member } from "@/server/db/schema";
 
 export interface HomeContentProps {
   viewerId: string;
-  viewerName: string;
   tasks: Task[];
   projects: Project[];
   workstreams: Workstream[];
@@ -37,7 +32,6 @@ export interface HomeContentProps {
  */
 export default function HomeContent({
   viewerId,
-  viewerName,
   tasks,
   projects,
   workstreams,
@@ -46,8 +40,6 @@ export default function HomeContent({
   const router = useRouter();
   const controller = useTaskController(tasks);
   const { store } = controller;
-  const [addOpen, setAddOpen] = useState(false);
-  const [addError, setAddError] = useState<string | null>(null);
   const [boardFocus, setBoardFocus] = useState<Focus>("all");
   // The board is the landing view. On a phone it is unreadable, so the personal
   // lists lead there instead; server and first client render agree on the board.
@@ -84,17 +76,6 @@ export default function HomeContent({
     };
   }, [controller.tasks, viewerId]);
 
-  async function quickAdd(title: string) {
-    const result = await createTaskAction(title);
-    if (!result.success) {
-      setAddError(result.error ?? "업무를 추가하지 못했습니다.");
-      return false;
-    }
-    setAddError(null);
-    router.refresh();
-    return true;
-  }
-
   const boardTasks = useMemo(
     () => controller.tasks.filter((t) => !t.cancelled_at),
     [controller.tasks]
@@ -113,40 +94,16 @@ export default function HomeContent({
 
   return (
     <>
-      <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-10">
-        <header className="mb-8 flex items-start justify-between gap-4">
-          <div>
-            <h1 className="font-serif text-2xl font-semibold leading-tight text-text">
-              홈
-            </h1>
-            <p className="mt-1.5 text-sm text-text-secondary">
-              {viewerName ? `${viewerName}님, ` : ""}
-              지금 챙겨야 할 업무입니다.
-            </p>
-          </div>
-
-          <Button
-            variant="primary"
-            onClick={() => setAddOpen((v) => !v)}
-            className="flex-shrink-0"
-          >
-            <Plus aria-hidden />
-            업무 추가
-          </Button>
-        </header>
-
-        {addOpen && (
-          <div className="mb-8">
-            <InlineAdd
-              onAdd={quickAdd}
-              label="업무 추가"
-              placeholder="해야 할 업무를 입력하고 Enter"
-            />
-            {addError && (
-              <p role="alert" className="mt-2 text-xs text-flag-blocked">
-                {addError}
-              </p>
-            )}
+      {/* No page title. "홈" is already the selected item in the nav, and a
+          2rem serif heading plus a greeting cost ~150px of the workspace to
+          repeat something the user just clicked. The board starts here. */}
+      <div className="mx-auto max-w-5xl px-4 py-3 sm:px-6 sm:py-4">
+        {/* Workspace counts only. Adding a task is a global action and already
+            lives in the top bar — a second identical button here was the same
+            command twice, 40px apart. */}
+        {showBoard && boardTasks.length > 0 && (
+          <div className="mb-2 text-xs text-text-tertiary">
+            진행 중인 프로젝트 {projects.length}개 · 업무 {boardTasks.length}건
           </div>
         )}
 
@@ -163,14 +120,6 @@ export default function HomeContent({
             project, before any personal list. */}
         {showBoard && boardTasks.length > 0 && (
           <section className="mb-10" aria-label="전체 업무 흐름">
-            <div className="mb-3 flex items-baseline justify-between gap-3">
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-text-secondary">
-                업무 흐름
-              </h2>
-              <span className="text-xs text-text-tertiary">
-                진행 중인 프로젝트 {projects.length}개 · 업무 {boardTasks.length}건
-              </span>
-            </div>
             <WorkflowCanvas
               tasks={boardTasks}
               workstreams={workstreams}
