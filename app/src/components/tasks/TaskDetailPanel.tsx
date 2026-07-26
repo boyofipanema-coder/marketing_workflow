@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
   X,
@@ -15,6 +16,7 @@ import { cn } from "@/lib/utils";
 import { TASK_STATUSES, STATUS_META } from "@/lib/status";
 import { todayKST } from "@/lib/derive";
 import type { Task, Project, Workstream, Member } from "@/server/db/schema";
+import { addDependencyAction, removeDependencyAction } from "@/app/actions/tasks";
 import type { TaskPatchInput } from "@/app/actions/tasks";
 import type { SaveState } from "./useTaskStore";
 
@@ -26,6 +28,10 @@ export interface TaskDetailPanelProps {
   /** Every workstream the viewer can see; filtered to the task's project here. */
   workstreams: Workstream[];
   members: Member[];
+  /** All tasks, so a predecessor can be picked. Omit to hide the section. */
+  allTasks?: Task[];
+  /** successorId → predecessorId[]. */
+  dependencies?: Record<string, string[]>;
   open: boolean;
   saveState: SaveState;
   /** Present when the last write lost a version race. */
@@ -79,6 +85,8 @@ export default function TaskDetailPanel({
   projects,
   workstreams,
   members,
+  allTasks,
+  dependencies,
   open,
   saveState,
   error,
@@ -95,6 +103,8 @@ export default function TaskDetailPanel({
     party: string;
     date: string;
   } | null>(null);
+  const [depError, setDepError] = useState<string | null>(null);
+  const router = useRouter();
   const descriptionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingDescription = useRef<string | null>(null);
 
@@ -449,6 +459,65 @@ export default function TaskDetailPanel({
                     </button>
                   )}
                 </>
+              )}
+
+              {allTasks && (
+                <Field label="선행 업무" htmlFor="task-predecessor">
+                  <div className="flex flex-col gap-1.5">
+                    {(dependencies?.[task.id] ?? []).map((pid) => {
+                      const p = allTasks.find((t) => t.id === pid);
+                      if (!p) return null;
+                      return (
+                        <div key={pid} className="flex items-center gap-2 rounded-lg border border-separator px-2.5 py-1.5">
+                          <span className={cn("size-2 shrink-0 rounded-full", p.status === "Done" ? "bg-status-done" : "bg-status-todo")} />
+                          <span className="flex-1 truncate text-sm">{p.title}</span>
+                          <button
+                            type="button"
+                            aria-label="선행 업무 해제"
+                            disabled={readOnly}
+                            onClick={async () => {
+                              await removeDependencyAction(pid, task.id);
+                              router.refresh();
+                            }}
+                            className="text-text-tertiary hover:text-flag-blocked"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                    <select
+                      id="task-predecessor"
+                      value=""
+                      disabled={readOnly}
+                      className={selectClass}
+                      onChange={async (e) => {
+                        if (!e.target.value) return;
+                        const res = await addDependencyAction(e.target.value, task.id);
+                        if (!res.success) setDepError(res.error ?? "연결하지 못했습니다.");
+                        else { setDepError(null); router.refresh(); }
+                      }}
+                    >
+                      <option value="">선행 업무 추가…</option>
+                      {allTasks
+                        .filter(
+                          (t) =>
+                            t.id !== task.id &&
+                            t.project_id === task.project_id &&
+                            !t.cancelled_at &&
+                            !(dependencies?.[task.id] ?? []).includes(t.id)
+                        )
+                        .map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.title}
+                          </option>
+                        ))}
+                    </select>
+                    {depError && (
+                      <p role="alert" className="text-xs text-flag-blocked">{depError}</p>
+                    )}
+                  </div>
+                </Field>
               )}
 
               <Field label="프로젝트" htmlFor="task-project">

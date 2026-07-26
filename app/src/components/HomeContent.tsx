@@ -21,6 +21,7 @@ export interface HomeContentProps {
   projects: Project[];
   workstreams: Workstream[];
   members: Member[];
+  dependencies?: Record<string, string[]>;
 }
 
 /**
@@ -36,6 +37,7 @@ export default function HomeContent({
   projects,
   workstreams,
   members,
+  dependencies,
 }: HomeContentProps) {
   const router = useRouter();
   const controller = useTaskController(tasks);
@@ -129,6 +131,7 @@ export default function HomeContent({
               onSelect={controller.select}
               focus={boardFocus}
               onFocusChange={setBoardFocus}
+              dependencies={dependencies}
             />
           </section>
         )}
@@ -187,6 +190,8 @@ export default function HomeContent({
         projects={projects}
         workstreams={workstreams}
         members={members}
+        allTasks={controller.tasks}
+        dependencies={dependencies}
         open={controller.panelOpen}
         saveState={
           controller.selected ? store.stateOf(controller.selected.id) : "idle"

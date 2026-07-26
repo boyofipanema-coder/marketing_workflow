@@ -14,6 +14,7 @@ import MilestoneManager from "@/components/projects/MilestoneManager";
 import WorkflowCanvas, { type Focus } from "@/components/workflow/WorkflowCanvas";
 import ProjectPulse from "@/components/projects/ProjectPulse";
 import { createProjectTaskAction } from "@/app/actions/tasks";
+import { createMilestoneAction } from "@/app/actions/milestones";
 import {
   archiveProjectAction,
   restoreProjectAction,
@@ -33,6 +34,7 @@ export interface ProjectWorkspaceProps {
   allProjects: Project[];
   /** Workstreams across the workspace, for the detail panel's picker. */
   allWorkstreams: Workstream[];
+  dependencies?: Record<string, string[]>;
 }
 
 type Tab = "workflow" | "tasks" | "settings";
@@ -64,6 +66,7 @@ export default function ProjectWorkspace({
   viewerId,
   allProjects,
   allWorkstreams,
+  dependencies,
 }: ProjectWorkspaceProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<Tab>("workflow");
@@ -263,6 +266,13 @@ export default function ProjectWorkspace({
               // Project header, pulse strip and tabs sit above the board here,
               // so the stage gets what is left rather than Home's allowance.
               stageHeightClass="h-[calc(100dvh-20rem)]"
+              dependencies={dependencies}
+              projectId={project.id}
+              onAddMilestone={async (pid, name, due) => {
+                const r = await createMilestoneAction(pid, name, due);
+                if (!r.success) setProjectError(r.error ?? "마일스톤을 추가하지 못했습니다.");
+                return r.success;
+              }}
             />
           ) : (
             // An empty board is the first thing a new project shows, so it has
@@ -331,6 +341,8 @@ export default function ProjectWorkspace({
         projects={allProjects}
         workstreams={allWorkstreams}
         members={memberList}
+        allTasks={controller.tasks}
+        dependencies={dependencies}
         open={controller.panelOpen}
         saveState={
           controller.selected ? store.stateOf(controller.selected.id) : "idle"

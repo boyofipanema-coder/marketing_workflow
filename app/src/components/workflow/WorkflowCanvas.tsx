@@ -172,8 +172,8 @@ interface Layout {
   nodes: Positioned[];
   rails: Rail[];
   overflow: { cellKey: string; x: number; y: number; count: number; open: boolean }[];
-  /** Only real, stored relationships. `parent` = "belongs under". */
-  edges: { d: string; laneKey: string; kind: "parent" }[];
+  /** Only real, stored relationships. `parent` = belongs under, `dep` = blocks. */
+  edges: { d: string; laneKey: string; kind: "parent" | "dep" }[];
   worldW: number;
   worldH: number;
 }
@@ -220,6 +220,7 @@ function computeLayout(
   cellsOpen: Set<string>,
   subsOpen: Set<string>,
   addingId: string | null,
+  dependencies: Record<string, string[]> | undefined,
 ): Layout {
   // Lane membership is decided by the root of a task's tree, so a promoted
   // descendant always appears in the same band as the work it belongs to.
@@ -387,6 +388,24 @@ function computeLayout(
     });
   }
 
+  // Real finish-to-start edges. Drawn solid because unlike the old stage line
+  // these correspond to a row someone created.
+  for (const [succId, preds] of Object.entries(dependencies ?? {})) {
+    const b = posOf.get(succId);
+    if (!b) continue;
+    for (const predId of preds) {
+      const a = posOf.get(predId);
+      if (!a) continue;
+      const ax = a.x + NODEW, ay = a.y + 30, bx = b.x, by = b.y + 30;
+      const mx = (ax + bx) / 2;
+      edges.push({
+        d: `M ${ax} ${ay} C ${mx} ${ay}, ${mx} ${by}, ${bx} ${by}`,
+        laneKey: laneKeyOf(b.task),
+        kind: "dep",
+      });
+    }
+  }
+
   return { lanes: laneOut, columns, nodes, rails, overflow, edges, worldW: LANEPAD + STAGE_COUNT * COLW + 40, worldH: contentBottom + 40 };
 }
 
@@ -412,6 +431,12 @@ export interface WorkflowCanvasProps {
    * above them (a project header, tabs) pass a larger subtrahend.
    */
   stageHeightClass?: string;
+  /** successorId → predecessorId[]. Only these get a solid line. */
+  dependencies?: Record<string, string[]>;
+  /** Creates a milestone in the given project. Omit to hide the rail's +. */
+  onAddMilestone?: (projectId: string, name: string, dueDate: string) => Promise<boolean>;
+  /** Project every rail belongs to, when the board shows exactly one. */
+  projectId?: string;
 }
 
 export default function WorkflowCanvas({
@@ -427,6 +452,9 @@ export default function WorkflowCanvas({
   // 8.5rem = nav 3rem + page padding + the count row + this component's own
   // toolbar. Measured, not guessed: leaves the stage ~85% of the viewport.
   stageHeightClass = "h-[calc(100dvh-8.5rem)]",
+  dependencies,
+  onAddMilestone,
+  projectId,
 }: WorkflowCanvasProps) {
   const [groupBy, setGroupBy] = useState<GroupBy>(defaultGroupBy);
   const [focusState, setFocusState] = useState<Focus>("all");
@@ -457,8 +485,8 @@ export default function WorkflowCanvas({
   );
 
   const layout = useMemo(
-    () => computeLayout(placed, roots, milestones, childMap, laneOf, parentOf, workstreams, members, projects ?? [], groupBy, cellsOpen, subsOpen, addingFor),
-    [placed, roots, milestones, childMap, laneOf, parentOf, workstreams, members, projects, groupBy, cellsOpen, subsOpen, addingFor],
+    () => computeLayout(placed, roots, milestones, childMap, laneOf, parentOf, workstreams, members, projects ?? [], groupBy, cellsOpen, subsOpen, addingFor, dependencies),
+    [placed, roots, milestones, childMap, laneOf, parentOf, workstreams, members, projects, groupBy, cellsOpen, subsOpen, addingFor, dependencies],
   );
 
   // open the inline subtask composer under a card
@@ -490,6 +518,21 @@ export default function WorkflowCanvas({
       }
     });
   }
+
+  // Level of detail. Below 70% the small type is unreadable anyway, so it is
+  // dropped rather than rendered as noise — title, status and the key badge are
+  // what survive, plus the rails, which is the structure you zoom out to see.
+  const lod: "full" | "compact" = zoomPct >= 70 ? "full" : "compact";
+
+  // A task is blocked while any predecessor is unfinished. Derived, not stored.
+  const blockedBy = useMemo(() => {
+    const byId = new Map(tasks.map((t) => [t.id, t]));
+    const out = new Set<string>();
+    for (const [succId, preds] of Object.entries(dependencies ?? {})) {
+      if (preds.some((p) => byId.get(p)?.status !== "Done")) out.add(succId);
+    }
+    return out;
+  }, [tasks, dependencies]);
 
   const laneKeyOf = (t: Task) => laneOf.get(t.id) ?? laneKeyFor(t, groupBy);
   const matchesFocus = (t: Task) => {
@@ -718,6 +761,27 @@ export default function WorkflowCanvas({
               </div>
               <div className="absolute bg-separator"
                 style={{ left: rail.x + RAIL_LABEL_W, top: rail.y + 13, width: rail.w - RAIL_LABEL_W - 16, height: 1 }} />
+              {onAddMilestone && (projectId || rail.key.startsWith("proj")) && (
+                <button
+                  type="button"
+                  data-ui
+                  onClick={() => {
+                    const name = window.prompt("마일스톤 이름");
+                    if (!name?.trim()) return;
+                    const due = window.prompt("마감일 (YYYY-MM-DD)");
+                    if (!due?.trim()) return;
+                    startTransition(async () => {
+                      const ok = await onAddMilestone(projectId ?? rail.key, name, due);
+                      if (ok) router.refresh();
+                    });
+                  }}
+                  className="absolute grid size-5 place-items-center rounded-md border border-separator bg-surface text-text-tertiary hover:text-accent"
+                  style={{ left: rail.x + rail.w - 26, top: rail.y + 6 }}
+                  aria-label="마일스톤 추가"
+                >
+                  <Plus className="size-3" />
+                </button>
+              )}
               {rail.marks.map((mk) => {
                 const met = mk.task.status === "Done";
                 const late = overdue(mk.task);
@@ -746,6 +810,11 @@ export default function WorkflowCanvas({
 
           {/* edges */}
           <svg className="pointer-events-none absolute left-0 top-0 overflow-visible" width={layout.worldW} height={layout.worldH}>
+            <defs>
+              <marker id="dep-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+                <path d="M 0 1 L 7 4 L 0 7 z" fill="rgb(var(--accent))" />
+              </marker>
+            </defs>
             {layout.edges.map((e, i) => (
               <path
                 key={i}
@@ -753,10 +822,10 @@ export default function WorkflowCanvas({
                 fill="none"
                 strokeLinecap="round"
                 strokeWidth={e.kind === "parent" ? 1.5 : hotLane === e.laneKey ? 2.6 : 2}
-                /* dashed = "belongs under", solid = "flows into"; the two must
-                   never be mistaken for one another */
+                /* dashed = "belongs under", solid = "must finish first" */
                 strokeDasharray={e.kind === "parent" ? "3 4" : undefined}
-                stroke={hotLane === e.laneKey ? "rgb(var(--accent))" : "rgb(var(--text-quaternary)/0.5)"}
+                markerEnd={e.kind === "dep" ? "url(#dep-arrow)" : undefined}
+                stroke={e.kind === "dep" ? "rgb(var(--accent))" : "rgb(var(--text-quaternary)/0.5)"}
                 className="transition-[stroke,stroke-width] duration-200"
               />
             ))}
@@ -811,15 +880,20 @@ export default function WorkflowCanvas({
                       <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10.5px] font-semibold", meta.fill, meta.text)}>
                         <span className={cn("size-1.5 rounded-full", meta.dot)} />{task.status === "Waiting" && !hasKids ? "대기 중" : meta.label}
                       </span>
-                      {task.due_date && <span className={cn("inline-flex items-center gap-1 text-[10.5px] tabular-nums", over ? "font-semibold text-flag-overdue" : "text-text-tertiary")}>{over ? "⚠" : "📅"} {fmtDue(task.due_date)}</span>}
+                      {lod === "full" && task.due_date && <span className={cn("inline-flex items-center gap-1 text-[10.5px] tabular-nums", over ? "font-semibold text-flag-overdue" : "text-text-tertiary")}>{over ? "⚠" : "📅"} {fmtDue(task.due_date)}</span>}
+                      {blockedBy.has(task.id) && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-flag-overdue/10 px-1.5 py-px text-[9.5px] font-semibold text-flag-overdue">
+                          선행 업무 대기
+                        </span>
+                      )}
                       {/* The two facts that make a Waiting task actionable. */}
-                      {task.status === "Waiting" && task.waiting_party_text && (
+                      {lod === "full" && task.status === "Waiting" && task.waiting_party_text && (
                         <span className="w-full truncate text-[10px] text-text-tertiary">
                           {task.waiting_party_text}
                           {task.follow_up_at && ` · ${fmtDue(task.follow_up_at)} 확인`}
                         </span>
                       )}
-                      <span className="ml-auto inline-flex items-center gap-1.5 text-[11px] font-medium text-text-secondary">
+                      <span className={cn("ml-auto inline-flex items-center gap-1.5 text-[11px] font-medium text-text-secondary", lod === "compact" && "hidden")}>
                         {assignee ? <><span className="grid size-[18px] place-items-center rounded-full text-[9px] font-bold text-white" style={{ background: ownerColor(assignee.id) }}>{initials(assignee.name)}</span>{assignee.name.split(" ")[0]}</> : "미지정"}
                       </span>
                     </div>
@@ -830,7 +904,7 @@ export default function WorkflowCanvas({
                   </button>
 
                   {/* subtask meter — the inline-expand toggle */}
-                  {hasKids && (
+                  {hasKids && lod === "full" && (
                     <button type="button" data-ui onClick={() => toggleSub(task.id)}
                       className="flex shrink-0 items-center gap-2 rounded-lg bg-surface-2 px-2.5 py-1.5 transition-colors hover:bg-surface-3">
                       <span className="whitespace-nowrap text-[10.5px] font-semibold tabular-nums text-text-secondary">⤷ 세부 업무 {sd}/{sn}</span>

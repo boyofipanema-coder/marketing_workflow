@@ -14,6 +14,7 @@ import {
   type TaskPatch,
 } from "@/server/services/task";
 import { getCurrentMember } from "@/server/data/queries";
+import { addDependency, removeDependency } from "@/server/services/dependency";
 import { runAction, type ActionResult } from "./result";
 import type { Task } from "@/server/db/schema";
 
@@ -161,6 +162,33 @@ export async function reorderTasksAction(
   const result = await runAction("reorderTasksAction", async () => {
     const { member, db } = await getCurrentMember();
     await reorderTasks(db, member.workspace_id, orderedIds, member.id);
+    return undefined;
+  });
+  if (result.success) revalidateAll();
+  return result;
+}
+
+/** Record that `predecessorId` must finish before `successorId` starts. */
+export async function addDependencyAction(
+  predecessorId: string,
+  successorId: string
+): Promise<ActionResult<undefined>> {
+  const result = await runAction("addDependencyAction", async () => {
+    const { member, db } = await getCurrentMember();
+    await addDependency(db, member.workspace_id, predecessorId, successorId);
+    return undefined;
+  });
+  if (result.success) revalidateAll();
+  return result;
+}
+
+export async function removeDependencyAction(
+  predecessorId: string,
+  successorId: string
+): Promise<ActionResult<undefined>> {
+  const result = await runAction("removeDependencyAction", async () => {
+    const { member, db } = await getCurrentMember();
+    await removeDependency(db, member.workspace_id, predecessorId, successorId);
     return undefined;
   });
   if (result.success) revalidateAll();

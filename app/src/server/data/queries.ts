@@ -13,6 +13,7 @@ import { SESSION_COOKIE_NAME } from "@/server/auth/constants";
 import { task, project, workstream, member } from "@/server/db/schema";
 import type { Task, Project, Workstream, Member } from "@/server/db/schema";
 import type { Database } from "@/server/db/client";
+import { dependencyMap } from "@/server/services/dependency";
 
 // ---------------------------------------------------------------------------
 // Auth helpers
@@ -279,4 +280,17 @@ export async function getWorkspaceMilestones(
     )
     .orderBy(asc(task.due_date));
   return rows.map((r) => r.t);
+}
+
+// ---------------------------------------------------------------------------
+// Dependencies
+// ---------------------------------------------------------------------------
+
+/** successorId → predecessorId[] for the whole workspace. */
+export async function getDependencyMap(
+  db: Database,
+  workspaceId: string
+): Promise<Record<string, string[]>> {
+  const map = await dependencyMap(db, workspaceId);
+  return Object.fromEntries(map);
 }
