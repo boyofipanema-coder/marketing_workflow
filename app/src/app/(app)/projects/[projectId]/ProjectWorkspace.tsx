@@ -277,8 +277,8 @@ export default function ProjectWorkspace({
               // Project header, pulse strip and tabs sit above the board here,
               // so the stage gets what is left rather than Home's allowance.
               stageHeightClass="h-[calc(100dvh-20rem)]"
-              dependencies={dependencies}
               projectId={project.id}
+              dependencies={dependencies}
               onAddMilestone={async (pid, name, due) => {
                 const r = await createMilestoneAction(pid, name, due);
                 if (!r.success) setProjectError(r.error ?? "마일스톤을 추가하지 못했습니다.");
@@ -351,15 +351,12 @@ export default function ProjectWorkspace({
         task={controller.selected}
         projects={allProjects}
         workstreams={allWorkstreams}
-        members={memberList}
-        allTasks={controller.tasks}
-        dependencies={dependencies}
         open={controller.panelOpen}
         saveState={
           controller.selected ? store.stateOf(controller.selected.id) : "idle"
         }
-        error={store.error}
-        conflict={store.conflict}
+        error={controller.selected ? store.errorFor(controller.selected.id).error : null}
+        conflict={controller.selected ? store.errorFor(controller.selected.id).conflict : false}
         onOpenChange={(open) => {
           controller.setPanelOpen(open);
           if (!open) store.dismissError();

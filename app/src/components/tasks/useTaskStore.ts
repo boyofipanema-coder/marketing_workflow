@@ -15,6 +15,15 @@ export interface TaskStore {
   error: string | null;
   /** True when the last failure was a lost version race. */
   conflict: boolean;
+  /**
+   * Same as `error`/`conflict`, but scoped to one task — returns nulled-out
+   * values unless the most recent failure actually belongs to `taskId`. Use
+   * this (not the bare `error`/`conflict` fields) wherever the message is
+   * attached to a specific task's UI (e.g. its detail dialog), so a failure
+   * from editing task A can't surface against task B just because B is what's
+   * open when A's response lands.
+   */
+  errorFor: (taskId: string) => { error: string | null; conflict: boolean };
   dismissError: () => void;
   /**
    * Applies `optimistic` immediately, runs `action`, then reconciles with the
@@ -46,6 +55,8 @@ export function useTaskStore(initial: Task[]): TaskStore {
   const [states, setStates] = useState<Record<string, SaveState>>({});
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
+  /** Which task the current error/conflict belongs to (null once dismissed). */
+  const [errorTaskId, setErrorTaskId] = useState<string | null>(null);
 
   const signature = useMemo(
     () => initial.map((t) => `${t.id}:${t.version}`).join(","),
@@ -77,6 +88,7 @@ export function useTaskStore(initial: Task[]): TaskStore {
         setTasks(rollback);
         setError(result.error ?? "저장하지 못했습니다.");
         setConflict(Boolean(result.conflict));
+        setErrorTaskId(taskId);
         setState(taskId, "error");
         // A conflict means our snapshot is stale; pull the current rows so the
         // user is re-applying their change on top of the winning value.
@@ -90,6 +102,7 @@ export function useTaskStore(initial: Task[]): TaskStore {
       }
       setError(null);
       setConflict(false);
+      setErrorTaskId(null);
       setState(taskId, "saved");
       return true;
     },
@@ -122,6 +135,7 @@ export function useTaskStore(initial: Task[]): TaskStore {
   const dismissError = useCallback(() => {
     setError(null);
     setConflict(false);
+    setErrorTaskId(null);
   }, []);
 
   const stateOf = useCallback(
@@ -129,5 +143,11 @@ export function useTaskStore(initial: Task[]): TaskStore {
     [states]
   );
 
-  return { tasks, stateOf, error, conflict, dismissError, mutate, reorder };
+  const errorFor = useCallback(
+    (taskId: string) =>
+      errorTaskId === taskId ? { error, conflict } : { error: null, conflict: false },
+    [errorTaskId, error, conflict]
+  );
+
+  return { tasks, stateOf, error, conflict, errorFor, dismissError, mutate, reorder };
 }

@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { X, Loader2 } from "lucide-react";
+import { X, Loader2, Archive } from "lucide-react";
 import { Button, Input } from "@/components/ui";
 import {
   createProjectAction,
   editProjectAction,
+  archiveProjectAction,
 } from "@/app/actions/projects";
 import type { Brand, Project, Member } from "@/server/db/schema";
 
@@ -106,13 +107,33 @@ export default function ProjectFormDialog({
     onOpenChange(false);
   }
 
+  async function handleArchive() {
+    if (!project) return;
+    if (!window.confirm(`"${project.name}"을(를) 보관할까요? 보드에서 사라지지만 데이터는 남고, 나중에 복구할 수 있습니다.`)) return;
+    setBusy(true);
+    setError(null);
+    const result = await archiveProjectAction(project.id);
+    setBusy(false);
+    if (!result.success) {
+      setError(result.error ?? "보관하지 못했습니다.");
+      return;
+    }
+    if (result.data) onSaved?.(result.data);
+    onOpenChange(false);
+  }
+
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-40 bg-[rgb(var(--material-scrim))] backdrop-blur-sm data-[state=open]:animate-fade-in" />
-        <Dialog.Content className="fixed inset-x-0 bottom-0 z-50 max-h-[90vh] overflow-y-auto rounded-t-2xl border border-separator bg-elevated p-5 shadow-xl data-[state=open]:animate-scale-in sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:w-full sm:max-w-lg sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl">
+        {/* Animation lives on the inner wrapper, not here: the scale-in
+            keyframe sets a bare `transform: scale()`, which would otherwise
+            permanently clobber the -translate-1/2 centering below once the
+            animation's fill-mode holds its last frame. */}
+        <Dialog.Content className="group fixed inset-x-0 bottom-0 z-50 max-h-[90vh] overflow-y-auto rounded-t-2xl border border-separator bg-elevated shadow-xl sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:w-full sm:max-w-lg sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl">
+        <div className="p-5 group-data-[state=open]:animate-scale-in">
           <div className="mb-4 flex items-start justify-between gap-4">
-            <Dialog.Title className="font-serif text-lg font-semibold text-text">
+            <Dialog.Title className="text-lg font-semibold text-text">
               {editing ? "프로젝트 수정" : "새 프로젝트"}
             </Dialog.Title>
             <Dialog.Close asChild>
@@ -242,18 +263,35 @@ export default function ProjectFormDialog({
               </div>
             </div>
 
-            <div className="mt-1 flex justify-end gap-2">
-              <Dialog.Close asChild>
-                <Button type="button" variant="ghost">
-                  취소
+            <div className="mt-1 flex items-center justify-between gap-2">
+              {editing ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={handleArchive}
+                  disabled={busy}
+                  className="text-flag-blocked hover:bg-flag-blocked/10"
+                >
+                  <Archive className="h-4 w-4" aria-hidden />
+                  보관
                 </Button>
-              </Dialog.Close>
-              <Button type="submit" variant="primary" disabled={busy}>
-                {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
-                {editing ? "저장" : "프로젝트 만들기"}
-              </Button>
+              ) : (
+                <span />
+              )}
+              <div className="flex gap-2">
+                <Dialog.Close asChild>
+                  <Button type="button" variant="ghost">
+                    취소
+                  </Button>
+                </Dialog.Close>
+                <Button type="submit" variant="primary" disabled={busy}>
+                  {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
+                  {editing ? "저장" : "프로젝트 만들기"}
+                </Button>
+              </div>
             </div>
           </form>
+        </div>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

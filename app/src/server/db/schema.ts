@@ -27,6 +27,7 @@ export const brand = sqliteTable("brand", {
   name: text("name").notNull(),
   /** Brand identity only. Status colours remain reserved for work state. */
   color: text("color").notNull().default("#0a84ff"),
+  sort_order: integer("sort_order").notNull().default(999),
   archived_at: text("archived_at"),
   created_at: text("created_at").notNull(),
   updated_at: text("updated_at").notNull(),

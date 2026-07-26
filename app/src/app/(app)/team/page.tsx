@@ -13,7 +13,7 @@ export default function TeamPage() {
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <h1 className="font-serif text-xl font-semibold text-text">팀</h1>
+          <h1 className="text-xl font-semibold text-text">팀</h1>
           <p className="text-sm text-text-secondary max-w-xs leading-relaxed">
             팀 디렉터리, 업무량 현황, 담당 배정 기능은 이후 마일스톤에서 제공될 예정입니다.
           </p>

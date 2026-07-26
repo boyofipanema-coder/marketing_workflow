@@ -1,5 +1,9 @@
 import NavBar from "@/components/NavBar";
-import { getCurrentMember } from "@/server/data/queries";
+import {
+  getCurrentMember,
+  getWorkspaceBrands,
+  getWorkspaceMembers,
+} from "@/server/data/queries";
 
 /**
  * Every screen under this layout resolves the current member and reads that
@@ -12,20 +16,24 @@ export const dynamic = "force-dynamic";
 
 /**
  * App shell layout — wraps all app screens.
- * Login is intentionally bypassed at this stage: getCurrentMember auto-enters
- * as the default workspace member when no valid session is present.
+ * Password auth isn't set up yet: getCurrentMember falls back to whoever
+ * picked themselves on /select-member, or redirects there.
  */
 export default async function AppLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  // Resolves a member (real session or default) and warms the request.
-  await getCurrentMember();
+  // Resolves a member (real session or the picked one) and warms the request.
+  const { member: viewer, db } = await getCurrentMember();
+  const [members, brands] = await Promise.all([
+    getWorkspaceMembers(db, viewer.workspace_id),
+    getWorkspaceBrands(db, viewer.workspace_id),
+  ]);
 
   return (
     <div className="min-h-screen bg-bg">
-      <NavBar />
+      <NavBar members={members} brands={brands} viewerId={viewer.id} />
       {/* Offset for the fixed 48px (h-12) nav */}
       <main className="pt-12">{children}</main>
     </div>

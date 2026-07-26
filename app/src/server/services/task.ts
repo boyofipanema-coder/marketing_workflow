@@ -252,12 +252,36 @@ export function applyTaskEdit(
   // Both are required to sit in the state; leaving it clears them so a task
   // that comes back later cannot resurface someone else's stale follow-up.
   if (patch.waiting_party_text !== undefined) {
-    updates.waiting_party_text = patch.waiting_party_text?.trim() || null;
+    const nextParty = patch.waiting_party_text?.trim() || null;
+    if (nextParty !== (current.waiting_party_text ?? null)) {
+      activityRows.push({
+        workspace_id: current.workspace_id,
+        task_id: current.id,
+        actor_id: actorId,
+        change_type: "waiting_party",
+        from_value: current.waiting_party_text ?? null,
+        to_value: nextParty,
+        created_at: now,
+      });
+    }
+    updates.waiting_party_text = nextParty;
   }
   if (patch.follow_up_at !== undefined) {
-    updates.follow_up_at = patch.follow_up_at
+    const nextFollowUp = patch.follow_up_at
       ? validateDate(patch.follow_up_at, "다음 확인일")
       : null;
+    if (nextFollowUp !== (current.follow_up_at ?? null)) {
+      activityRows.push({
+        workspace_id: current.workspace_id,
+        task_id: current.id,
+        actor_id: actorId,
+        change_type: "follow_up_at",
+        from_value: current.follow_up_at ?? null,
+        to_value: nextFollowUp,
+        created_at: now,
+      });
+    }
+    updates.follow_up_at = nextFollowUp;
   }
 
   // Enforced only on the way *in*. Checking it on every write to a Waiting task
@@ -276,7 +300,25 @@ export function applyTaskEdit(
     if (!party) throw new ValidationError("무엇을 기다리는지 입력해 주세요.");
     if (!followUp)
       throw new ValidationError("다음 확인일을 선택해 주세요.");
-  } else if (prevStatus === "Waiting") {
+  } else if (prevStatus === "Waiting" && nextStatus !== "Waiting") {
+    // Only an actual transition *out* of Waiting clears the pair — a patch
+    // that never mentions status (title/description/date edits) must leave
+    // it alone. Log what's being cleared before clearing it (Finding 3) so
+    // "what were we waiting on" survives past the transition.
+    if (current.waiting_party_text || current.follow_up_at) {
+      activityRows.push({
+        workspace_id: current.workspace_id,
+        task_id: current.id,
+        actor_id: actorId,
+        change_type: "waiting_closed",
+        from_value: JSON.stringify({
+          party: current.waiting_party_text,
+          follow_up_at: current.follow_up_at,
+        }),
+        to_value: null,
+        created_at: now,
+      });
+    }
     updates.waiting_party_text = null;
     updates.follow_up_at = null;
   }
@@ -455,15 +497,53 @@ function logRows(rows: Omit<NewActivityLog, "id">[]) {
   return rows.map((row) => ({ id: crypto.randomUUID(), ...row }));
 }
 
+/** Small fixed backoff before retrying a transient write failure. */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Writes the activity_log batch, retrying transient failures a couple of
+ * times before giving up. The version guard in commitVersionedUpdate already
+ * ensures we only reach this after a real, committed task update, so the only
+ * remaining failure mode is this follow-up write itself hitting a transient
+ * D1 error — worth a couple of quick retries rather than silently losing the
+ * task's history. If every attempt fails, the error propagates: the task
+ * update already landed, but the caller sees a failure and the client will
+ * reload the task rather than trust a log that never wrote.
+ */
+async function writeActivityRowsWithRetry(
+  db: Database,
+  rows: NewActivityLog[],
+  attempts = 3
+): Promise<void> {
+  if (rows.length === 0) return;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      await db.batch(
+        rows.map((row) => db.insert(activity_log).values(row)) as never
+      );
+      return;
+    } catch (err) {
+      if (attempt === attempts) throw err;
+      await sleep(25 * attempt);
+    }
+  }
+}
+
 /**
  * Applies the computed updates under a conditional UPDATE that also carries the
  * version check, so two concurrent writers holding the same baseVersion cannot
  * both win. Returns the updated row, or throws StaleVersionError when the guard
  * matched nothing.
  *
- * The activity rows are written in a follow-up batch rather than alongside the
- * UPDATE: a batch cannot be aborted partway, so bundling them would persist log
- * rows for a write that the version guard rejected.
+ * The activity rows are written in a follow-up step rather than alongside the
+ * UPDATE: bundling them into the same batch would insert log rows even when
+ * the version guard rejects the write, since a batch that matches zero rows on
+ * one statement doesn't stop its sibling statements from running. Writing them
+ * only after confirming the UPDATE matched keeps a rejected write from ever
+ * gaining a log entry; writeActivityRowsWithRetry keeps a *successful* write
+ * from silently losing its log entry to a transient failure in this second step.
  */
 async function commitVersionedUpdate(
   db: Database,
@@ -490,13 +570,7 @@ async function commitVersionedUpdate(
     throw new StaleVersionError();
   }
 
-  if (activityRows.length > 0) {
-    await db.batch(
-      logRows(activityRows).map((row) =>
-        db.insert(activity_log).values(row)
-      ) as never
-    );
-  }
+  await writeActivityRowsWithRetry(db, logRows(activityRows));
 
   return (updated[0] ?? { ...current, ...updates }) as Task;
 }

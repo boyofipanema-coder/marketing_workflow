@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
   X,
@@ -13,10 +12,15 @@ import {
   CalendarClock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { TASK_STATUSES, STATUS_META } from "@/lib/status";
+import {
+  DISPLAY_STATUS_GROUPS,
+  DISPLAY_GROUP_META,
+  displayGroup,
+} from "@/lib/status";
 import { todayKST } from "@/lib/derive";
+import { createRequestGuard } from "@/lib/request-guard";
 import type { Task, Project, Workstream, Member } from "@/server/db/schema";
-import { addDependencyAction, removeDependencyAction, getTaskActivityAction } from "@/app/actions/tasks";
+import { getTaskActivityAction } from "@/app/actions/tasks";
 import type { ActivityEntry } from "@/server/data/queries";
 import type { TaskPatchInput } from "@/app/actions/tasks";
 import type { SaveState } from "./useTaskStore";
@@ -28,11 +32,6 @@ export interface TaskDetailPanelProps {
   projects: Project[];
   /** Every workstream the viewer can see; filtered to the task's project here. */
   workstreams: Workstream[];
-  members: Member[];
-  /** All tasks, so a predecessor can be picked. Omit to hide the section. */
-  allTasks?: Task[];
-  /** successorId → predecessorId[]. */
-  dependencies?: Record<string, string[]>;
   open: boolean;
   saveState: SaveState;
   /** Present when the last write lost a version race. */
@@ -100,9 +99,6 @@ export default function TaskDetailPanel({
   task,
   projects,
   workstreams,
-  members,
-  allTasks,
-  dependencies,
   open,
   saveState,
   error,
@@ -119,11 +115,10 @@ export default function TaskDetailPanel({
     party: string;
     date: string;
   } | null>(null);
-  const [depError, setDepError] = useState<string | null>(null);
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
-  const router = useRouter();
   const descriptionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingDescription = useRef<string | null>(null);
+  const activityGuard = useRef(createRequestGuard()).current;
 
   const today = useMemo(() => todayKST(new Date()), []);
   const cancelled = task?.cancelled_at !== null && task?.cancelled_at !== undefined;
@@ -138,7 +133,11 @@ export default function TaskDetailPanel({
     setWaitDraft(null);
     setActivity([]);
     const id = task.id;
+    const token = activityGuard.next();
     void getTaskActivityAction(id).then((r) => {
+      // A slower fetch for a task we've since navigated away from must not
+      // overwrite whatever the current task's own fetch already set.
+      if (!activityGuard.isCurrent(token)) return;
       if (r.success && r.data) setActivity(r.data);
     });
   }, [task?.id, task?.version]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -192,7 +191,7 @@ export default function TaskDetailPanel({
   const statusLabel = task
     ? cancelled
       ? "취소됨"
-      : STATUS_META[task.status].label
+      : DISPLAY_GROUP_META[displayGroup(task.status)].label
     : "";
 
   return (
@@ -200,18 +199,25 @@ export default function TaskDetailPanel({
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-40 bg-[rgb(var(--material-scrim))] backdrop-blur-[2px] data-[state=open]:animate-fade-in" />
 
-        {/* Full-screen sheet on mobile, right-hand panel from sm up. */}
+        {/* Full-screen sheet on mobile; a centered dialog from sm up — plain
+            fade/scale from its own center, no card-origin transform tracking.
+            Positioning (incl. the centering translate) lives on this element;
+            the scale-in keyframe sets a bare `transform: scale()`, which would
+            otherwise permanently clobber that translate once the animation's
+            fill-mode holds its last frame — so the animation goes on the inner
+            wrapper below instead, each element owning its own transform. */}
         <Dialog.Content
           aria-describedby={undefined}
           className="
             material-panel material-edge
-            fixed inset-0 z-50 flex flex-col
-            sm:left-auto sm:right-0 sm:top-0 sm:h-full sm:w-full sm:max-w-md
-            sm:border-l sm:border-separator sm:shadow-xl
+            group fixed inset-0 z-50 overflow-hidden
+            sm:inset-auto sm:left-1/2 sm:top-1/2 sm:h-auto sm:max-h-[82dvh] sm:w-full sm:max-w-2xl
+            sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl
+            sm:border sm:border-separator sm:shadow-xl
             focus:outline-none
-            data-[state=open]:animate-slide-in-right
           "
         >
+        <div className="flex h-full flex-col group-data-[state=open]:animate-scale-in">
           {/* Header */}
           <header className="flex items-start justify-between gap-3 border-b border-separator px-5 py-4">
             <div className="min-w-0 flex-1">
@@ -332,22 +338,6 @@ export default function TaskDetailPanel({
                 >
                   내일 마감
                 </QuickChip>
-                <QuickChip
-                  disabled={readOnly || task.status === "Review"}
-                  onClick={() => {
-                    // Review needs someone to review it — default to the
-                    // reviewer already on the task, else the first teammate
-                    // who is not the assignee.
-                    const fallback = members.find(
-                      (m) => m.id !== task.assignee_id
-                    );
-                    const reviewerId = task.reviewer_id ?? fallback?.id ?? null;
-                    if (!reviewerId) return;
-                    void patch({ status: "Review", reviewer_id: reviewerId });
-                  }}
-                >
-                  검토 요청
-                </QuickChip>
                 {/* Importance, not status — a subtask can be the most
                     consequential thing in the project. */}
                 <QuickChip
@@ -360,17 +350,6 @@ export default function TaskDetailPanel({
                   }
                 >
                   핵심 업무
-                </QuickChip>
-                <QuickChip
-                  disabled={readOnly}
-                  active={task.status === "Done"}
-                  onClick={() =>
-                    void patch({
-                      status: task.status === "Done" ? "ToDo" : "Done",
-                    })
-                  }
-                >
-                  {task.status === "Done" ? "완료 해제" : "완료"}
                 </QuickChip>
               </div>
 
@@ -389,30 +368,49 @@ export default function TaskDetailPanel({
               </Field>
 
               <Field label="진행 상태" htmlFor="task-status">
-                <select
+                <div
                   id="task-status"
-                  value={waitDraft ? "Waiting" : task.status}
-                  disabled={readOnly}
-                  onChange={(e) => {
-                    const next = e.target.value as Task["status"];
-                    // Entering Waiting needs a party and a date, and the service
-                    // rejects the move without them — so collect them first and
-                    // send all three together instead of failing on the way in.
-                    if (next === "Waiting" && task.status !== "Waiting") {
-                      setWaitDraft({ party: "", date: "" });
-                      return;
-                    }
-                    setWaitDraft(null);
-                    void patch({ status: next });
-                  }}
-                  className={selectClass}
+                  role="radiogroup"
+                  aria-label="진행 상태"
+                  className="grid grid-cols-3 gap-1 rounded-lg border border-border bg-surface-2 p-1"
                 >
-                  {TASK_STATUSES.map((s) => (
-                    <option key={s} value={s}>
-                      {STATUS_META[s].label}
-                    </option>
-                  ))}
-                </select>
+                  {DISPLAY_STATUS_GROUPS.map((group) => {
+                    const current = waitDraft ? "Waiting" : displayGroup(task.status);
+                    const active = current === group;
+                    return (
+                      <button
+                        key={group}
+                        type="button"
+                        role="radio"
+                        aria-checked={active}
+                        disabled={readOnly}
+                        onClick={() => {
+                          if (group === "Waiting") {
+                            // Entering Waiting needs a party and a date, and the
+                            // service rejects the move without them — so collect
+                            // them first and send all three together instead of
+                            // failing on the way in.
+                            if (task.status !== "Waiting") {
+                              setWaitDraft({ party: "", date: "" });
+                            }
+                            return;
+                          }
+                          setWaitDraft(null);
+                          if (active) return; // already in this group
+                          void patch({ status: group });
+                        }}
+                        className={cn(
+                          "h-9 rounded-md text-sm font-medium transition-colors duration-fast ease-out disabled:opacity-50",
+                          active
+                            ? "bg-surface text-text shadow-sm"
+                            : "text-text-secondary hover:text-text"
+                        )}
+                      >
+                        {DISPLAY_GROUP_META[group].label}
+                      </button>
+                    );
+                  })}
+                </div>
               </Field>
 
               {/* A Waiting task without a who and a when is one nobody ever
@@ -483,65 +481,6 @@ export default function TaskDetailPanel({
                 </>
               )}
 
-              {allTasks && (
-                <Field label="선행 업무" htmlFor="task-predecessor">
-                  <div className="flex flex-col gap-1.5">
-                    {(dependencies?.[task.id] ?? []).map((pid) => {
-                      const p = allTasks.find((t) => t.id === pid);
-                      if (!p) return null;
-                      return (
-                        <div key={pid} className="flex items-center gap-2 rounded-lg border border-separator px-2.5 py-1.5">
-                          <span className={cn("size-2 shrink-0 rounded-full", p.status === "Done" ? "bg-status-done" : "bg-status-todo")} />
-                          <span className="flex-1 truncate text-sm">{p.title}</span>
-                          <button
-                            type="button"
-                            aria-label="선행 업무 해제"
-                            disabled={readOnly}
-                            onClick={async () => {
-                              await removeDependencyAction(pid, task.id);
-                              router.refresh();
-                            }}
-                            className="text-text-tertiary hover:text-flag-blocked"
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      );
-                    })}
-                    <select
-                      id="task-predecessor"
-                      value=""
-                      disabled={readOnly}
-                      className={selectClass}
-                      onChange={async (e) => {
-                        if (!e.target.value) return;
-                        const res = await addDependencyAction(e.target.value, task.id);
-                        if (!res.success) setDepError(res.error ?? "연결하지 못했습니다.");
-                        else { setDepError(null); router.refresh(); }
-                      }}
-                    >
-                      <option value="">선행 업무 추가…</option>
-                      {allTasks
-                        .filter(
-                          (t) =>
-                            t.id !== task.id &&
-                            t.project_id === task.project_id &&
-                            !t.cancelled_at &&
-                            !(dependencies?.[task.id] ?? []).includes(t.id)
-                        )
-                        .map((t) => (
-                          <option key={t.id} value={t.id}>
-                            {t.title}
-                          </option>
-                        ))}
-                    </select>
-                    {depError && (
-                      <p role="alert" className="text-xs text-flag-blocked">{depError}</p>
-                    )}
-                  </div>
-                </Field>
-              )}
-
               {activity.length > 0 && (
                 <Field label="변경 이력">
                   <ul className="flex flex-col gap-1.5">
@@ -601,46 +540,6 @@ export default function TaskDetailPanel({
                   ))}
                 </select>
               </Field>
-
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <Field label="담당자" htmlFor="task-assignee">
-                  <select
-                    id="task-assignee"
-                    value={task.assignee_id ?? ""}
-                    disabled={readOnly}
-                    onChange={(e) =>
-                      void patch({ assignee_id: e.target.value || null })
-                    }
-                    className={selectClass}
-                  >
-                    <option value="">미지정</option>
-                    {members.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.name}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-
-                <Field label="검토자" htmlFor="task-reviewer">
-                  <select
-                    id="task-reviewer"
-                    value={task.reviewer_id ?? ""}
-                    disabled={readOnly}
-                    onChange={(e) =>
-                      void patch({ reviewer_id: e.target.value || null })
-                    }
-                    className={selectClass}
-                  >
-                    <option value="">미지정</option>
-                    {members.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.name}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-              </div>
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field label="시작일" htmlFor="task-start">
@@ -737,6 +636,7 @@ export default function TaskDetailPanel({
               )}
             </footer>
           )}
+        </div>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

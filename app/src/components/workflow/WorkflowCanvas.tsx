@@ -2,14 +2,14 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { Minus, Plus, Maximize2, ChevronRight, CornerDownRight, ArrowUpRight, FolderPlus } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { statusMeta, type TaskStatus } from "@/lib/status";
+import { statusMeta, displayGroup, type TaskStatus } from "@/lib/status";
 import { createSubtaskAction } from "@/app/actions/tasks";
 import InlineAdd from "@/components/tasks/InlineAdd";
 import type { Task, Brand, Workstream, Member, Project } from "@/server/db/schema";
 import { buildBoardGraph, isKey, laneKeyFor, type ChildMap, type GroupBy } from "@/lib/board-graph";
+import { ownerColor, initials } from "@/lib/colors";
 
 /**
  * WorkflowCanvas — a pannable/zoomable swimlane Kanban.
@@ -26,29 +26,21 @@ import { buildBoardGraph, isKey, laneKeyFor, type ChildMap, type GroupBy } from 
  */
 
 // ── stage flow ────────────────────────────────────────────────────────────────
-// Waiting is its own column rather than being folded into "in progress": the
-// board's main job on entry is to show what is moving and what is stuck, and a
-// blocked task hidden inside the in-progress column reads as healthy work.
-const STAGE_LABELS = ["예정", "진행 중", "대기", "검토 중", "완료"] as const;
-const STAGE_TOKENS = [
-  "status-todo",
-  "status-inprogress",
-  "status-waiting",
-  "status-review",
-  "status-done",
-] as const;
+// Three columns, matching the three statuses the product shows everywhere else
+// (lib/status.ts's displayGroup) — Waiting is its own column rather than being
+// folded into "in progress": the board's main job on entry is to show what is
+// moving and what is stuck, and a blocked task hidden inside the in-progress
+// column reads as healthy work.
+const STAGE_LABELS = ["진행 중", "대기", "완료"] as const;
+const STAGE_TOKENS = ["status-inprogress", "status-waiting", "status-done"] as const;
 const STAGE_COUNT = STAGE_LABELS.length;
 
 function stageIndex(s: TaskStatus): number {
-  switch (s) {
-    case "InProgress":
-      return 1;
+  switch (displayGroup(s)) {
     case "Waiting":
-      return 2;
-    case "Review":
-      return 3;
+      return 1;
     case "Done":
-      return 4;
+      return 2;
     default:
       return 0;
   }
@@ -56,9 +48,6 @@ function stageIndex(s: TaskStatus): number {
 const todayStr = () => new Date().toISOString().slice(0, 10);
 function overdue(t: Task): boolean {
   return !!t.due_date && t.status !== "Done" && !t.cancelled_at && t.due_date < todayStr();
-}
-function initials(name?: string): string {
-  return (name ?? "").split(" ").slice(0, 2).map((w) => w[0]).join("").toUpperCase();
 }
 function fmtDue(iso: string): string {
   const x = new Date(iso);
@@ -91,6 +80,7 @@ function visibleRows(t: Task, cm: ChildMap, open: Set<string>): number {
 
 // ── group-by ──────────────────────────────────────────────────────────────────
 const GROUP_OPTS: { id: GroupBy; label: string }[] = [
+  { id: "brand", label: "브랜드" },
   { id: "project", label: "프로젝트" },
   { id: "workstream", label: "업무 영역" },
   { id: "owner", label: "담당자" },
@@ -113,7 +103,8 @@ const TOP = 50;
 // A real hierarchy column, not a caption gutter: project needs enough width
 // to carry its name, objective, progress and direct task creation.
 const LANEPAD = 220;
-const COLW = 252;
+// 5 columns → 3 frees up real width; cards use it instead of leaving it empty.
+const COLW = 340;
 const COLGAP = 18;
 const NODEW = COLW - COLGAP - 6;
 const CARD_BASE = 96; // header block: title + meta (no progress bar — see card render)
@@ -138,14 +129,24 @@ const RAIL_H = 58;
 const RAIL_LABEL_W = 76; // left inset holding the "마일스톤" caption
 const RAIL_GAP = 8;
 
-function cardHeight(t: Task, cm: ChildMap, open: Set<string>, addingId: string | null): number {
+export type Lod = "full" | "compact";
+
+export function cardHeight(
+  t: Task,
+  cm: ChildMap,
+  open: Set<string>,
+  addingId: string | null,
+  lod: Lod = "full"
+): number {
   const hasKids = kids(cm, t.id).length > 0;
   let h = CARD_BASE + (isKey(t) ? KEY_EXTRA : 0);
   if (hasKids) {
     h += METER_H;
     // Subtree size only affects height while the user has it expanded, so a
     // card's resting size reads as importance rather than as child count.
-    if (open.has(t.id)) h += SUB_PAD + visibleRows(t, cm, open) * ROW_H;
+    // Compact never renders the expanded rows (there's no toggle to collapse
+    // them there), so it must not reserve height for them either.
+    if (lod === "full" && open.has(t.id)) h += SUB_PAD + visibleRows(t, cm, open) * ROW_H;
   }
   h += addingId === t.id ? ADD_H : ADDBTN_H; // input while composing, else the add footer
   return h;
@@ -191,7 +192,10 @@ interface Layout {
   nodes: Positioned[];
   rails: Rail[];
   overflow: { cellKey: string; x: number; y: number; count: number; open: boolean }[];
-  /** Only real, stored relationships. `parent` = belongs under, `dep` = blocks. */
+  /** Project sub-headers inside a brand lane's column — the middle tier of
+   * 브랜드-프로젝트-업무 that a flattened brand lane would otherwise lose. */
+  projectHeaders: { key: string; name: string; x: number; y: number }[];
+  /** A dashed tether from a promoted (key) descendant back to its real parent. */
   edges: { d: string; laneKey: string; kind: "parent" | "dep" }[];
   worldW: number;
   worldH: number;
@@ -205,14 +209,7 @@ function dueBucket(due: string | null): { key: string; name: string; color: stri
   if (diff <= 7) return { key: "week", name: "이번 주", color: "rgb(var(--accent))", order: 2 };
   return { key: "later", name: "나중에", color: "rgb(var(--status-inbox))", order: 3 };
 }
-const OWNER_COLORS = ["#0a84ff", "#af52de", "#30b0c7", "#ff9500", "#34c759", "#ff375f"];
 const EMPTY_BRANDS: Brand[] = [];
-function ownerColor(id: string): string {
-  let h = 0;
-  for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-  return OWNER_COLORS[h % OWNER_COLORS.length];
-}
-
 /**
  * Which band a milestone belongs to, or null for "no band on this axis".
  *
@@ -221,9 +218,9 @@ function ownerColor(id: string): string {
  * go on the board rail above all the bands rather than inventing a 미분류 band
  * that holds nothing but markers.
  */
-function milestoneLaneKey(m: Task, groupBy: GroupBy): string | null {
+function milestoneLaneKey(m: Task, groupBy: GroupBy, projectBrand?: Map<string, string>): string | null {
   if (groupBy === "workstream") return m.workstream_id;
-  return laneKeyFor(m, groupBy);
+  return laneKeyFor(m, groupBy, undefined, projectBrand);
 }
 
 function computeLayout(
@@ -242,15 +239,17 @@ function computeLayout(
   cellsOpen: Set<string>,
   subsOpen: Set<string>,
   addingId: string | null,
-  dependencies: Record<string, string[]> | undefined,
+  lod: Lod,
+  projectBrand: Map<string, string>,
+  dependencies?: Record<string, string[]>,
 ): Layout {
   // Lane membership is decided by the root of a task's tree, so a promoted
   // descendant always appears in the same band as the work it belongs to.
-  const laneKeyOf = (t: Task): string => laneOf.get(t.id) ?? laneKeyFor(t, groupBy);
+  const laneKeyOf = (t: Task): string => laneOf.get(t.id) ?? laneKeyFor(t, groupBy, undefined, projectBrand);
   // A band earns its place from milestones too — a project whose only content
   // this quarter is a deadline still has to appear.
   const msIn = (key: string) =>
-    milestones.some((m) => milestoneLaneKey(m, groupBy) === key);
+    milestones.some((m) => milestoneLaneKey(m, groupBy, projectBrand) === key);
 
   let lanes: Lane[] = [];
   if (groupBy === "project") {
@@ -288,15 +287,21 @@ function computeLayout(
     if (roots.some((t) => !t.workstream_id))
       lanes.push({ key: "_other", name: "미분류", color: "rgb(var(--text-quaternary))" });
   } else if (groupBy === "owner") {
-    const seen = new Map<string, Lane>();
-    for (const t of roots) {
-      const key = t.assignee_id ?? "_un";
-      if (!seen.has(key)) {
-        const nm = t.assignee_id ? members[t.assignee_id]?.name ?? "—" : "미지정";
-        seen.set(key, { key, name: nm, color: t.assignee_id ? ownerColor(t.assignee_id) : "rgb(var(--text-quaternary))", avatar: t.assignee_id ? initials(nm) : undefined });
-      }
+    lanes = Object.values(members)
+      .sort((a, b) => a.name.localeCompare(b.name, "ko"))
+      .map((person) => ({
+        key: person.id,
+        name: person.name,
+        color: ownerColor(person.id),
+        avatar: initials(person.name),
+      }));
+    if (roots.some((task) => !task.assignee_id)) {
+      lanes.push({
+        key: "_un",
+        name: "미지정",
+        color: "rgb(var(--text-quaternary))",
+      });
     }
-    lanes = [...seen.values()];
   } else {
     const seen = new Map<string, Lane & { order: number }>();
     for (const t of roots) {
@@ -327,7 +332,7 @@ function computeLayout(
   const msByLane = new Map<string, Task[]>();
   const boardMs: Task[] = [];
   for (const m of milestones) {
-    const key = milestoneLaneKey(m, groupBy);
+    const key = milestoneLaneKey(m, groupBy, projectBrand);
     if (key && laneKeys.has(key)) {
       const arr = msByLane.get(key);
       if (arr) arr.push(m);
@@ -361,6 +366,7 @@ function computeLayout(
   const nodes: Positioned[] = [];
   const rails: Rail[] = [];
   const overflow: Layout["overflow"] = [];
+  const projectHeaders: Layout["projectHeaders"] = [];
   const laneOut: Layout["lanes"] = [];
   const brandOut: Layout["brands"] = [];
   let y = TOP;
@@ -383,11 +389,12 @@ function computeLayout(
     let laneMaxBottom = laneTop + railH + (hierarchyMode ? 166 : CARD_BASE);
     for (let s = 0; s < STAGE_COUNT; s++) {
       const arr = cell.get(`${lane.key}|${s}`) ?? [];
+      const ordered = arr;
       const isOpen = cellsOpen.has(`${lane.key}|${s}`);
-      const shown = isOpen ? arr : arr.slice(0, CAP);
+      const shown = isOpen ? ordered : ordered.slice(0, CAP);
       let cy = laneTop + 10 + railH;
       for (const t of shown) {
-        const h = cardHeight(t, cm, subsOpen, addingId);
+        const h = cardHeight(t, cm, subsOpen, addingId, lod);
         nodes.push({ task: t, x: LANEPAD + s * COLW, y: cy, h });
         cy += h + VGAP;
       }
@@ -510,6 +517,7 @@ function computeLayout(
     nodes,
     rails,
     overflow,
+    projectHeaders,
     edges,
     worldW: LANEPAD + STAGE_COUNT * COLW + 40,
     worldH: contentBottom + 40,
@@ -546,12 +554,14 @@ export interface WorkflowCanvasProps {
    * above them (a project header, tabs) pass a larger subtrahend.
    */
   stageHeightClass?: string;
-  /** successorId → predecessorId[]. Only these get a solid line. */
-  dependencies?: Record<string, string[]>;
   /** Creates a milestone in the given project. Omit to hide the rail's +. */
   onAddMilestone?: (projectId: string, name: string, dueDate: string) => Promise<boolean>;
   /** Project every rail belongs to, when the board shows exactly one. */
   projectId?: string;
+  /** Opens the project edit dialog. Omit to fall back to a plain label. */
+  onEditProject?: (project: Project) => void;
+  /** Successor task id → predecessor task ids. */
+  dependencies?: Record<string, string[]>;
 }
 
 export default function WorkflowCanvas({
@@ -571,9 +581,10 @@ export default function WorkflowCanvas({
   // 8.5rem = nav 3rem + page padding + the count row + this component's own
   // toolbar. Measured, not guessed: leaves the stage ~85% of the viewport.
   stageHeightClass = "h-[calc(100dvh-8.5rem)]",
-  dependencies,
   onAddMilestone,
   projectId,
+  onEditProject,
+  dependencies,
 }: WorkflowCanvasProps) {
   const [groupBy, setGroupBy] = useState<GroupBy>(defaultGroupBy);
   const [focusState, setFocusState] = useState<Focus>("all");
@@ -585,7 +596,6 @@ export default function WorkflowCanvas({
   const [cellsOpen, setCellsOpen] = useState<Set<string>>(new Set());
   const [subsOpen, setSubsOpen] = useState<Set<string>>(new Set());
   const [zoomPct, setZoomPct] = useState(100);
-  const [hotLane, setHotLane] = useState<string | null>(null);
   const [addingFor, setAddingFor] = useState<string | null>(null);
   const [addValue, setAddValue] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
@@ -600,16 +610,31 @@ export default function WorkflowCanvas({
   const stageRef = useRef<HTMLDivElement>(null);
   const worldRef = useRef<HTMLDivElement>(null);
   const view = useRef({ x: 0, y: 8, scale: 1 });
+  const hierarchyView = hierarchyMode && groupBy === "brand";
+  const effectiveGroupBy: GroupBy = hierarchyView ? "project" : groupBy;
+
+  // project_id → brand id, used by the optional Brand axis.
+  const projectBrand = useMemo(
+    () => new Map((projects ?? []).map((p) => [p.id, p.brand_id ?? "_unfiled"])),
+    [projects],
+  );
 
   // Which nodes get a card, and how a promoted one points back at its parent.
   const { childMap, roots, placed, laneOf, parentOf, milestones } = useMemo(
-    () => buildBoardGraph(tasks, groupBy),
-    [tasks, groupBy],
+    () => buildBoardGraph(tasks, effectiveGroupBy, undefined, projectBrand),
+    [tasks, effectiveGroupBy, projectBrand],
   );
 
+  // Level of detail. Below 70% the small type is unreadable anyway, so it is
+  // dropped rather than rendered as noise — title, status and the key badge are
+  // what survive, plus the rails, which is the structure you zoom out to see.
+  // Computed ahead of layout so card geometry (not just what's drawn on top of
+  // it) can shrink to match — see cardHeight's lod parameter.
+  const lod: Lod = zoomPct >= 70 ? "full" : "compact";
+
   const layout = useMemo(
-    () => computeLayout(placed, roots, milestones, childMap, laneOf, parentOf, workstreams, members, brands, projects ?? [], groupBy, hierarchyMode, cellsOpen, subsOpen, addingFor, dependencies),
-    [placed, roots, milestones, childMap, laneOf, parentOf, workstreams, members, brands, projects, groupBy, hierarchyMode, cellsOpen, subsOpen, addingFor, dependencies],
+    () => computeLayout(placed, roots, milestones, childMap, laneOf, parentOf, workstreams, members, brands, projects ?? [], effectiveGroupBy, hierarchyView, cellsOpen, subsOpen, addingFor, lod, projectBrand, dependencies),
+    [placed, roots, milestones, childMap, laneOf, parentOf, workstreams, members, brands, projects, effectiveGroupBy, hierarchyView, cellsOpen, subsOpen, addingFor, lod, projectBrand, dependencies],
   );
 
   // open the inline subtask composer under a card
@@ -665,11 +690,6 @@ export default function WorkflowCanvas({
     });
   }
 
-  // Level of detail. Below 70% the small type is unreadable anyway, so it is
-  // dropped rather than rendered as noise — title, status and the key badge are
-  // what survive, plus the rails, which is the structure you zoom out to see.
-  const lod: "full" | "compact" = zoomPct >= 70 ? "full" : "compact";
-
   // A task is blocked while any predecessor is unfinished. Derived, not stored.
   const blockedBy = useMemo(() => {
     const byId = new Map(tasks.map((t) => [t.id, t]));
@@ -680,9 +700,15 @@ export default function WorkflowCanvas({
     return out;
   }, [tasks, dependencies]);
 
-  const laneKeyOf = (t: Task) => laneOf.get(t.id) ?? laneKeyFor(t, groupBy);
+  const laneKeyOf = (t: Task) => laneOf.get(t.id) ?? laneKeyFor(t, effectiveGroupBy);
   const matchesFocus = (t: Task) => {
-    return focus === "all" ? true : focus === "do" ? t.status === "InProgress" || t.status === "Review" : focus === "wait" ? t.status === "Waiting" : overdue(t);
+    return focus === "all"
+      ? true
+      : focus === "do"
+        ? displayGroup(t.status) === "InProgress"
+        : focus === "wait"
+          ? t.status === "Waiting"
+          : overdue(t);
   };
 
   // ── pan / zoom (imperative) ─────────────────────────────────────────────────
@@ -701,7 +727,10 @@ export default function WorkflowCanvas({
     if (!st) return;
     let scale = Math.min(1, (st.clientWidth - 40) / layout.worldW);
     if (scale < 0.5) scale = 0.5;
-    view.current = { x: Math.max(0, Math.min(40, (st.clientWidth - layout.worldW * scale) / 2)), y: 8, scale };
+    // Center the board when it's narrower than the viewport; flush left
+    // (clamped to 0, not capped at some small max) when it's wider and the
+    // user needs to pan to see the rest.
+    view.current = { x: Math.max(0, (st.clientWidth - layout.worldW * scale) / 2), y: 8, scale };
     setZoomPct(Math.round(scale * 100));
     applyView();
   }
@@ -844,26 +873,29 @@ export default function WorkflowCanvas({
     <div className="relative left-1/2 -ml-[50vw] w-screen">
       {/* toolbar */}
       <div className="mx-auto flex max-w-[1400px] flex-wrap items-center gap-3 px-4 pb-3 sm:px-6" data-ui>
-        {hierarchyMode ? (
-          <div className="flex items-center gap-1.5 text-xs font-semibold text-text-secondary" aria-label="업무 구조">
-            <span className="rounded-md bg-surface-3 px-2.5 py-1 text-text">브랜드</span>
-            <ChevronRight className="size-3.5 text-text-quaternary" aria-hidden />
-            <span className="rounded-md bg-surface-2 px-2.5 py-1 text-text">프로젝트</span>
-            <ChevronRight className="size-3.5 text-text-quaternary" aria-hidden />
-            <span className="px-1 py-1">업무</span>
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">기준</span>
+          <div className="flex gap-0.5 rounded-lg bg-surface-2 p-0.5">
+            {GROUP_OPTS.filter((option) =>
+              hierarchyMode
+                ? option.id !== "project" && (option.id !== "brand" || Boolean(projects))
+                : option.id !== "brand" && (option.id !== "project" || Boolean(projects))
+            ).map((o) => (
+              <button key={o.id} type="button" aria-pressed={groupBy === o.id}
+                onClick={() => { setGroupBy(o.id); setCellsOpen(new Set()); }}
+                className={cn("rounded-md px-2.5 py-1 text-xs font-medium transition-colors", groupBy === o.id ? "bg-surface text-text shadow-xs" : "text-text-secondary hover:text-text")}>
+                {o.label}
+              </button>
+            ))}
           </div>
-        ) : (
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">기준</span>
-            <div className="flex gap-0.5 rounded-lg bg-surface-2 p-0.5">
-              {GROUP_OPTS.filter((o) => o.id !== "project" || projects).map((o) => (
-                <button key={o.id} type="button" aria-pressed={groupBy === o.id}
-                  onClick={() => { setGroupBy(o.id); setCellsOpen(new Set()); }}
-                  className={cn("rounded-md px-2.5 py-1 text-xs font-medium transition-colors", groupBy === o.id ? "bg-surface text-text shadow-xs" : "text-text-secondary hover:text-text")}>
-                  {o.label}
-                </button>
-              ))}
-            </div>
+        </div>
+        {hierarchyView && (
+          <div className="flex items-center gap-1 text-[11px] font-semibold text-text-tertiary" aria-label="업무 구조">
+            브랜드
+            <ChevronRight className="size-3" aria-hidden />
+            프로젝트
+            <ChevronRight className="size-3" aria-hidden />
+            업무
           </div>
         )}
         {onAddTask && (
@@ -936,7 +968,11 @@ export default function WorkflowCanvas({
               {brand.projectCount === 0 && (
                 <div
                   className="absolute text-xs text-text-tertiary"
-                  style={{ top: brand.y + BRAND_HEAD_H + 12, left: 28 }}
+                  style={{
+                    top: brand.y + BRAND_HEAD_H + 12,
+                    left: 28,
+                    width: LANEPAD + STAGE_COUNT * COLW - COLGAP - 56,
+                  }}
                 >
                   프로젝트를 추가하면 이 아래에 업무 흐름이 만들어집니다.
                 </div>
@@ -966,8 +1002,8 @@ export default function WorkflowCanvas({
                 className="absolute rounded-2xl border border-separator/70 bg-surface/40"
                 style={{
                   top: l.y,
-                  left: hierarchyMode ? 18 : 0,
-                  width: LANEPAD + STAGE_COUNT * COLW - COLGAP - (hierarchyMode ? 18 : 0),
+                  left: hierarchyView ? 18 : 0,
+                  width: LANEPAD + STAGE_COUNT * COLW - COLGAP - (hierarchyView ? 18 : 0),
                   height: l.h,
                 }}
               />
@@ -975,34 +1011,43 @@ export default function WorkflowCanvas({
                   so it never competes with the status colours on the cards */}
               <div
                 className="absolute rounded-l-2xl"
-                style={{ top: l.y, left: hierarchyMode ? 18 : 0, width: 3, height: l.h, background: l.color }}
+                style={{ top: l.y, left: hierarchyView ? 18 : 0, width: 3, height: l.h, background: l.color }}
               />
-              <div className="absolute flex flex-col gap-1.5 rounded-xl border border-separator bg-surface/95 p-3 shadow-xs backdrop-blur" style={{ top: l.y + 10, left: hierarchyMode ? 28 : 10, width: hierarchyMode ? LANEPAD - 38 : LANEPAD - 28 }}>
-                {hierarchyMode && (
+              <div className="absolute flex flex-col gap-1.5 rounded-xl border border-separator bg-surface/95 p-3 shadow-xs backdrop-blur" style={{ top: l.y + 10, left: hierarchyView ? 28 : 10, width: hierarchyView ? LANEPAD - 38 : LANEPAD - 28 }}>
+                {hierarchyView && (
                   <div className="text-[9px] font-semibold uppercase tracking-wider text-text-tertiary">
                     프로젝트
                   </div>
                 )}
                 <div className="flex items-center gap-2 text-[13px] font-semibold text-text">
                   {l.avatar ? <span className="grid size-5 place-items-center rounded-full text-[9px] font-bold text-white" style={{ background: l.color }}>{l.avatar}</span> : <span className="size-2.5 rounded" style={{ background: l.color }} />}
-                  {/* With 프로젝트 gone from the nav, the band label is the way
-                      into a project's 업무 영역·마일스톤 settings. */}
-                  {groupBy === "project" && !l.key.startsWith("_") ? (
-                    <Link href={`/projects/${l.key}`} data-ui className="truncate hover:text-accent hover:underline">
+                  {/* The band label opens the project's own edit/archive
+                      dialog now, not a page — same lightweight window a task
+                      opens. */}
+                  {hierarchyView && !l.key.startsWith("_") && onEditProject ? (
+                    <button
+                      type="button"
+                      data-ui
+                      onClick={() => {
+                        const p = projects?.find((pr) => pr.id === l.key);
+                        if (p) onEditProject(p);
+                      }}
+                      className="truncate text-left hover:text-accent hover:underline"
+                    >
                       {l.name}
-                    </Link>
+                    </button>
                   ) : (
                     <span className="truncate">{l.name}</span>
                   )}
                 </div>
-                {hierarchyMode && l.objective && (
+                {hierarchyView && l.objective && (
                   <div className="line-clamp-2 text-[10px] leading-relaxed text-text-tertiary">
                     {l.objective}
                   </div>
                 )}
                 <div className="text-[10.5px] font-medium tabular-nums text-text-tertiary">완료 {l.done}/{l.total}</div>
                 <div className="h-1.5 overflow-hidden rounded-full bg-surface-3"><div className="h-full rounded-full bg-status-done transition-[width] duration-500 ease-out" style={{ width: `${l.total ? (l.done / l.total) * 100 : 0}%` }} /></div>
-                {hierarchyMode && onAddProjectTask && !l.key.startsWith("_") && (
+                {hierarchyView && onAddProjectTask && !l.key.startsWith("_") && (
                   addingProjectId === l.key ? (
                     <div data-ui className="mt-1" onPointerDown={(e) => e.stopPropagation()}>
                       <div className="flex items-center gap-1">
@@ -1123,24 +1168,18 @@ export default function WorkflowCanvas({
             </div>
           ))}
 
-          {/* edges */}
+          {/* edges — dashed tethers from a promoted (key) descendant back to
+              its real parent. No other line implies a workflow relationship. */}
           <svg className="pointer-events-none absolute left-0 top-0 overflow-visible" width={layout.worldW} height={layout.worldH}>
-            <defs>
-              <marker id="dep-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
-                <path d="M 0 1 L 7 4 L 0 7 z" fill="rgb(var(--accent))" />
-              </marker>
-            </defs>
             {layout.edges.map((e, i) => (
               <path
                 key={i}
                 d={e.d}
                 fill="none"
                 strokeLinecap="round"
-                strokeWidth={e.kind === "parent" ? 1.5 : hotLane === e.laneKey ? 2.6 : 2}
-                /* dashed = "belongs under", solid = "must finish first" */
-                strokeDasharray={e.kind === "parent" ? "3 4" : undefined}
-                markerEnd={e.kind === "dep" ? "url(#dep-arrow)" : undefined}
-                stroke={e.kind === "dep" ? "rgb(var(--accent))" : "rgb(var(--text-quaternary)/0.5)"}
+                strokeWidth={1.5}
+                strokeDasharray="3 4"
+                stroke="rgb(var(--text-quaternary)/0.5)"
                 className="transition-[stroke,stroke-width] duration-200"
               />
             ))}
@@ -1148,20 +1187,25 @@ export default function WorkflowCanvas({
 
           {/* cards */}
           {layout.nodes.map(({ task, x, y, h }) => {
-            const meta = statusMeta(task.status);
+            // Card color/label reflect the 3-status group, not the 6 stored
+            // values — a Review or ToDo task must read as "진행 중" everywhere,
+            // not just in which column it lands in.
+            const meta = statusMeta(displayGroup(task.status));
             const over = overdue(task);
             const dim = !matchesFocus(task);
             const assignee = task.assignee_id ? members[task.assignee_id] : undefined;
-            const laneKey = laneKeyOf(task);
             const [sd, sn] = subCount(task, childMap);
             const hasKids = sn > 0;
             const open = subsOpen.has(task.id);
             const key_ = isKey(task);
             const parentId = parentOf.get(task.id);
             const parentTitle = parentId ? tasks.find((x) => x.id === parentId)?.title : undefined;
-            const rows = hasKids && open ? subRows(task, 0) : [];
+            // Compact has no toggle to collapse an already-expanded subtree
+            // (the meter button below is itself lod-gated), so it must not
+            // render the rows in the first place — matches cardHeight's guard.
+            const rows = hasKids && open && lod === "full" ? subRows(task, 0) : [];
             return (
-              <div key={task.id} data-card onFocusCapture={() => revealNode(x, y, h)} onPointerEnter={() => setHotLane(laneKey)} onPointerLeave={() => setHotLane((hh) => (hh === laneKey ? null : hh))}
+              <div key={task.id} data-card onFocusCapture={() => revealNode(x, y, h)}
                 className={cn("group absolute flex flex-col overflow-hidden rounded-[14px] bg-surface transition-[opacity,box-shadow] duration-200",
                   // Importance is carried by weight and elevation only — never by
                   // colour, which belongs exclusively to status.
@@ -1196,11 +1240,6 @@ export default function WorkflowCanvas({
                         <span className={cn("size-1.5 rounded-full", meta.dot)} />{task.status === "Waiting" && !hasKids ? "대기 중" : meta.label}
                       </span>
                       {lod === "full" && task.due_date && <span className={cn("inline-flex items-center gap-1 text-[10.5px] tabular-nums", over ? "font-semibold text-flag-overdue" : "text-text-tertiary")}>{over ? "⚠" : "📅"} {fmtDue(task.due_date)}</span>}
-                      {blockedBy.has(task.id) && (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-flag-overdue/10 px-1.5 py-px text-[9.5px] font-semibold text-flag-overdue">
-                          선행 업무 대기
-                        </span>
-                      )}
                       {/* The two facts that make a Waiting task actionable. */}
                       {lod === "full" && task.status === "Waiting" && task.waiting_party_text && (
                         <span className="w-full truncate text-[10px] text-text-tertiary">
@@ -1289,6 +1328,17 @@ export default function WorkflowCanvas({
               </div>
             );
           })}
+
+          {/* project sub-headers — the middle tier of 브랜드-프로젝트-업무,
+              shown only in brand groupBy since that's the one axis that
+              otherwise flattens every project's tasks into one lane. */}
+          {layout.projectHeaders.map((h) => (
+            <div key={h.key} className="absolute flex items-center gap-1 truncate text-[10.5px] font-semibold uppercase tracking-wide text-text-tertiary"
+              style={{ left: h.x, top: h.y, width: NODEW }}>
+              <span className="size-1 shrink-0 rounded-full bg-text-tertiary" />
+              {h.name}
+            </div>
+          ))}
 
           {/* "+N more" expanders */}
           {layout.overflow.map((o) => (

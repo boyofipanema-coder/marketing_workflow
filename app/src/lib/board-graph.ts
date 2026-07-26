@@ -9,7 +9,7 @@
 
 import type { Task } from "@/server/db/schema";
 
-export type GroupBy = "project" | "workstream" | "owner" | "due";
+export type GroupBy = "project" | "workstream" | "owner" | "due" | "brand";
 
 export type ChildMap = Map<string, Task[]>;
 
@@ -49,7 +49,13 @@ export function dueBucketKey(due: string | null, now: Date = new Date()): string
   return "later";
 }
 
-export function laneKeyFor(t: Task, groupBy: GroupBy, now?: Date): string {
+export function laneKeyFor(
+  t: Task,
+  groupBy: GroupBy,
+  now?: Date,
+  /** project_id → brand, needed only for groupBy === "brand" (lives on `project`, not `task`). */
+  projectBrand?: Map<string, string>
+): string {
   switch (groupBy) {
     case "project":
       return t.project_id ?? "_inbox";
@@ -57,6 +63,8 @@ export function laneKeyFor(t: Task, groupBy: GroupBy, now?: Date): string {
       return t.assignee_id ?? "_un";
     case "due":
       return dueBucketKey(t.due_date, now);
+    case "brand":
+      return (t.project_id && projectBrand?.get(t.project_id)) || "공통";
     default:
       return t.workstream_id ?? "_other";
   }
@@ -65,7 +73,8 @@ export function laneKeyFor(t: Task, groupBy: GroupBy, now?: Date): string {
 export function buildBoardGraph(
   tasks: Task[],
   groupBy: GroupBy,
-  now?: Date
+  now?: Date,
+  projectBrand?: Map<string, string>
 ): BoardGraph {
   const alive = tasks.filter((t) => !t.cancelled_at);
   const milestones = alive
@@ -109,7 +118,7 @@ export function buildBoardGraph(
   };
 
   const laneOf = new Map<string, string>();
-  for (const t of placed) laneOf.set(t.id, laneKeyFor(rootOf(t), groupBy, now));
+  for (const t of placed) laneOf.set(t.id, laneKeyFor(rootOf(t), groupBy, now, projectBrand));
 
   const parentOf = new Map<string, string>();
   for (const t of placed) {

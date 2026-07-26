@@ -402,3 +402,83 @@ describe("0005 — brands contain projects", () => {
     expect(count.n).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 0006 — restore the original brand set without flattening the new hierarchy
+// ---------------------------------------------------------------------------
+
+describe("0006 — restores default brands", () => {
+  it("restores all ten brands and remaps placeholder projects safely", () => {
+    const sqlite = legacyDb();
+    apply(sqlite, "0002_recovery_fields");
+    apply(sqlite, "0003_task_hierarchy");
+    apply(sqlite, "0004_milestone_as_task");
+    sqlite.exec(`
+      INSERT INTO workspace (id, name, timezone, created_at)
+      VALUES ('ws1', 'Workspace One', 'Asia/Seoul', '2024-01-01T00:00:00Z');
+      INSERT INTO project
+        (id, workspace_id, name, project_lead_id, created_at, updated_at)
+      VALUES
+        ('matched', 'ws1', 'BEAKER OG 캠페인', 'lead1', '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z'),
+        ('unknown', 'ws1', '사운드 시스템 리뉴얼', 'lead1', '2024-01-02T00:00:00Z', '2024-01-02T00:00:00Z');
+    `);
+
+    apply(sqlite, "0005_brand_project_hierarchy");
+    apply(sqlite, "0006_restore_default_brands");
+
+    const activeBrands = sqlite
+      .prepare(
+        `SELECT name, sort_order
+         FROM brand
+         WHERE archived_at IS NULL
+         ORDER BY sort_order`
+      )
+      .all();
+    expect(activeBrands).toHaveLength(10);
+    expect(activeBrands[0]).toEqual({ name: "BEAKER 공통", sort_order: 1 });
+    expect(activeBrands[9]).toEqual({ name: "공통", sort_order: 10 });
+
+    const projects = sqlite
+      .prepare(
+        `SELECT project.id, brand.name AS brand_name
+         FROM project
+         JOIN brand ON brand.id = project.brand_id
+         ORDER BY project.id`
+      )
+      .all();
+    expect(projects).toEqual([
+      { id: "matched", brand_name: "BEAKER OG" },
+      { id: "unknown", brand_name: "공통" },
+    ]);
+
+    const placeholder = sqlite
+      .prepare(
+        "SELECT archived_at FROM brand WHERE name = '브랜드 미지정'"
+      )
+      .get() as { archived_at: string | null };
+    expect(placeholder.archived_at).not.toBeNull();
+  });
+
+  it("keeps empty brand sections visible even before the first project", () => {
+    const sqlite = legacyDb();
+    apply(sqlite, "0002_recovery_fields");
+    apply(sqlite, "0003_task_hierarchy");
+    apply(sqlite, "0004_milestone_as_task");
+    sqlite
+      .prepare(
+        `INSERT INTO workspace (id, name, timezone, created_at)
+         VALUES ('empty', 'Empty', 'Asia/Seoul', '2024-01-01T00:00:00Z')`
+      )
+      .run();
+
+    apply(sqlite, "0005_brand_project_hierarchy");
+    apply(sqlite, "0006_restore_default_brands");
+
+    const count = sqlite
+      .prepare(
+        "SELECT COUNT(*) AS n FROM brand WHERE archived_at IS NULL"
+      )
+      .get() as { n: number };
+    expect(count.n).toBe(10);
+  });
+});

@@ -3,11 +3,16 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Plus, Search, Menu, X } from "lucide-react";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import { Plus, Search, Menu, X, FileText, FolderPlus } from "lucide-react";
 import QuickAdd from "./QuickAdd";
+import ProjectFormDialog from "./projects/ProjectFormDialog";
 import { Button } from "@/components/ui";
 import { createTaskAction } from "@/app/actions/tasks";
+import { switchMemberAction } from "@/app/actions/identity";
+import { ownerColor, initials } from "@/lib/colors";
 import { cn } from "@/lib/utils";
+import type { Brand, Member } from "@/server/db/schema";
 
 // ── Nav items ────────────────────────────────────────────────────────────────
 
@@ -23,13 +28,21 @@ const NAV_ITEMS = [
 
 // ── NavBar ────────────────────────────────────────────────────────────────────
 
-export default function NavBar() {
+export interface NavBarProps {
+  members: Member[];
+  brands: Brand[];
+  viewerId: string;
+}
+
+export default function NavBar({ members, brands, viewerId }: NavBarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [showQuickAdd, setShowQuickAdd] = useState(false);
+  const [showProjectForm, setShowProjectForm] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [quickAddError, setQuickAddError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
+  const viewer = members.find((m) => m.id === viewerId);
 
   const handleCreate = async (title: string) => {
     const result = await createTaskAction(title);
@@ -65,7 +78,7 @@ export default function NavBar() {
           {/* Wordmark — editorial serif accent */}
           <Link
             href="/home"
-            className="flex-shrink-0 rounded font-serif text-[17px] font-semibold tracking-tight text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex-shrink-0 rounded text-[17px] font-semibold tracking-tight text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             aria-label="마케팅 워크플로 홈"
           >
             워크플로
@@ -110,19 +123,57 @@ export default function NavBar() {
               />
             </form>
 
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => {
-                setShowQuickAdd(true);
-                setQuickAddError(null);
-                setMobileMenuOpen(false);
-              }}
-              aria-label="업무 빠른 추가"
-            >
-              <Plus aria-hidden />
-              <span className="hidden xs:inline sm:inline">업무 추가</span>
-            </Button>
+            <DropdownMenu.Root>
+              <DropdownMenu.Trigger asChild>
+                <Button variant="primary" size="sm" aria-label="추가">
+                  <Plus aria-hidden />
+                  <span className="hidden xs:inline sm:inline">추가</span>
+                </Button>
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.Content
+                  align="end"
+                  sideOffset={4}
+                  className="z-50 min-w-[11rem] rounded-lg border border-separator bg-elevated p-1 shadow-xl"
+                >
+                  <DropdownMenu.Item
+                    onSelect={() => {
+                      setShowQuickAdd(true);
+                      setQuickAddError(null);
+                      setMobileMenuOpen(false);
+                    }}
+                    className="flex cursor-pointer items-center gap-2 rounded px-2 py-2 text-sm text-text outline-none data-[highlighted]:bg-surface-2"
+                  >
+                    <FileText className="h-3.5 w-3.5" aria-hidden />
+                    빠른 업무 기록
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Item
+                    onSelect={() => {
+                      setShowProjectForm(true);
+                      setMobileMenuOpen(false);
+                    }}
+                    className="flex cursor-pointer items-center gap-2 rounded px-2 py-2 text-sm text-text outline-none data-[highlighted]:bg-surface-2"
+                  >
+                    <FolderPlus className="h-3.5 w-3.5" aria-hidden />
+                    프로젝트 만들기
+                  </DropdownMenu.Item>
+                </DropdownMenu.Content>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Root>
+
+            {viewer && (
+              <form action={switchMemberAction}>
+                <button
+                  type="submit"
+                  title="다른 사람으로 전환"
+                  aria-label={`${viewer.name}님 — 다른 사람으로 전환`}
+                  className="grid size-8 flex-shrink-0 place-items-center rounded-full text-xs font-bold text-white transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+                  style={{ background: ownerColor(viewer.id) }}
+                >
+                  {initials(viewer.name)}
+                </button>
+              </form>
+            )}
 
             <Button
               variant="ghost"
@@ -214,6 +265,20 @@ export default function NavBar() {
           </div>
         </div>
       )}
+
+      <ProjectFormDialog
+        open={showProjectForm}
+        onOpenChange={setShowProjectForm}
+        members={members}
+        brands={brands}
+        defaultLeadId={viewerId}
+        onSaved={() => {
+          // createProjectAction already revalidates the layout; a plain
+          // navigate-home puts the new (empty) project container on screen.
+          router.push("/home");
+          router.refresh();
+        }}
+      />
     </>
   );
 }

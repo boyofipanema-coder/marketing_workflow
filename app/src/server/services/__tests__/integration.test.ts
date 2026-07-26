@@ -232,6 +232,74 @@ describe("Task lifecycle — create → edit → Done → cancel → restore", (
 });
 
 // ---------------------------------------------------------------------------
+// Waiting persistence through the real DB path (commitVersionedUpdate) —
+// exercises the activity-log write that Finding 3's fix added, end to end.
+// ---------------------------------------------------------------------------
+
+describe("Waiting persistence and activity log", () => {
+  let db: TestDb;
+
+  beforeEach(() => {
+    db = freshDb();
+  });
+
+  it("persists waiting_party/follow_up_at and logs waiting_closed through editTask", async () => {
+    const task = await createProjectTask(db as never, {
+      workspaceId: WS_ID,
+      projectId: PROJECT_ID,
+      title: "Waiting round trip",
+      memberId: MEMBER_ID,
+    });
+
+    const waiting = await editTask(
+      db as never,
+      task.id,
+      WS_ID,
+      {
+        status: "Waiting",
+        waiting_party_text: "본사 회신",
+        follow_up_at: "2026-08-01",
+        actor_id: MEMBER_ID,
+      },
+      task.version
+    );
+    expect(waiting.waiting_party_text).toBe("본사 회신");
+
+    // Editing only the title must leave both fields untouched (Finding 1).
+    const retitled = await editTask(
+      db as never,
+      task.id,
+      WS_ID,
+      { title: "새 제목", actor_id: MEMBER_ID },
+      waiting.version
+    );
+    expect(retitled.waiting_party_text).toBe("본사 회신");
+    expect(retitled.follow_up_at).toBe("2026-08-01");
+
+    const resumed = await editTask(
+      db as never,
+      task.id,
+      WS_ID,
+      { status: "InProgress", actor_id: MEMBER_ID },
+      retitled.version
+    );
+    expect(resumed.waiting_party_text).toBeNull();
+    expect(resumed.follow_up_at).toBeNull();
+
+    const rows = await db
+      .select()
+      .from(schema.activity_log)
+      .where(eq(schema.activity_log.task_id, task.id));
+    const changeTypes = rows.map((r) => r.change_type);
+    expect(changeTypes).toContain("waiting_party");
+    expect(changeTypes).toContain("follow_up_at");
+    expect(changeTypes).toContain("waiting_closed");
+    // The title-only edit in between must not have logged a status row.
+    expect(changeTypes.filter((c) => c === "status")).toHaveLength(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Complete / reopen
 // ---------------------------------------------------------------------------
 

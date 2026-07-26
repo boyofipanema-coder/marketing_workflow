@@ -55,6 +55,7 @@ export async function createBrand(
     workspace_id: params.workspaceId,
     name,
     color: validateColor(params.color),
+    sort_order: 999,
     archived_at: null,
     created_at: now,
     updated_at: now,

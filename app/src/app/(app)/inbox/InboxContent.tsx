@@ -74,7 +74,7 @@ export default function InboxContent({
     <>
       <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
         <header className="mb-6">
-          <h1 className="font-serif text-2xl font-semibold leading-tight text-text">
+          <h1 className="text-2xl font-semibold leading-tight text-text">
             팀 인박스
           </h1>
           <p className="mt-1.5 text-sm text-text-secondary">
@@ -191,13 +191,12 @@ export default function InboxContent({
         task={controller.selected}
         projects={projects}
         workstreams={workstreams}
-        members={members}
         open={controller.panelOpen}
         saveState={
           controller.selected ? store.stateOf(controller.selected.id) : "idle"
         }
-        error={store.error}
-        conflict={store.conflict}
+        error={controller.selected ? store.errorFor(controller.selected.id).error : null}
+        conflict={controller.selected ? store.errorFor(controller.selected.id).conflict : false}
         onOpenChange={(open) => {
           controller.setPanelOpen(open);
           if (!open) store.dismissError();

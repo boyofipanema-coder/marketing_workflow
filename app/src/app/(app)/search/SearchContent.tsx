@@ -124,7 +124,7 @@ export default function SearchContent({
     <>
       <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
         <header className="mb-5">
-          <h1 className="font-serif text-2xl font-semibold leading-tight text-text">
+          <h1 className="text-2xl font-semibold leading-tight text-text">
             검색
           </h1>
         </header>
@@ -270,13 +270,12 @@ export default function SearchContent({
         task={controller.selected}
         projects={projects}
         workstreams={workstreams}
-        members={members}
         open={controller.panelOpen}
         saveState={
           controller.selected ? store.stateOf(controller.selected.id) : "idle"
         }
-        error={store.error}
-        conflict={store.conflict}
+        error={controller.selected ? store.errorFor(controller.selected.id).error : null}
+        conflict={controller.selected ? store.errorFor(controller.selected.id).conflict : false}
         onOpenChange={(open) => {
           controller.setPanelOpen(open);
           if (!open) store.dismissError();

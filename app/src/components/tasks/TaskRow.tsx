@@ -80,7 +80,7 @@ export default function TaskRow({
         "transition-[background-color,border-color] duration-fast ease-out",
         selected
           ? "border-accent/50 bg-accent/[0.06]"
-          : "border-transparent hover:border-separator hover:bg-surface-2/60",
+          : "border-separator hover:border-border-strong hover:bg-surface-2/60",
         cancelled && "opacity-55"
       )}
       data-task-id={task.id}

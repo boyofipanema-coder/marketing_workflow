@@ -66,7 +66,7 @@ export default function ProjectsContent({
     <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-10">
       <div className="mb-8 flex items-start justify-between gap-4">
         <div>
-          <h1 className="font-serif text-2xl font-semibold text-text">
+          <h1 className="text-2xl font-semibold text-text">
             프로젝트
           </h1>
           <p className="mt-1 text-sm text-text-secondary">
@@ -155,7 +155,7 @@ export default function ProjectsContent({
                   </div>
 
                   <div className="flex-1">
-                    <h2 className="font-serif text-base font-semibold leading-snug text-text transition-colors group-hover:text-text-secondary">
+                    <h2 className="text-base font-semibold leading-snug text-text transition-colors group-hover:text-text-secondary">
                       {project.name}
                     </h2>
                     {project.one_line_objective && (

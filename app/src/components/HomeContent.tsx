@@ -2,10 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { FolderPlus, Plus } from "lucide-react";
+import { Briefcase, FolderPlus, Plus } from "lucide-react";
 import TaskSection from "@/components/tasks/TaskSection";
 import TaskDetailPanel from "@/components/tasks/TaskDetailPanel";
 import WorkflowCanvas, { type Focus } from "@/components/workflow/WorkflowCanvas";
+import EmptyState from "@/components/EmptyState";
 import { useTaskController } from "@/components/tasks/useTaskController";
 import BrandFormDialog from "@/components/projects/BrandFormDialog";
 import ProjectFormDialog from "@/components/projects/ProjectFormDialog";
@@ -56,6 +57,7 @@ export default function HomeContent({
   const [brandDialogOpen, setBrandDialogOpen] = useState(false);
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [projectBrandId, setProjectBrandId] = useState<string | undefined>();
+  const [editingProject, setEditingProject] = useState<Project | null>(null);
 
   useEffect(() => {
     if (window.matchMedia("(max-width: 640px)").matches) setShowBoard(false);
@@ -105,6 +107,7 @@ export default function HomeContent({
   };
 
   function startProject(brandId?: string) {
+    setEditingProject(null);
     setProjectBrandId(brandId ?? brands[0]?.id);
     setProjectDialogOpen(true);
   }
@@ -146,7 +149,6 @@ export default function HomeContent({
             </Button>
           </div>
         )}
-
         {store.error && (
           <p
             role="alert"
@@ -156,8 +158,27 @@ export default function HomeContent({
           </p>
         )}
 
-        {/* The board leads: the whole workspace at a glance, grouped by
-            project, before any personal list. */}
+        {/* A workspace with no projects yet has nothing for the board to
+            group by — offer the one thing that unblocks it, independent of
+            whether a stray quick-added task already exists in 미분류. */}
+        {projects.length === 0 && (
+          <div className="mb-10 rounded-xl border border-dashed border-border bg-surface-2/40">
+            <EmptyState
+              icon={<Briefcase className="h-5 w-5" aria-hidden />}
+              title="아직 프로젝트가 없습니다"
+              description="프로젝트를 만들면 업무를 갈래별로 정리하고 진행 상황을 함께 볼 수 있습니다."
+              action={
+                <Button variant="primary" onClick={() => startProject()}>
+                  <Plus aria-hidden />
+                  첫 프로젝트 만들기
+                </Button>
+              }
+            />
+          </div>
+        )}
+
+        {/* The board leads: the whole workspace at a glance. Brand is the
+            default hierarchy; owner and due-date remain available as pivots. */}
         {showBoard && (brands.length > 0 || projects.length > 0 || boardTasks.length > 0) && (
           <section className="mb-10" aria-label="전체 업무 흐름">
             <WorkflowCanvas
@@ -166,11 +187,12 @@ export default function HomeContent({
               workstreams={workstreams}
               members={membersRecord}
               projects={projects}
-              defaultGroupBy="project"
+              defaultGroupBy="brand"
               hierarchyMode
               onSelect={controller.select}
               onAddProject={(brandId) => startProject(brandId)}
               onAddProjectTask={addProjectTask}
+              onEditProject={setEditingProject}
               focus={boardFocus}
               onFocusChange={setBoardFocus}
               dependencies={dependencies}
@@ -231,15 +253,12 @@ export default function HomeContent({
         task={controller.selected}
         projects={projects}
         workstreams={workstreams}
-        members={members}
-        allTasks={controller.tasks}
-        dependencies={dependencies}
         open={controller.panelOpen}
         saveState={
           controller.selected ? store.stateOf(controller.selected.id) : "idle"
         }
-        error={store.error}
-        conflict={store.conflict}
+        error={controller.selected ? store.errorFor(controller.selected.id).error : null}
+        conflict={controller.selected ? store.errorFor(controller.selected.id).conflict : false}
         onOpenChange={(open) => {
           controller.setPanelOpen(open);
           if (!open) store.dismissError();
@@ -256,11 +275,18 @@ export default function HomeContent({
       />
 
       <ProjectFormDialog
-        open={projectDialogOpen}
-        onOpenChange={setProjectDialogOpen}
+        open={projectDialogOpen || editingProject !== null}
+        onOpenChange={(open) => {
+          setProjectDialogOpen(open);
+          if (!open) {
+            setEditingProject(null);
+            setProjectBrandId(undefined);
+          }
+        }}
         members={members}
         brands={brands}
         defaultBrandId={projectBrandId}
+        project={editingProject}
         defaultLeadId={viewerId}
         onSaved={() => router.refresh()}
       />
