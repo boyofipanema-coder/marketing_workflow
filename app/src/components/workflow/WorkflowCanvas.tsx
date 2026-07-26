@@ -52,12 +52,9 @@ function stageIndex(s: TaskStatus): number {
       return 0;
   }
 }
-function baseProgress(s: TaskStatus): number {
-  return { Inbox: 0, ToDo: 0.06, InProgress: 0.55, Waiting: 0.5, Review: 0.85, Done: 1 }[s];
-}
 const todayStr = () => new Date().toISOString().slice(0, 10);
-function overdue(t: Task, eff: TaskStatus): boolean {
-  return !!t.due_date && eff !== "Done" && !t.cancelled_at && t.due_date < todayStr();
+function overdue(t: Task): boolean {
+  return !!t.due_date && t.status !== "Done" && !t.cancelled_at && t.due_date < todayStr();
 }
 function initials(name?: string): string {
   return (name ?? "").split(" ").slice(0, 2).map((w) => w[0]).join("").toUpperCase();
@@ -74,23 +71,17 @@ function fmtDue(iso: string): string {
 }
 
 // ── hierarchy helpers (operate over a parent→children map) ──────────────────────
+//
+// A task's status is whatever someone set it to — the board never infers a
+// different one. Rolling children up into a synthetic "effective status", or
+// assigning a status a percentage so it can be averaged, invents a fact the
+// data does not contain: a parent whose subtasks are all done is not itself
+// done until a person says so. Counts below are literal counts.
 const kids = (cm: ChildMap, id: string): Task[] => cm.get(id) ?? [];
-function rollupProgress(t: Task, cm: ChildMap): number {
-  const c = kids(cm, t.id);
-  return c.length ? c.reduce((s, x) => s + rollupProgress(x, cm), 0) / c.length : baseProgress(t.status);
-}
-function effStatus(t: Task, cm: ChildMap): TaskStatus {
-  const c = kids(cm, t.id);
-  if (!c.length) return t.status;
-  const p = rollupProgress(t, cm);
-  if (p >= 1) return "Done";
-  if (p <= 0.06) return "ToDo";
-  if (p >= 0.85) return "Review";
-  return "InProgress";
-}
+/** [완료된 직속 하위 업무 수, 전체 직속 하위 업무 수] — 실제 개수. */
 function subCount(t: Task, cm: ChildMap): [number, number] {
   const c = kids(cm, t.id);
-  return [c.filter((x) => effStatus(x, cm) === "Done").length, c.length];
+  return [c.filter((x) => x.status === "Done").length, c.length];
 }
 /** number of visible subtask rows given which nodes are open */
 function visibleRows(t: Task, cm: ChildMap, open: Set<string>): number {
@@ -119,7 +110,7 @@ const LANEPAD = 190;
 const COLW = 252;
 const COLGAP = 18;
 const NODEW = COLW - COLGAP - 6;
-const CARD_BASE = 108; // header block: title + meta + progress
+const CARD_BASE = 96; // header block: title + meta (no progress bar — see card render)
 const METER_H = 34; // the "⤷ n/m subtasks" row (present when a card has children)
 const SUB_PAD = 8;
 const ROW_H = 28; // one inline subtask row
@@ -181,7 +172,8 @@ interface Layout {
   nodes: Positioned[];
   rails: Rail[];
   overflow: { cellKey: string; x: number; y: number; count: number; open: boolean }[];
-  edges: { d: string; laneKey: string; kind: "flow" | "parent" }[];
+  /** Only real, stored relationships. `parent` = "belongs under". */
+  edges: { d: string; laneKey: string; kind: "parent" }[];
   worldW: number;
   worldH: number;
 }
@@ -272,10 +264,10 @@ function computeLayout(
     lanes = [...seen.values()].sort((a, b) => a.order - b.order);
   }
 
-  // bucket every placed node into (lane × stage) by rolled-up status
+  // bucket every placed node into (lane × stage) by its own status
   const cell = new Map<string, Task[]>();
   for (const t of placed) {
-    const k = `${laneKeyOf(t)}|${stageIndex(effStatus(t, cm))}`;
+    const k = `${laneKeyOf(t)}|${stageIndex(t.status)}`;
     (cell.get(k) ?? cell.set(k, []).get(k)!).push(t);
   }
   // Key work sits at the top of its cell so scanning a column top-to-bottom is
@@ -335,7 +327,7 @@ function computeLayout(
   }
   for (const lane of lanes) {
     const laneTasks = placed.filter((t) => laneKeyOf(t) === lane.key);
-    const done = laneTasks.filter((t) => effStatus(t, cm) === "Done").length;
+    const done = laneTasks.filter((t) => t.status === "Done").length;
     const laneTop = y;
     const laneMs = msByLane.get(lane.key);
     // The band's own rail sits above its cards, inside the band, so the
@@ -367,31 +359,16 @@ function computeLayout(
   const columns = STAGE_LABELS.map((_, i) => ({
     i,
     x: LANEPAD + i * COLW,
-    count: placed.filter((t) => stageIndex(effStatus(t, cm)) === i).length,
+    count: placed.filter((t) => stageIndex(t.status) === i).length,
   }));
 
+  // Only relationships that exist in the data get a line. There is deliberately
+  // no "stage flow" line: connecting the first card of each column implied that
+  // one task feeds the next, which was never true — those cards had nothing to
+  // do with each other. Real predecessor/successor edges come from
+  // `task_dependency` and are drawn once that lands.
   const edges: Layout["edges"] = [];
   const posOf = new Map(nodes.map((n) => [n.task.id, n]));
-
-  // the in-lane stage flow line (roots only — it describes the pipeline, not
-  // individual parentage)
-  for (const lane of laneOut) {
-    const firsts: Positioned[] = [];
-    for (let s = 0; s < STAGE_COUNT; s++) {
-      const n = nodes.find(
-        (p) =>
-          !parentOf.has(p.task.id) &&
-          stageIndex(effStatus(p.task, cm)) === s &&
-          laneKeyOf(p.task) === lane.key,
-      );
-      if (n) firsts.push(n);
-    }
-    for (let i = 0; i < firsts.length - 1; i++) {
-      const a = firsts[i]!, b = firsts[i + 1]!;
-      const ax = a.x + NODEW, ay = a.y + 30, bx = b.x, by = b.y + 30, mx = (ax + bx) / 2;
-      edges.push({ d: `M ${ax} ${ay} C ${mx} ${ay}, ${mx} ${by}, ${bx} ${by}`, laneKey: lane.key, kind: "flow" });
-    }
-  }
 
   // a promoted node keeps a visible tether to the card it belongs under, so
   // pulling it out of its parent never costs the structural reading
@@ -506,8 +483,7 @@ export default function WorkflowCanvas({
 
   const laneKeyOf = (t: Task) => laneOf.get(t.id) ?? laneKeyFor(t, groupBy);
   const matchesFocus = (t: Task) => {
-    const eff = effStatus(t, childMap);
-    return focus === "all" ? true : focus === "do" ? eff === "InProgress" || eff === "Review" : focus === "wait" ? t.status === "Waiting" : overdue(t, eff);
+    return focus === "all" ? true : focus === "do" ? t.status === "InProgress" || t.status === "Review" : focus === "wait" ? t.status === "Waiting" : overdue(t);
   };
 
   // ── pan / zoom (imperative) ─────────────────────────────────────────────────
@@ -734,7 +710,7 @@ export default function WorkflowCanvas({
                 style={{ left: rail.x + RAIL_LABEL_W, top: rail.y + 13, width: rail.w - RAIL_LABEL_W - 16, height: 1 }} />
               {rail.marks.map((mk) => {
                 const met = mk.task.status === "Done";
-                const late = overdue(mk.task, mk.task.status);
+                const late = overdue(mk.task);
                 // Colour still means status and nothing else; the diamond's fill
                 // means met/unmet.
                 const tone = met
@@ -778,12 +754,10 @@ export default function WorkflowCanvas({
 
           {/* cards */}
           {layout.nodes.map(({ task, x, y, h }) => {
-            const eff = effStatus(task, childMap);
-            const meta = statusMeta(eff);
-            const over = overdue(task, eff);
+            const meta = statusMeta(task.status);
+            const over = overdue(task);
             const dim = !matchesFocus(task);
             const assignee = task.assignee_id ? members[task.assignee_id] : undefined;
-            const p = rollupProgress(task, childMap);
             const laneKey = laneKeyOf(task);
             const [sd, sn] = subCount(task, childMap);
             const hasKids = sn > 0;
@@ -822,7 +796,7 @@ export default function WorkflowCanvas({
                         </span>
                       )}
                     </div>
-                    <div className={cn("mb-2 line-clamp-2 leading-snug", key_ ? "text-[14.5px] font-semibold" : "text-[13px] font-medium", eff === "Done" && "text-text-secondary")}>{task.title}</div>
+                    <div className={cn("mb-2 line-clamp-2 leading-snug", key_ ? "text-[14.5px] font-semibold" : "text-[13px] font-medium", task.status === "Done" && "text-text-secondary")}>{task.title}</div>
                     <div className="flex flex-wrap items-center gap-2">
                       <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10.5px] font-semibold", meta.fill, meta.text)}>
                         <span className={cn("size-1.5 rounded-full", meta.dot)} />{task.status === "Waiting" && !hasKids ? "대기 중" : meta.label}
@@ -832,7 +806,10 @@ export default function WorkflowCanvas({
                         {assignee ? <><span className="grid size-[18px] place-items-center rounded-full text-[9px] font-bold text-white" style={{ background: ownerColor(assignee.id) }}>{initials(assignee.name)}</span>{assignee.name.split(" ")[0]}</> : "미지정"}
                       </span>
                     </div>
-                    <div className="mt-2 h-1 overflow-hidden rounded-full bg-surface-3"><div className={cn("h-full rounded-full", meta.dot)} style={{ width: `${p * 100}%` }} /></div>
+                    {/* No progress bar. A leaf task has no measurable percentage
+                        — it is in a status, and the status pill above already
+                        says which. Cards with subtasks show a real n/m count in
+                        the meter below instead. */}
                   </button>
 
                   {/* subtask meter — the inline-expand toggle */}
@@ -849,8 +826,7 @@ export default function WorkflowCanvas({
                   {rows.length > 0 && (
                     <div className="flex flex-col overflow-hidden border-t border-separator pt-1">
                       {rows.map(({ task: c, depth, hasKids: ck, open: co }) => {
-                        const ce = effStatus(c, childMap);
-                        const cm2 = statusMeta(ce);
+                        const cm2 = statusMeta(c.status);
                         const [cd, cn2] = subCount(c, childMap);
                         const cav = c.assignee_id ? members[c.assignee_id] : undefined;
                         return (
@@ -861,7 +837,7 @@ export default function WorkflowCanvas({
                               </button>
                             ) : <span className="size-4 shrink-0" />}
                             <span className={cn("size-2 shrink-0 rounded-full", cm2.dot)} />
-                            <button type="button" onClick={() => onSelect(c)} className={cn("flex-1 truncate text-left text-[12px] font-medium hover:underline", isKey(c) && "font-semibold", ce === "Done" && "text-text-tertiary line-through")}>{c.title}</button>
+                            <button type="button" onClick={() => onSelect(c)} className={cn("flex-1 truncate text-left text-[12px] font-medium hover:underline", isKey(c) && "font-semibold", c.status === "Done" && "text-text-tertiary line-through")}>{c.title}</button>
                             {/* still counted here, but it also has its own card */}
                             {isKey(c) && <ArrowUpRight className="size-3 shrink-0 text-text-tertiary" aria-label="핵심 업무 — 보드에 별도 카드로 표시됨" />}
                             {ck && <span className="shrink-0 font-mono text-[9.5px] tabular-nums text-text-tertiary">{cd}/{cn2}</span>}

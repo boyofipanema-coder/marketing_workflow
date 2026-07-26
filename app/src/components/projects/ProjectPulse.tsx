@@ -83,7 +83,6 @@ export default function ProjectPulse({
     return {
       total: live.length,
       done: done.length,
-      percent: live.length ? Math.round((done.length / live.length) * 100) : 0,
       stats,
       upcoming,
     };
@@ -95,13 +94,16 @@ export default function ProjectPulse({
       className="mb-4 flex flex-col gap-3 rounded-xl border border-separator bg-surface p-4"
     >
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <div className="flex items-baseline gap-2">
+        {/* A count, not a percentage. Tasks are not equal in size, so "22%
+            complete" claimed a precision about remaining work that the data
+            cannot support. "완료 2/9" says exactly what is known. */}
+        <div className="flex items-baseline gap-1.5">
           <span className="text-2xl font-semibold tabular-nums text-text">
-            {summary.percent}%
+            {summary.done}
+            <span className="text-text-quaternary">/</span>
+            {summary.total}
           </span>
-          <span className="text-xs text-text-secondary">
-            완료 {summary.done}/{summary.total}
-          </span>
+          <span className="text-xs text-text-secondary">업무 완료</span>
         </div>
 
         {summary.upcoming && (
@@ -112,20 +114,6 @@ export default function ProjectPulse({
             </span>
           </span>
         )}
-      </div>
-
-      <div
-        className="h-1.5 overflow-hidden rounded-full bg-surface-2"
-        role="progressbar"
-        aria-valuenow={summary.percent}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-label="프로젝트 완료율"
-      >
-        <div
-          className="h-full rounded-full bg-status-done transition-[width] duration-500 ease-out"
-          style={{ width: `${summary.percent}%` }}
-        />
       </div>
 
       <div className="flex flex-wrap gap-x-5 gap-y-2">

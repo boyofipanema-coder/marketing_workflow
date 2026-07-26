@@ -26,6 +26,13 @@ code will assume columns/tables that don't exist yet on the remote D1.
 
 ## Local Development
 
+> **`next build` / `npm run deploy` while `npm run dev` is running corrupts `.next`.**
+> Both write the same `.next` directory, and the dev server is left requiring
+> chunks that the production build replaced — it then fails with
+> `Cannot find module './###.js'` or `Cannot find module './vendor-chunks/next.js'`.
+> Stop the dev server first. If it already happened: stop dev, `rm -rf .next`,
+> restart. Local D1 data in `.wrangler/state` is unaffected and must not be deleted.
+
 ### 1. Run the migration
 
 ```bash
