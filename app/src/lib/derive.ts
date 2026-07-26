@@ -114,9 +114,21 @@ export function myFocus(tasks: Task[], viewerId: string): Task[] {
   );
 }
 
-/** overdue tasks in the workspace (any assignee) */
+/**
+ * A Waiting task whose next-check date has arrived. This is the whole point of
+ * recording one: the task comes back on its own instead of being remembered.
+ */
+export function isFollowUpDue(task: Task, now: Date): boolean {
+  return (
+    task.status === "Waiting" &&
+    !!task.follow_up_at &&
+    task.follow_up_at <= todayKST(now)
+  );
+}
+
+/** What the workspace has to look at today: overdue, or a follow-up come due. */
 export function needsAttention(tasks: Task[], now: Date): Task[] {
-  return applyFilter(tasks, (t) => isOverdue(t, now));
+  return applyFilter(tasks, (t) => isOverdue(t, now) || isFollowUpDue(t, now));
 }
 
 /** status=InProgress across the whole team — what the workspace is working on now */

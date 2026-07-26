@@ -329,6 +329,41 @@ describe("later", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Follow-up
+// ---------------------------------------------------------------------------
+
+// The point of recording a next-check date is that the task returns on its own.
+describe("needsAttention — follow-up", () => {
+  const waiting = (followUp: string | null) =>
+    makeTask({
+      status: "Waiting",
+      due_date: null,
+      waiting_party_text: "본사 회신",
+      follow_up_at: followUp,
+    });
+
+  it("surfaces a Waiting task once its follow-up date arrives", () => {
+    const t = waiting("2024-03-15"); // today in KST
+    expect(needsAttention([t], NOW_KST_2024_03_15)).toContain(t);
+  });
+
+  it("surfaces one whose follow-up date has passed", () => {
+    const t = waiting("2024-03-10");
+    expect(needsAttention([t], NOW_KST_2024_03_15)).toContain(t);
+  });
+
+  it("leaves a follow-up still in the future alone", () => {
+    const t = waiting("2024-03-20");
+    expect(needsAttention([t], NOW_KST_2024_03_15)).not.toContain(t);
+  });
+
+  it("ignores a Waiting task with no follow-up date", () => {
+    const t = waiting(null);
+    expect(needsAttention([t], NOW_KST_2024_03_15)).not.toContain(t);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Milestones are markers, not work
 // ---------------------------------------------------------------------------
 

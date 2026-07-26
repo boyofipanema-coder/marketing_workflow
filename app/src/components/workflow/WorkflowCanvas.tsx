@@ -812,6 +812,13 @@ export default function WorkflowCanvas({
                         <span className={cn("size-1.5 rounded-full", meta.dot)} />{task.status === "Waiting" && !hasKids ? "대기 중" : meta.label}
                       </span>
                       {task.due_date && <span className={cn("inline-flex items-center gap-1 text-[10.5px] tabular-nums", over ? "font-semibold text-flag-overdue" : "text-text-tertiary")}>{over ? "⚠" : "📅"} {fmtDue(task.due_date)}</span>}
+                      {/* The two facts that make a Waiting task actionable. */}
+                      {task.status === "Waiting" && task.waiting_party_text && (
+                        <span className="w-full truncate text-[10px] text-text-tertiary">
+                          {task.waiting_party_text}
+                          {task.follow_up_at && ` · ${fmtDue(task.follow_up_at)} 확인`}
+                        </span>
+                      )}
                       <span className="ml-auto inline-flex items-center gap-1.5 text-[11px] font-medium text-text-secondary">
                         {assignee ? <><span className="grid size-[18px] place-items-center rounded-full text-[9px] font-bold text-white" style={{ background: ownerColor(assignee.id) }}>{initials(assignee.name)}</span>{assignee.name.split(" ")[0]}</> : "미지정"}
                       </span>

@@ -65,6 +65,10 @@ export interface TaskPatch {
   due_time?: string | null;
   project_id?: string | null;
   workstream_id?: string | null;
+  /** Who/what the task is blocked on. Required to sit in Waiting. */
+  waiting_party_text?: string | null;
+  /** When to look at it again. Required to sit in Waiting. */
+  follow_up_at?: string | null;
   actor_id: string;
 }
 
@@ -241,6 +245,40 @@ export function applyTaskEdit(
       to_value: patch.status,
       created_at: now,
     });
+  }
+
+  // ---- Waiting -----------------------------------------------------------
+  // "Waiting" without a who and a when is just a task nobody is looking at.
+  // Both are required to sit in the state; leaving it clears them so a task
+  // that comes back later cannot resurface someone else's stale follow-up.
+  if (patch.waiting_party_text !== undefined) {
+    updates.waiting_party_text = patch.waiting_party_text?.trim() || null;
+  }
+  if (patch.follow_up_at !== undefined) {
+    updates.follow_up_at = patch.follow_up_at
+      ? validateDate(patch.follow_up_at, "다음 확인일")
+      : null;
+  }
+
+  // Enforced only on the way *in*. Checking it on every write to a Waiting task
+  // deadlocks the pair: the party cannot be saved without the date and the date
+  // cannot be saved without the party, so neither can ever be filled one at a
+  // time. It also made rows predating this feature uneditable.
+  if (patch.status === "Waiting") {
+    const party =
+      updates.waiting_party_text !== undefined
+        ? updates.waiting_party_text
+        : current.waiting_party_text;
+    const followUp =
+      updates.follow_up_at !== undefined
+        ? updates.follow_up_at
+        : current.follow_up_at;
+    if (!party) throw new ValidationError("무엇을 기다리는지 입력해 주세요.");
+    if (!followUp)
+      throw new ValidationError("다음 확인일을 선택해 주세요.");
+  } else if (prevStatus === "Waiting") {
+    updates.waiting_party_text = null;
+    updates.follow_up_at = null;
   }
 
   // ---- Project / non-Inbox enforcement -----------------------------------

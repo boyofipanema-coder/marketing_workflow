@@ -316,6 +316,73 @@ describe("applyTaskEdit — importance", () => {
     expect(activityRows).toHaveLength(0);
   });
 
+  // Waiting exists to make a stalled task come back on its own. Without both
+  // facts it cannot, so the state must not be reachable without them.
+  it("refuses Waiting without a party or a follow-up date", () => {
+    const current = makeTask({ status: "ToDo", project_id: "p1" });
+    expect(() =>
+      applyTaskEdit(current, { status: "Waiting" }, 1, ACTOR, NOW)
+    ).toThrow(ValidationError);
+    expect(() =>
+      applyTaskEdit(
+        current,
+        { status: "Waiting", waiting_party_text: "본사 회신" },
+        1,
+        ACTOR,
+        NOW
+      )
+    ).toThrow(ValidationError);
+  });
+
+  it("accepts Waiting once both are given", () => {
+    const current = makeTask({ status: "ToDo", project_id: "p1" });
+    const { updates } = applyTaskEdit(
+      current,
+      {
+        status: "Waiting",
+        waiting_party_text: "본사 회신",
+        follow_up_at: "2026-08-01",
+      },
+      1,
+      ACTOR,
+      NOW
+    );
+    expect(updates.status).toBe("Waiting");
+    expect(updates.waiting_party_text).toBe("본사 회신");
+    expect(updates.follow_up_at).toBe("2026-08-01");
+  });
+
+  // Rows that were Waiting before the fields existed must stay editable.
+  it("does not block an unrelated edit to a task already Waiting", () => {
+    const current = makeTask({ status: "Waiting", project_id: "p1" });
+    const { updates } = applyTaskEdit(
+      current,
+      { title: "새 제목" },
+      1,
+      ACTOR,
+      NOW
+    );
+    expect(updates.title).toBe("새 제목");
+  });
+
+  it("clears the follow-up when the task leaves Waiting", () => {
+    const current = makeTask({
+      status: "Waiting",
+      project_id: "p1",
+      waiting_party_text: "본사 회신",
+      follow_up_at: "2026-08-01",
+    });
+    const { updates } = applyTaskEdit(
+      current,
+      { status: "InProgress" },
+      1,
+      ACTOR,
+      NOW
+    );
+    expect(updates.waiting_party_text).toBeNull();
+    expect(updates.follow_up_at).toBeNull();
+  });
+
   it("converts a task to a milestone and logs the change", () => {
     const current = makeTask({ kind: "task" });
     const { updates, activityRows } = applyTaskEdit(

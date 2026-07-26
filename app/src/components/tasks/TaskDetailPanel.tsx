@@ -90,6 +90,11 @@ export default function TaskDetailPanel({
 }: TaskDetailPanelProps) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  /** Set while composing a move into Waiting; null once it is saved. */
+  const [waitDraft, setWaitDraft] = useState<{
+    party: string;
+    date: string;
+  } | null>(null);
   const descriptionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingDescription = useRef<string | null>(null);
 
@@ -103,6 +108,7 @@ export default function TaskDetailPanel({
     if (!task) return;
     setTitle(task.title);
     setDescription(task.description ?? "");
+    setWaitDraft(null);
   }, [task?.id, task?.version]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const projectWorkstreams = useMemo(
@@ -353,13 +359,20 @@ export default function TaskDetailPanel({
               <Field label="진행 상태" htmlFor="task-status">
                 <select
                   id="task-status"
-                  value={task.status}
+                  value={waitDraft ? "Waiting" : task.status}
                   disabled={readOnly}
-                  onChange={(e) =>
-                    void patch({
-                      status: e.target.value as Task["status"],
-                    })
-                  }
+                  onChange={(e) => {
+                    const next = e.target.value as Task["status"];
+                    // Entering Waiting needs a party and a date, and the service
+                    // rejects the move without them — so collect them first and
+                    // send all three together instead of failing on the way in.
+                    if (next === "Waiting" && task.status !== "Waiting") {
+                      setWaitDraft({ party: "", date: "" });
+                      return;
+                    }
+                    setWaitDraft(null);
+                    void patch({ status: next });
+                  }}
                   className={selectClass}
                 >
                   {TASK_STATUSES.map((s) => (
@@ -369,6 +382,74 @@ export default function TaskDetailPanel({
                   ))}
                 </select>
               </Field>
+
+              {/* A Waiting task without a who and a when is one nobody ever
+                  comes back to, so both are required to enter the state. */}
+              {(waitDraft || task.status === "Waiting") && (
+                <>
+                  <Field label="무엇을 기다리나요" htmlFor="task-waiting-party">
+                    <input
+                      id="task-waiting-party"
+                      type="text"
+                      value={waitDraft ? waitDraft.party : undefined}
+                      defaultValue={
+                        waitDraft ? undefined : task.waiting_party_text ?? ""
+                      }
+                      disabled={readOnly}
+                      placeholder="예: 본사 엠바고 회신"
+                      className={selectClass}
+                      onChange={(e) =>
+                        waitDraft &&
+                        setWaitDraft({ ...waitDraft, party: e.target.value })
+                      }
+                      onBlur={(e) => {
+                        if (waitDraft) return;
+                        const v = e.target.value.trim();
+                        if (v !== (task.waiting_party_text ?? ""))
+                          void patch({ waiting_party_text: v });
+                      }}
+                    />
+                  </Field>
+
+                  <Field label="다음 확인일" htmlFor="task-follow-up">
+                    <input
+                      id="task-follow-up"
+                      type="date"
+                      value={
+                        waitDraft ? waitDraft.date : task.follow_up_at ?? ""
+                      }
+                      min={today}
+                      disabled={readOnly}
+                      className={selectClass}
+                      onChange={(e) => {
+                        if (!waitDraft) {
+                          void patch({ follow_up_at: e.target.value || null });
+                          return;
+                        }
+                        setWaitDraft({ ...waitDraft, date: e.target.value });
+                      }}
+                    />
+                  </Field>
+
+                  {waitDraft && (
+                    <button
+                      type="button"
+                      disabled={!waitDraft.party.trim() || !waitDraft.date}
+                      onClick={async () => {
+                        const ok = await patch({
+                          status: "Waiting",
+                          waiting_party_text: waitDraft.party,
+                          follow_up_at: waitDraft.date,
+                        });
+                        if (ok) setWaitDraft(null);
+                      }}
+                      className="h-10 rounded-lg bg-accent text-base font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-40"
+                    >
+                      대기로 변경
+                    </button>
+                  )}
+                </>
+              )}
 
               <Field label="프로젝트" htmlFor="task-project">
                 <select
