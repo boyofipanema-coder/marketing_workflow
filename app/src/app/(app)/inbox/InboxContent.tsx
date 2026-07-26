@@ -74,7 +74,7 @@ export default function InboxContent({
     <>
       <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
         <header className="mb-6">
-          <h1 className="font-serif text-2xl font-semibold leading-tight text-text">
+          <h1 className="text-2xl font-semibold leading-tight text-text">
             팀 인박스
           </h1>
           <p className="mt-1.5 text-sm text-text-secondary">

@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { ChevronRight } from "lucide-react";
 import TaskList from "./TaskList";
 import type { TaskStore } from "./useTaskStore";
 import type { Task, Member } from "@/server/db/schema";
@@ -45,8 +46,12 @@ export default function TaskSection({
   if (hideWhenEmpty && tasks.length === 0) return null;
 
   return (
-    <section className="flex flex-col gap-2" aria-label={title}>
-      <div className="flex items-baseline gap-2">
+    // Collapsible via the native <details> disclosure — no JS state, and a
+    // section you've already triaged can be closed to bring the next one
+    // into view without scrolling past it.
+    <details className="group flex flex-col gap-2" aria-label={title} open>
+      <summary className="flex cursor-pointer list-none items-baseline gap-2 [&::-webkit-details-marker]:hidden">
+        <ChevronRight className="h-3 w-3 flex-shrink-0 text-text-tertiary transition-transform group-open:rotate-90" />
         <h2 className="text-xs font-semibold uppercase tracking-wider text-text-secondary">
           {title}
         </h2>
@@ -55,7 +60,7 @@ export default function TaskSection({
             {tasks.length}
           </span>
         )}
-      </div>
+      </summary>
 
       {description && (
         <p className="-mt-1 text-xs text-text-tertiary">{description}</p>
@@ -75,6 +80,6 @@ export default function TaskSection({
         emptyDescription={emptyDescription}
         footer={footer}
       />
-    </section>
+    </details>
   );
 }

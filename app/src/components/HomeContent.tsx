@@ -45,14 +45,8 @@ export default function HomeContent({
   const controller = useTaskController(tasks);
   const { store } = controller;
   const [boardFocus, setBoardFocus] = useState<Focus>("all");
-  // The board is the landing view. On a phone it is unreadable, so the personal
-  // lists lead there instead; server and first client render agree on the board.
-  const [showBoard, setShowBoard] = useState(true);
   const [showProjectForm, setShowProjectForm] = useState(false);
-
-  useEffect(() => {
-    if (window.matchMedia("(max-width: 640px)").matches) setShowBoard(false);
-  }, []);
+  const [editingProject, setEditingProject] = useState<Project | null>(null);
 
   useEffect(() => {
     function onFocus() {
@@ -103,15 +97,6 @@ export default function HomeContent({
           2rem serif heading plus a greeting cost ~150px of the workspace to
           repeat something the user just clicked. The board starts here. */}
       <div className="mx-auto max-w-5xl px-4 py-3 sm:px-6 sm:py-4">
-        {/* Workspace counts only. Adding a task is a global action and already
-            lives in the top bar — a second identical button here was the same
-            command twice, 40px apart. */}
-        {showBoard && (boardTasks.length > 0 || projects.length > 0) && (
-          <div className="mb-2 text-xs text-text-tertiary">
-            진행 중인 프로젝트 {projects.length}개 · 업무 {boardTasks.length}건
-          </div>
-        )}
-
         {store.error && (
           <p
             role="alert"
@@ -124,7 +109,7 @@ export default function HomeContent({
         {/* A workspace with no projects yet has nothing for the board to
             group by — offer the one thing that unblocks it, independent of
             whether a stray quick-added task already exists in 미분류. */}
-        {showBoard && projects.length === 0 && (
+        {projects.length === 0 && (
           <div className="mb-10 rounded-xl border border-dashed border-border bg-surface-2/40">
             <EmptyState
               icon={<Briefcase className="h-5 w-5" aria-hidden />}
@@ -143,7 +128,7 @@ export default function HomeContent({
         {/* The board leads: the whole workspace at a glance, grouped by
             project, before any personal list. Renders once there's a project
             to group by, or a task to show, even if the other count is zero. */}
-        {showBoard && (boardTasks.length > 0 || projects.length > 0) && (
+        {(boardTasks.length > 0 || projects.length > 0) && (
           <section className="mb-10" aria-label="전체 업무 흐름">
             <WorkflowCanvas
               tasks={boardTasks}
@@ -152,6 +137,7 @@ export default function HomeContent({
               projects={projects}
               defaultGroupBy="project"
               onSelect={controller.select}
+              onEditProject={setEditingProject}
               focus={boardFocus}
               onFocusChange={setBoardFocus}
             />
@@ -227,9 +213,15 @@ export default function HomeContent({
       />
 
       <ProjectFormDialog
-        open={showProjectForm}
-        onOpenChange={setShowProjectForm}
+        open={showProjectForm || editingProject !== null}
+        onOpenChange={(o) => {
+          if (!o) {
+            setShowProjectForm(false);
+            setEditingProject(null);
+          }
+        }}
         members={members}
+        project={editingProject}
         defaultLeadId={viewerId}
         onSaved={() => router.refresh()}
       />

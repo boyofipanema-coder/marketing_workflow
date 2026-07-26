@@ -2,14 +2,15 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { Minus, Plus, Maximize2, ChevronRight, CornerDownRight, ArrowUpRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { statusMeta, displayGroup, type TaskStatus } from "@/lib/status";
-import { createSubtaskAction } from "@/app/actions/tasks";
+import { createSubtaskAction, createProjectTaskAction } from "@/app/actions/tasks";
 import InlineAdd from "@/components/tasks/InlineAdd";
 import type { Task, Workstream, Member, Project } from "@/server/db/schema";
 import { buildBoardGraph, isKey, laneKeyFor, type ChildMap, type GroupBy } from "@/lib/board-graph";
+import { BRANDS } from "@/lib/brand";
+import { ownerColor, initials } from "@/lib/colors";
 
 /**
  * WorkflowCanvas — a pannable/zoomable swimlane Kanban.
@@ -49,9 +50,6 @@ const todayStr = () => new Date().toISOString().slice(0, 10);
 function overdue(t: Task): boolean {
   return !!t.due_date && t.status !== "Done" && !t.cancelled_at && t.due_date < todayStr();
 }
-function initials(name?: string): string {
-  return (name ?? "").split(" ").slice(0, 2).map((w) => w[0]).join("").toUpperCase();
-}
 function fmtDue(iso: string): string {
   const x = new Date(iso);
   const diff = Math.round((+x - +new Date(new Date().toDateString())) / 864e5);
@@ -83,6 +81,7 @@ function visibleRows(t: Task, cm: ChildMap, open: Set<string>): number {
 
 // ── group-by ──────────────────────────────────────────────────────────────────
 const GROUP_OPTS: { id: GroupBy; label: string }[] = [
+  { id: "brand", label: "브랜드" },
   { id: "project", label: "프로젝트" },
   { id: "workstream", label: "업무 영역" },
   { id: "owner", label: "담당자" },
@@ -190,13 +189,6 @@ function dueBucket(due: string | null): { key: string; name: string; color: stri
   if (diff <= 7) return { key: "week", name: "이번 주", color: "rgb(var(--accent))", order: 2 };
   return { key: "later", name: "나중에", color: "rgb(var(--status-inbox))", order: 3 };
 }
-const OWNER_COLORS = ["#0a84ff", "#af52de", "#30b0c7", "#ff9500", "#34c759", "#ff375f"];
-function ownerColor(id: string): string {
-  let h = 0;
-  for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-  return OWNER_COLORS[h % OWNER_COLORS.length];
-}
-
 /**
  * Which band a milestone belongs to, or null for "no band on this axis".
  *
@@ -205,9 +197,9 @@ function ownerColor(id: string): string {
  * go on the board rail above all the bands rather than inventing a 미분류 band
  * that holds nothing but markers.
  */
-function milestoneLaneKey(m: Task, groupBy: GroupBy): string | null {
+function milestoneLaneKey(m: Task, groupBy: GroupBy, projectBrand?: Map<string, string>): string | null {
   if (groupBy === "workstream") return m.workstream_id;
-  return laneKeyFor(m, groupBy);
+  return laneKeyFor(m, groupBy, undefined, projectBrand);
 }
 
 function computeLayout(
@@ -225,20 +217,26 @@ function computeLayout(
   subsOpen: Set<string>,
   addingId: string | null,
   lod: Lod,
+  projectBrand: Map<string, string>,
 ): Layout {
   // Lane membership is decided by the root of a task's tree, so a promoted
   // descendant always appears in the same band as the work it belongs to.
-  const laneKeyOf = (t: Task): string => laneOf.get(t.id) ?? laneKeyFor(t, groupBy);
+  const laneKeyOf = (t: Task): string => laneOf.get(t.id) ?? laneKeyFor(t, groupBy, undefined, projectBrand);
   // A band earns its place from milestones too — a project whose only content
   // this quarter is a deadline still has to appear.
   const msIn = (key: string) =>
-    milestones.some((m) => milestoneLaneKey(m, groupBy) === key);
+    milestones.some((m) => milestoneLaneKey(m, groupBy, projectBrand) === key);
 
   let lanes: Lane[] = [];
-  if (groupBy === "project") {
-    lanes = projects
-      .filter((p) => roots.some((t) => t.project_id === p.id) || msIn(p.id))
-      .map((p) => ({ key: p.id, name: p.name, color: "rgb(var(--accent))" }));
+  if (groupBy === "brand") {
+    // Fixed, closed list — every brand gets a lane even with zero current
+    // work, so "nothing here yet" is legible instead of the lane vanishing.
+    lanes = BRANDS.map((b) => ({ key: b, name: b, color: "rgb(var(--accent))" }));
+  } else if (groupBy === "project") {
+    // Every active project gets a lane, even with zero tasks yet — otherwise
+    // a freshly created project has nowhere to show its own "+업무 추가"
+    // button and can never receive its first task.
+    lanes = projects.map((p) => ({ key: p.id, name: p.name, color: "rgb(var(--accent))" }));
     if (roots.some((t) => !t.project_id))
       lanes.push({ key: "_inbox", name: "인박스", color: "rgb(var(--status-inbox))" });
   } else if (groupBy === "workstream") {
@@ -290,7 +288,7 @@ function computeLayout(
   const msByLane = new Map<string, Task[]>();
   const boardMs: Task[] = [];
   for (const m of milestones) {
-    const key = milestoneLaneKey(m, groupBy);
+    const key = milestoneLaneKey(m, groupBy, projectBrand);
     if (key && laneKeys.has(key)) {
       const arr = msByLane.get(key);
       if (arr) arr.push(m);
@@ -421,6 +419,8 @@ export interface WorkflowCanvasProps {
   onAddMilestone?: (projectId: string, name: string, dueDate: string) => Promise<boolean>;
   /** Project every rail belongs to, when the board shows exactly one. */
   projectId?: string;
+  /** Opens the project edit dialog. Omit to fall back to a plain label. */
+  onEditProject?: (project: Project) => void;
 }
 
 export default function WorkflowCanvas({
@@ -438,6 +438,7 @@ export default function WorkflowCanvas({
   stageHeightClass = "h-[calc(100dvh-8.5rem)]",
   onAddMilestone,
   projectId,
+  onEditProject,
 }: WorkflowCanvasProps) {
   const [groupBy, setGroupBy] = useState<GroupBy>(defaultGroupBy);
   const [focusState, setFocusState] = useState<Focus>("all");
@@ -460,10 +461,16 @@ export default function WorkflowCanvas({
   const worldRef = useRef<HTMLDivElement>(null);
   const view = useRef({ x: 0, y: 8, scale: 1 });
 
+  // project_id → brand, for the "brand" lane axis (brand lives on project, not task).
+  const projectBrand = useMemo(
+    () => new Map((projects ?? []).map((p) => [p.id, p.brand])),
+    [projects],
+  );
+
   // Which nodes get a card, and how a promoted one points back at its parent.
   const { childMap, roots, placed, laneOf, parentOf, milestones } = useMemo(
-    () => buildBoardGraph(tasks, groupBy),
-    [tasks, groupBy],
+    () => buildBoardGraph(tasks, groupBy, undefined, projectBrand),
+    [tasks, groupBy, projectBrand],
   );
 
   // Level of detail. Below 70% the small type is unreadable anyway, so it is
@@ -474,8 +481,8 @@ export default function WorkflowCanvas({
   const lod: Lod = zoomPct >= 70 ? "full" : "compact";
 
   const layout = useMemo(
-    () => computeLayout(placed, roots, milestones, childMap, laneOf, parentOf, workstreams, members, projects ?? [], groupBy, cellsOpen, subsOpen, addingFor, lod),
-    [placed, roots, milestones, childMap, laneOf, parentOf, workstreams, members, projects, groupBy, cellsOpen, subsOpen, addingFor, lod],
+    () => computeLayout(placed, roots, milestones, childMap, laneOf, parentOf, workstreams, members, projects ?? [], groupBy, cellsOpen, subsOpen, addingFor, lod, projectBrand),
+    [placed, roots, milestones, childMap, laneOf, parentOf, workstreams, members, projects, groupBy, cellsOpen, subsOpen, addingFor, lod, projectBrand],
   );
 
   // open the inline subtask composer under a card
@@ -535,7 +542,10 @@ export default function WorkflowCanvas({
     if (!st) return;
     let scale = Math.min(1, (st.clientWidth - 40) / layout.worldW);
     if (scale < 0.5) scale = 0.5;
-    view.current = { x: Math.max(0, Math.min(40, (st.clientWidth - layout.worldW * scale) / 2)), y: 8, scale };
+    // Center the board when it's narrower than the viewport; flush left
+    // (clamped to 0, not capped at some small max) when it's wider and the
+    // user needs to pan to see the rest.
+    view.current = { x: Math.max(0, (st.clientWidth - layout.worldW * scale) / 2), y: 8, scale };
     setZoomPct(Math.round(scale * 100));
     applyView();
   }
@@ -681,7 +691,7 @@ export default function WorkflowCanvas({
         <div className="flex items-center gap-2">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">기준</span>
           <div className="flex gap-0.5 rounded-lg bg-surface-2 p-0.5">
-            {GROUP_OPTS.filter((o) => o.id !== "project" || projects).map((o) => (
+            {GROUP_OPTS.filter((o) => (o.id !== "project" && o.id !== "brand") || projects).map((o) => (
               <button key={o.id} type="button" aria-pressed={groupBy === o.id}
                 onClick={() => { setGroupBy(o.id); setCellsOpen(new Set()); }}
                 className={cn("rounded-md px-2.5 py-1 text-xs font-medium transition-colors", groupBy === o.id ? "bg-surface text-text shadow-xs" : "text-text-secondary hover:text-text")}>
@@ -743,18 +753,39 @@ export default function WorkflowCanvas({
               <div className="absolute flex flex-col gap-1.5 rounded-xl border border-separator bg-surface/90 p-3 backdrop-blur" style={{ top: l.y + 10, left: 10, width: LANEPAD - 28 }}>
                 <div className="flex items-center gap-2 text-[13px] font-semibold text-text">
                   {l.avatar ? <span className="grid size-5 place-items-center rounded-full text-[9px] font-bold text-white" style={{ background: l.color }}>{l.avatar}</span> : <span className="size-2.5 rounded" style={{ background: l.color }} />}
-                  {/* With 프로젝트 gone from the nav, the band label is the way
-                      into a project's 업무 영역·마일스톤 settings. */}
-                  {groupBy === "project" && !l.key.startsWith("_") ? (
-                    <Link href={`/projects/${l.key}`} data-ui className="truncate hover:text-accent hover:underline">
+                  {/* The band label opens the project's own edit/archive
+                      dialog now, not a page — same lightweight window a task
+                      opens. */}
+                  {groupBy === "project" && !l.key.startsWith("_") && onEditProject ? (
+                    <button
+                      type="button"
+                      data-ui
+                      onClick={() => {
+                        const p = projects?.find((pr) => pr.id === l.key);
+                        if (p) onEditProject(p);
+                      }}
+                      className="truncate text-left hover:text-accent hover:underline"
+                    >
                       {l.name}
-                    </Link>
+                    </button>
                   ) : (
                     <span className="truncate">{l.name}</span>
                   )}
                 </div>
                 <div className="text-[10.5px] font-medium tabular-nums text-text-tertiary">완료 {l.done}/{l.total}</div>
                 <div className="h-1.5 overflow-hidden rounded-full bg-surface-3"><div className="h-full rounded-full bg-status-done transition-[width] duration-500 ease-out" style={{ width: `${l.total ? (l.done / l.total) * 100 : 0}%` }} /></div>
+                {groupBy === "project" && !l.key.startsWith("_") && (
+                  <div data-ui>
+                    <InlineAdd
+                      onAdd={async (title) => {
+                        const res = await createProjectTaskAction(l.key, title);
+                        if (res.success) router.refresh();
+                        return res.success;
+                      }}
+                      className="px-1.5 py-1 text-[11px]"
+                    />
+                  </div>
+                )}
               </div>
             </div>
           ))}

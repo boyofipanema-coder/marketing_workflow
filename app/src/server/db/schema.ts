@@ -5,6 +5,7 @@ import {
   type AnySQLiteColumn,
 } from "drizzle-orm/sqlite-core";
 import { relations } from "drizzle-orm";
+import { BRANDS } from "@/lib/brand";
 
 // ---------------------------------------------------------------------------
 // workspace
@@ -65,6 +66,8 @@ export const project = sqliteTable("project", {
     .references(() => workspace.id),
   name: text("name").notNull(),
   one_line_objective: text("one_line_objective"),
+  /** Top-level grouping above project — fixed list, see lib/brand.ts. */
+  brand: text("brand", { enum: BRANDS }).notNull().default("공통"),
   project_lead_id: text("project_lead_id")
     .notNull()
     .references(() => member.id),

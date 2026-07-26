@@ -9,6 +9,8 @@ import QuickAdd from "./QuickAdd";
 import ProjectFormDialog from "./projects/ProjectFormDialog";
 import { Button } from "@/components/ui";
 import { createTaskAction } from "@/app/actions/tasks";
+import { switchMemberAction } from "@/app/actions/identity";
+import { ownerColor, initials } from "@/lib/colors";
 import { cn } from "@/lib/utils";
 import type { Member } from "@/server/db/schema";
 
@@ -39,6 +41,7 @@ export default function NavBar({ members, viewerId }: NavBarProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [quickAddError, setQuickAddError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
+  const viewer = members.find((m) => m.id === viewerId);
 
   const handleCreate = async (title: string) => {
     const result = await createTaskAction(title);
@@ -74,7 +77,7 @@ export default function NavBar({ members, viewerId }: NavBarProps) {
           {/* Wordmark — editorial serif accent */}
           <Link
             href="/home"
-            className="flex-shrink-0 rounded font-serif text-[17px] font-semibold tracking-tight text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex-shrink-0 rounded text-[17px] font-semibold tracking-tight text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             aria-label="마케팅 워크플로 홈"
           >
             워크플로
@@ -156,6 +159,20 @@ export default function NavBar({ members, viewerId }: NavBarProps) {
                 </DropdownMenu.Content>
               </DropdownMenu.Portal>
             </DropdownMenu.Root>
+
+            {viewer && (
+              <form action={switchMemberAction}>
+                <button
+                  type="submit"
+                  title="다른 사람으로 전환"
+                  aria-label={`${viewer.name}님 — 다른 사람으로 전환`}
+                  className="grid size-8 flex-shrink-0 place-items-center rounded-full text-xs font-bold text-white transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+                  style={{ background: ownerColor(viewer.id) }}
+                >
+                  {initials(viewer.name)}
+                </button>
+              </form>
+            )}
 
             <Button
               variant="ghost"

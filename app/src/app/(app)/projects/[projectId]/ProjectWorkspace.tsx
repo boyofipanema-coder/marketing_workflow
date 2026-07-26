@@ -135,7 +135,7 @@ export default function ProjectWorkspace({
         <header className="mb-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
-              <h1 className="font-serif text-2xl font-semibold leading-tight text-text">
+              <h1 className="text-2xl font-semibold leading-tight text-text">
                 {project.name}
               </h1>
               {project.one_line_objective && (

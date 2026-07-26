@@ -7,6 +7,7 @@ import {
 } from "@/server/db/schema";
 import { type Database } from "@/server/db/client";
 import { NotFoundError, ValidationError } from "./errors";
+import { BRANDS, type Brand } from "@/lib/brand";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -19,6 +20,7 @@ export interface CreateProjectParams {
   oneLineObjective?: string | null;
   targetStartDate?: string | null;
   targetEndDate?: string | null;
+  brand?: Brand;
 }
 
 export interface ProjectPatch {
@@ -27,6 +29,7 @@ export interface ProjectPatch {
   projectLeadId?: string;
   targetStartDate?: string | null;
   targetEndDate?: string | null;
+  brand?: Brand;
 }
 
 // ---------------------------------------------------------------------------
@@ -39,6 +42,13 @@ function validateProjectName(raw: string): string {
   if (trimmed.length > 200)
     throw new ValidationError("프로젝트명은 200자 이하로 입력해 주세요.");
   return trimmed;
+}
+
+function validateBrand(raw: Brand): Brand {
+  if (!BRANDS.includes(raw)) {
+    throw new ValidationError("올바르지 않은 브랜드입니다.");
+  }
+  return raw;
 }
 
 function validateDate(raw: string, field: string): string {
@@ -108,6 +118,7 @@ export async function createProject(
     id: crypto.randomUUID(),
     workspace_id: params.workspaceId,
     name,
+    brand: params.brand ? validateBrand(params.brand) : "공통",
     one_line_objective: params.oneLineObjective ?? null,
     project_lead_id: params.projectLeadId,
     target_start_date: start,
@@ -141,6 +152,9 @@ export async function editProject(
   }
   if (patch.oneLineObjective !== undefined) {
     updates.one_line_objective = patch.oneLineObjective;
+  }
+  if (patch.brand !== undefined) {
+    updates.brand = validateBrand(patch.brand);
   }
   if (patch.projectLeadId !== undefined) {
     await assertLeadInWorkspace(db, workspaceId, patch.projectLeadId);

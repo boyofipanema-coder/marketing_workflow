@@ -11,6 +11,7 @@ import {
 import { getCurrentMember } from "@/server/data/queries";
 import { runAction, type ActionResult } from "./result";
 import type { Project } from "@/server/db/schema";
+import type { Brand } from "@/lib/brand";
 
 export interface CreateProjectInput {
   name: string;
@@ -18,6 +19,7 @@ export interface CreateProjectInput {
   oneLineObjective?: string | null;
   targetStartDate?: string | null;
   targetEndDate?: string | null;
+  brand?: Brand;
 }
 
 function revalidateAll() {

@@ -12,15 +12,15 @@ export const dynamic = "force-dynamic";
 
 /**
  * App shell layout — wraps all app screens.
- * Login is intentionally bypassed at this stage: getCurrentMember auto-enters
- * as the default workspace member when no valid session is present.
+ * Password auth isn't set up yet: getCurrentMember falls back to whoever
+ * picked themselves on /select-member, or redirects there.
  */
 export default async function AppLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  // Resolves a member (real session or default) and warms the request.
+  // Resolves a member (real session or the picked one) and warms the request.
   const { member: viewer, db } = await getCurrentMember();
   const members = await getWorkspaceMembers(db, viewer.workspace_id);
 

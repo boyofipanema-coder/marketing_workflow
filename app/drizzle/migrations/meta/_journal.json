@@ -36,6 +36,13 @@
       "when": 1785196000000,
       "tag": "0004_milestone_as_task",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1785070960942,
+      "tag": "0005_project_brand",
+      "breakpoints": true
     }
   ]
 }

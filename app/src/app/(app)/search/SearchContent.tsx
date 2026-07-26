@@ -124,7 +124,7 @@ export default function SearchContent({
     <>
       <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
         <header className="mb-5">
-          <h1 className="font-serif text-2xl font-semibold leading-tight text-text">
+          <h1 className="text-2xl font-semibold leading-tight text-text">
             검색
           </h1>
         </header>

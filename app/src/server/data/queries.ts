@@ -10,6 +10,7 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { createDb } from "@/server/db/client";
 import { validateSession } from "@/server/auth/session";
 import { SESSION_COOKIE_NAME } from "@/server/auth/constants";
+import { getActiveMemberId } from "@/server/auth/active-member";
 import { task, project, workstream, member, activity_log } from "@/server/db/schema";
 import type { Task, Project, Workstream, Member } from "@/server/db/schema";
 import type { Database } from "@/server/db/client";
@@ -21,7 +22,9 @@ import { dependencyMap } from "@/server/services/dependency";
 
 /**
  * Reads the session cookie, validates it against D1, and returns the current
- * member. Redirects to /login if the session is missing or expired.
+ * member. Falls back to whichever member picked themselves on the entry
+ * screen (server/auth/active-member.ts — no password yet). Redirects to
+ * /select-member if neither is present.
  */
 export async function getCurrentMember(): Promise<{
   member: Member;
@@ -40,32 +43,19 @@ export async function getCurrentMember(): Promise<{
     }
   }
 
-  // No/invalid session — auto-enter as the default workspace member.
-  // (Login is intentionally bypassed at this stage; see getDefaultMember.)
-  const currentMember = await getDefaultMember(db);
-  if (!currentMember) {
-    // No members seeded at all — nothing we can do but send to login.
-    redirect("/login");
+  // No real session — fall back to whoever picked themselves on the entry
+  // screen. Not authentication: anyone with the app open can switch, which is
+  // fine for a small known team sharing one workspace.
+  const activeMemberId = await getActiveMemberId();
+  if (activeMemberId) {
+    const [active] = await db
+      .select()
+      .from(member)
+      .where(eq(member.id, activeMemberId));
+    if (active) return { member: active, db };
   }
 
-  return { member: currentMember, db };
-}
-
-/**
- * Returns the member to auto-authenticate as when no real session is present.
- * Prefers an admin; falls back to any member. Returns null if the workspace
- * has no members yet. Remove this (and its callers) to re-enable real login.
- */
-async function getDefaultMember(db: Database): Promise<Member | null> {
-  const admins = await db
-    .select()
-    .from(member)
-    .where(eq(member.role, "admin"))
-    .limit(1);
-  if (admins.length > 0) return admins[0]!;
-
-  const any = await db.select().from(member).limit(1);
-  return any[0] ?? null;
+  redirect("/select-member");
 }
 
 // ---------------------------------------------------------------------------
