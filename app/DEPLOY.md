@@ -2,6 +2,28 @@
 
 This document describes how to deploy the Marketing Team Workflow app to Cloudflare Workers + D1.
 
+## Continuous Deployment
+
+Production (`https://marketing-team-workflow.boyofipanema.workers.dev`) is connected via
+**Cloudflare Workers Builds** to the `main` branch of this repository. Every push to
+`main` triggers an automatic build + deploy — no manual `wrangler deploy` needed for
+routine changes.
+
+- Root directory: `app`
+- Deploy command: `npm run deploy` (runs `opennextjs-cloudflare build && opennextjs-cloudflare deploy`)
+- Build/deploy logs: Cloudflare Dashboard → Workers & Pages → `marketing-team-workflow` → Deployments
+
+**D1 migrations are not part of this pipeline** — `wrangler deploy` never applies them.
+Any new migration under `drizzle/migrations/` must be applied to the remote database by
+hand before (or immediately after) merging to `main`:
+
+```bash
+npx wrangler d1 migrations apply DB --remote
+```
+
+Forgetting this step is the single most likely way to break production: the deployed
+code will assume columns/tables that don't exist yet on the remote D1.
+
 ## Local Development
 
 ### 1. Run the migration
@@ -56,7 +78,10 @@ npm run dev
 
 ---
 
-## Production Deployment to Cloudflare
+## Manual Deployment (fallback)
+
+Only needed for one-off tasks the CI pipeline doesn't cover (e.g. bootstrapping a new
+environment, or deploying without going through `main`).
 
 ### Prerequisites
 
@@ -124,20 +149,3 @@ npm run deploy
 
 `npm run deploy` runs `wrangler deploy`, which packages the OpenNext build output and deploys to Cloudflare Workers.
 
----
-
-## Blocker (current state)
-
-**`wrangler whoami` returns "You are not authenticated."**
-
-The current environment does not have Cloudflare credentials (`CLOUDFLARE_API_TOKEN` is not set and `wrangler login` has not been run). As a result, steps 1–6 above could not be executed in this session.
-
-**What was completed locally:**
-- Migration applied to local D1: `npm run db:migrate` succeeded
-- Seed data applied: `npm run db:seed` — 46 statements executed
-- Local admin account created: `jisoo@auralee.co` / `secret123`
-- Build succeeds: `npm run build` — all pages compile cleanly
-- All 110 tests pass: `npm test`
-- TypeScript is clean: `npm run typecheck`
-
-**To deploy:** authenticate with `wrangler login`, then follow steps 1–6 above.
