@@ -8,7 +8,6 @@ import {
   getWorkspaceProjects,
   getWorkspaceWorkstreams,
   getProjectMilestones,
-  getDependencyMap,
   memberMap,
 } from "@/server/data/queries";
 import ProjectWorkspace from "./ProjectWorkspace";
@@ -35,7 +34,6 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
     tasks,
     workstreams,
     milestones,
-    dependencies,
     members,
     allProjects,
     allWorkstreams,
@@ -43,7 +41,6 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
     getProjectTasks(db, projectId, workspaceId),
     getProjectWorkstreams(db, projectId, workspaceId),
     getProjectMilestones(db, projectId, workspaceId),
-    getDependencyMap(db, workspaceId),
     getWorkspaceMembers(db, workspaceId),
     getWorkspaceProjects(db, workspaceId),
     getWorkspaceWorkstreams(db, workspaceId),
@@ -58,7 +55,6 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
       tasks={tasks}
       members={membersRecord}
       milestones={milestones}
-      dependencies={dependencies}
       viewerId={viewer.id}
       allProjects={allProjects}
       allWorkstreams={allWorkstreams}

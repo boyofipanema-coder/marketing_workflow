@@ -34,7 +34,6 @@ export interface ProjectWorkspaceProps {
   allProjects: Project[];
   /** Workstreams across the workspace, for the detail panel's picker. */
   allWorkstreams: Workstream[];
-  dependencies?: Record<string, string[]>;
 }
 
 type Tab = "workflow" | "tasks" | "settings";
@@ -66,7 +65,6 @@ export default function ProjectWorkspace({
   viewerId,
   allProjects,
   allWorkstreams,
-  dependencies,
 }: ProjectWorkspaceProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<Tab>("workflow");
@@ -266,7 +264,6 @@ export default function ProjectWorkspace({
               // Project header, pulse strip and tabs sit above the board here,
               // so the stage gets what is left rather than Home's allowance.
               stageHeightClass="h-[calc(100dvh-20rem)]"
-              dependencies={dependencies}
               projectId={project.id}
               onAddMilestone={async (pid, name, due) => {
                 const r = await createMilestoneAction(pid, name, due);
@@ -340,15 +337,12 @@ export default function ProjectWorkspace({
         task={controller.selected}
         projects={allProjects}
         workstreams={allWorkstreams}
-        members={memberList}
-        allTasks={controller.tasks}
-        dependencies={dependencies}
         open={controller.panelOpen}
         saveState={
           controller.selected ? store.stateOf(controller.selected.id) : "idle"
         }
-        error={store.error}
-        conflict={store.conflict}
+        error={controller.selected ? store.errorFor(controller.selected.id).error : null}
+        conflict={controller.selected ? store.errorFor(controller.selected.id).conflict : false}
         onOpenChange={(open) => {
           controller.setPanelOpen(open);
           if (!open) store.dismissError();

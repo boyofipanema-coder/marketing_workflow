@@ -270,13 +270,12 @@ export default function SearchContent({
         task={controller.selected}
         projects={projects}
         workstreams={workstreams}
-        members={members}
         open={controller.panelOpen}
         saveState={
           controller.selected ? store.stateOf(controller.selected.id) : "idle"
         }
-        error={store.error}
-        conflict={store.conflict}
+        error={controller.selected ? store.errorFor(controller.selected.id).error : null}
+        conflict={controller.selected ? store.errorFor(controller.selected.id).conflict : false}
         onOpenChange={(open) => {
           controller.setPanelOpen(open);
           if (!open) store.dismissError();

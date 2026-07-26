@@ -396,3 +396,136 @@ describe("applyTaskEdit — importance", () => {
     expect(activityRows.some((r) => r.change_type === "kind")).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Waiting preservation — CANVAS_FIRST_REVISION_PLAN.md §16.1/§16.3 regression
+// suite. A patch that never mentions status must never touch waiting_party_text
+// or follow_up_at; only an actual transition out of Waiting may clear them, and
+// doing so must log what was cleared (Finding 1 + Finding 3).
+// ---------------------------------------------------------------------------
+
+describe("applyTaskEdit — Waiting preservation", () => {
+  function waitingTask(overrides: Partial<Task> = {}) {
+    return makeTask({
+      status: "Waiting",
+      project_id: "p1",
+      waiting_party_text: "본사 회신",
+      follow_up_at: "2026-08-01",
+      ...overrides,
+    });
+  }
+
+  it("preserves party and follow-up across a title-only edit", () => {
+    const current = waitingTask();
+    const { updates } = applyTaskEdit(current, { title: "새 제목" }, 1, ACTOR, NOW);
+    expect(updates.waiting_party_text).toBeUndefined();
+    expect(updates.follow_up_at).toBeUndefined();
+  });
+
+  it("preserves party and follow-up across a description-only edit", () => {
+    const current = waitingTask();
+    const { updates } = applyTaskEdit(
+      current,
+      { description: "새 설명" },
+      1,
+      ACTOR,
+      NOW
+    );
+    expect(updates.waiting_party_text).toBeUndefined();
+    expect(updates.follow_up_at).toBeUndefined();
+  });
+
+  it("preserves party and follow-up across a due_date-only edit", () => {
+    const current = waitingTask();
+    const { updates } = applyTaskEdit(
+      current,
+      { due_date: "2026-09-01" },
+      1,
+      ACTOR,
+      NOW
+    );
+    expect(updates.waiting_party_text).toBeUndefined();
+    expect(updates.follow_up_at).toBeUndefined();
+  });
+
+  it("allows editing only the waiting party, and logs it", () => {
+    const current = waitingTask();
+    const { updates, activityRows } = applyTaskEdit(
+      current,
+      { waiting_party_text: "협력사 확인" },
+      1,
+      ACTOR,
+      NOW
+    );
+    expect(updates.waiting_party_text).toBe("협력사 확인");
+    expect(updates.follow_up_at).toBeUndefined();
+    const row = activityRows.find((r) => r.change_type === "waiting_party");
+    expect(row?.from_value).toBe("본사 회신");
+    expect(row?.to_value).toBe("협력사 확인");
+  });
+
+  it("allows editing only the follow-up date, and logs it", () => {
+    const current = waitingTask();
+    const { updates, activityRows } = applyTaskEdit(
+      current,
+      { follow_up_at: "2026-10-01" },
+      1,
+      ACTOR,
+      NOW
+    );
+    expect(updates.follow_up_at).toBe("2026-10-01");
+    expect(updates.waiting_party_text).toBeUndefined();
+    const row = activityRows.find((r) => r.change_type === "follow_up_at");
+    expect(row?.from_value).toBe("2026-08-01");
+    expect(row?.to_value).toBe("2026-10-01");
+  });
+
+  it("clears and logs waiting_closed on Waiting → InProgress", () => {
+    const current = waitingTask();
+    const { updates, activityRows } = applyTaskEdit(
+      current,
+      { status: "InProgress" },
+      1,
+      ACTOR,
+      NOW
+    );
+    expect(updates.waiting_party_text).toBeNull();
+    expect(updates.follow_up_at).toBeNull();
+    const row = activityRows.find((r) => r.change_type === "waiting_closed");
+    expect(row).toBeDefined();
+    expect(JSON.parse(row!.from_value!)).toEqual({
+      party: "본사 회신",
+      follow_up_at: "2026-08-01",
+    });
+  });
+
+  it("clears and logs waiting_closed on Waiting → Done", () => {
+    const current = waitingTask();
+    const { updates, activityRows } = applyTaskEdit(
+      current,
+      { status: "Done" },
+      1,
+      ACTOR,
+      NOW
+    );
+    expect(updates.waiting_party_text).toBeNull();
+    expect(updates.follow_up_at).toBeNull();
+    expect(activityRows.some((r) => r.change_type === "waiting_closed")).toBe(
+      true
+    );
+  });
+
+  it("does not log waiting_closed for a legacy Waiting row with no fields set", () => {
+    const current = waitingTask({ waiting_party_text: null, follow_up_at: null });
+    const { activityRows } = applyTaskEdit(
+      current,
+      { status: "Done" },
+      1,
+      ACTOR,
+      NOW
+    );
+    expect(activityRows.some((r) => r.change_type === "waiting_closed")).toBe(
+      false
+    );
+  });
+});

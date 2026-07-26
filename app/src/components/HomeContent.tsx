@@ -2,9 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Briefcase, Plus } from "lucide-react";
 import TaskSection from "@/components/tasks/TaskSection";
 import TaskDetailPanel from "@/components/tasks/TaskDetailPanel";
 import WorkflowCanvas, { type Focus } from "@/components/workflow/WorkflowCanvas";
+import EmptyState from "@/components/EmptyState";
+import ProjectFormDialog from "@/components/projects/ProjectFormDialog";
+import { Button } from "@/components/ui";
 import { useTaskController } from "@/components/tasks/useTaskController";
 import {
   myFocus,
@@ -21,7 +25,6 @@ export interface HomeContentProps {
   projects: Project[];
   workstreams: Workstream[];
   members: Member[];
-  dependencies?: Record<string, string[]>;
 }
 
 /**
@@ -37,7 +40,6 @@ export default function HomeContent({
   projects,
   workstreams,
   members,
-  dependencies,
 }: HomeContentProps) {
   const router = useRouter();
   const controller = useTaskController(tasks);
@@ -46,6 +48,7 @@ export default function HomeContent({
   // The board is the landing view. On a phone it is unreadable, so the personal
   // lists lead there instead; server and first client render agree on the board.
   const [showBoard, setShowBoard] = useState(true);
+  const [showProjectForm, setShowProjectForm] = useState(false);
 
   useEffect(() => {
     if (window.matchMedia("(max-width: 640px)").matches) setShowBoard(false);
@@ -103,7 +106,7 @@ export default function HomeContent({
         {/* Workspace counts only. Adding a task is a global action and already
             lives in the top bar — a second identical button here was the same
             command twice, 40px apart. */}
-        {showBoard && boardTasks.length > 0 && (
+        {showBoard && (boardTasks.length > 0 || projects.length > 0) && (
           <div className="mb-2 text-xs text-text-tertiary">
             진행 중인 프로젝트 {projects.length}개 · 업무 {boardTasks.length}건
           </div>
@@ -118,9 +121,29 @@ export default function HomeContent({
           </p>
         )}
 
+        {/* A workspace with no projects yet has nothing for the board to
+            group by — offer the one thing that unblocks it, independent of
+            whether a stray quick-added task already exists in 미분류. */}
+        {showBoard && projects.length === 0 && (
+          <div className="mb-10 rounded-xl border border-dashed border-border bg-surface-2/40">
+            <EmptyState
+              icon={<Briefcase className="h-5 w-5" aria-hidden />}
+              title="아직 프로젝트가 없습니다"
+              description="프로젝트를 만들면 업무를 갈래별로 정리하고 진행 상황을 함께 볼 수 있습니다."
+              action={
+                <Button variant="primary" onClick={() => setShowProjectForm(true)}>
+                  <Plus aria-hidden />
+                  첫 프로젝트 만들기
+                </Button>
+              }
+            />
+          </div>
+        )}
+
         {/* The board leads: the whole workspace at a glance, grouped by
-            project, before any personal list. */}
-        {showBoard && boardTasks.length > 0 && (
+            project, before any personal list. Renders once there's a project
+            to group by, or a task to show, even if the other count is zero. */}
+        {showBoard && (boardTasks.length > 0 || projects.length > 0) && (
           <section className="mb-10" aria-label="전체 업무 흐름">
             <WorkflowCanvas
               tasks={boardTasks}
@@ -131,7 +154,6 @@ export default function HomeContent({
               onSelect={controller.select}
               focus={boardFocus}
               onFocusChange={setBoardFocus}
-              dependencies={dependencies}
             />
           </section>
         )}
@@ -189,15 +211,12 @@ export default function HomeContent({
         task={controller.selected}
         projects={projects}
         workstreams={workstreams}
-        members={members}
-        allTasks={controller.tasks}
-        dependencies={dependencies}
         open={controller.panelOpen}
         saveState={
           controller.selected ? store.stateOf(controller.selected.id) : "idle"
         }
-        error={store.error}
-        conflict={store.conflict}
+        error={controller.selected ? store.errorFor(controller.selected.id).error : null}
+        conflict={controller.selected ? store.errorFor(controller.selected.id).conflict : false}
         onOpenChange={(open) => {
           controller.setPanelOpen(open);
           if (!open) store.dismissError();
@@ -205,6 +224,14 @@ export default function HomeContent({
         onPatch={controller.patch}
         onCancelTask={controller.cancel}
         onRestoreTask={controller.restore}
+      />
+
+      <ProjectFormDialog
+        open={showProjectForm}
+        onOpenChange={setShowProjectForm}
+        members={members}
+        defaultLeadId={viewerId}
+        onSaved={() => router.refresh()}
       />
     </>
   );

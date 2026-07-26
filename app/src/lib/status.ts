@@ -99,3 +99,27 @@ export const FLAG_META: Record<AttentionFlag, { label: string; text: string; fil
 export function statusMeta(status: TaskStatus, cancelled = false): StatusMeta {
   return cancelled ? CANCELLED_META : STATUS_META[status];
 }
+
+/**
+ * The three statuses the product actually shows the user (Canvas columns, the
+ * editor's status control, card pills) — collapsed at display time from the
+ * six stored values, without changing the DB enum or TASK_STATUSES itself.
+ * Inbox/ToDo/Review all read as "진행 중": from the user's point of view
+ * they're all "not done, not waiting". A later data migration can shrink the
+ * stored enum to match once that's actually warranted; until then this is the
+ * only place that decision lives.
+ */
+export const DISPLAY_STATUS_GROUPS = ["InProgress", "Waiting", "Done"] as const;
+export type DisplayStatusGroup = (typeof DISPLAY_STATUS_GROUPS)[number];
+
+export const DISPLAY_GROUP_META: Record<DisplayStatusGroup, { label: string }> = {
+  InProgress: { label: "진행 중" },
+  Waiting: { label: "대기" },
+  Done: { label: "완료" },
+};
+
+export function displayGroup(status: TaskStatus): DisplayStatusGroup {
+  if (status === "Waiting") return "Waiting";
+  if (status === "Done") return "Done";
+  return "InProgress";
+}
