@@ -378,6 +378,17 @@ function computeLayout(
       }
       laneMaxBottom = Math.max(laneMaxBottom, cy);
     }
+    // A project with zero tasks yet never appears in any stage cell above, so
+    // without this it's invisible under its brand the moment it's created —
+    // same "show it even empty" rule the brand/project lanes themselves use.
+    if (groupBy === "brand") {
+      const projectIdsWithTasks = new Set(laneTasks.map((t) => t.project_id).filter(Boolean));
+      const emptyProjects = projects.filter((p) => p.brand === lane.key && !projectIdsWithTasks.has(p.id));
+      for (const p of emptyProjects) {
+        projectHeaders.push({ key: `${lane.key}|empty|${p.id}`, name: p.name, x: LANEPAD, y: laneMaxBottom });
+        laneMaxBottom += PROJ_HEADER_H;
+      }
+    }
     laneOut.push({ ...lane, y: laneTop, h: laneMaxBottom - laneTop + LANE_PAD, done, total: laneTasks.length });
     y = laneMaxBottom + LANE_PAD + LANE_GAP;
   }
