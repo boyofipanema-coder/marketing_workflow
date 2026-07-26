@@ -13,6 +13,7 @@ import { runAction, type ActionResult } from "./result";
 import type { Project } from "@/server/db/schema";
 
 export interface CreateProjectInput {
+  brandId?: string | null;
   name: string;
   projectLeadId: string;
   oneLineObjective?: string | null;

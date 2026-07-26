@@ -334,3 +334,71 @@ describe("0004 — milestones become tasks", () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// 0005 — Brand → Project hierarchy
+// ---------------------------------------------------------------------------
+
+describe("0005 — brands contain projects", () => {
+  it("preserves existing projects and files them under one safe default brand", () => {
+    const sqlite = legacyDb();
+    apply(sqlite, "0002_recovery_fields");
+    apply(sqlite, "0003_task_hierarchy");
+    apply(sqlite, "0004_milestone_as_task");
+    sqlite
+      .prepare(
+        `INSERT INTO workspace (id, name, timezone, created_at)
+         VALUES ('ws1', 'Workspace One', 'Asia/Seoul', '2024-01-01T00:00:00Z')`
+      )
+      .run();
+    sqlite
+      .prepare(
+        `INSERT INTO project
+           (id, workspace_id, name, project_lead_id, created_at, updated_at)
+         VALUES
+           ('p1', 'ws1', 'Project One', 'lead1', '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z'),
+           ('p2', 'ws1', 'Project Two', 'lead1', '2024-01-02T00:00:00Z', '2024-01-02T00:00:00Z')`
+      )
+      .run();
+
+    apply(sqlite, "0005_brand_project_hierarchy");
+
+    const brands = sqlite
+      .prepare("SELECT id, workspace_id, name FROM brand")
+      .all();
+    expect(brands).toEqual([
+      {
+        id: "brand-unfiled-ws1",
+        workspace_id: "ws1",
+        name: "브랜드 미지정",
+      },
+    ]);
+    const projects = sqlite
+      .prepare("SELECT id, name, brand_id FROM project ORDER BY id")
+      .all();
+    expect(projects).toEqual([
+      { id: "p1", name: "Project One", brand_id: "brand-unfiled-ws1" },
+      { id: "p2", name: "Project Two", brand_id: "brand-unfiled-ws1" },
+    ]);
+  });
+
+  it("does not invent an empty default brand in a workspace with no projects", () => {
+    const sqlite = legacyDb();
+    apply(sqlite, "0002_recovery_fields");
+    apply(sqlite, "0003_task_hierarchy");
+    apply(sqlite, "0004_milestone_as_task");
+    sqlite
+      .prepare(
+        `INSERT INTO workspace (id, name, timezone, created_at)
+         VALUES ('empty', 'Empty', 'Asia/Seoul', '2024-01-01T00:00:00Z')`
+      )
+      .run();
+
+    apply(sqlite, "0005_brand_project_hierarchy");
+
+    const count = sqlite
+      .prepare("SELECT COUNT(*) AS n FROM brand")
+      .get() as { n: number };
+    expect(count.n).toBe(0);
+  });
+});

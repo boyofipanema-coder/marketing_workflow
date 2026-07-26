@@ -8,12 +8,15 @@ import {
   createProjectAction,
   editProjectAction,
 } from "@/app/actions/projects";
-import type { Project, Member } from "@/server/db/schema";
+import type { Brand, Project, Member } from "@/server/db/schema";
 
 export interface ProjectFormDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   members: Member[];
+  brands?: Brand[];
+  /** Brand preselected when creating inside an integrated brand section. */
+  defaultBrandId?: string;
   /** Omit to create; pass a project to edit it in place. */
   project?: Project | null;
   /** Fallback lead for a new project — normally the current member. */
@@ -23,6 +26,7 @@ export interface ProjectFormDialogProps {
 
 const fieldClass =
   "h-10 w-full rounded-lg border border-border bg-surface px-3 text-base text-text transition-[border-color,box-shadow] duration-fast ease-out hover:border-border-strong focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30";
+const EMPTY_BRANDS: Brand[] = [];
 
 /**
  * Create/edit form for a project. Field-level errors render next to the field
@@ -32,6 +36,8 @@ export default function ProjectFormDialog({
   open,
   onOpenChange,
   members,
+  brands = EMPTY_BRANDS,
+  defaultBrandId,
   project,
   defaultLeadId,
   onSaved,
@@ -39,6 +45,7 @@ export default function ProjectFormDialog({
   const editing = Boolean(project);
 
   const [name, setName] = useState("");
+  const [brandId, setBrandId] = useState(defaultBrandId ?? "");
   const [objective, setObjective] = useState("");
   const [leadId, setLeadId] = useState(defaultLeadId);
   const [startDate, setStartDate] = useState("");
@@ -50,12 +57,13 @@ export default function ProjectFormDialog({
   useEffect(() => {
     if (!open) return;
     setName(project?.name ?? "");
+    setBrandId(project?.brand_id ?? defaultBrandId ?? brands[0]?.id ?? "");
     setObjective(project?.one_line_objective ?? "");
     setLeadId(project?.project_lead_id ?? defaultLeadId);
     setStartDate(project?.target_start_date ?? "");
     setEndDate(project?.target_end_date ?? "");
     setError(null);
-  }, [open, project, defaultLeadId]);
+  }, [open, project, defaultLeadId, defaultBrandId, brands]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -69,6 +77,7 @@ export default function ProjectFormDialog({
     setError(null);
 
     const payload = {
+      brandId: brandId || null,
       name: trimmed,
       projectLeadId: leadId,
       oneLineObjective: objective.trim() || null,
@@ -78,6 +87,7 @@ export default function ProjectFormDialog({
 
     const result = project
       ? await editProjectAction(project.id, {
+          brandId: payload.brandId,
           name: payload.name,
           projectLeadId: payload.projectLeadId,
           oneLineObjective: payload.oneLineObjective,
@@ -120,6 +130,30 @@ export default function ProjectFormDialog({
               >
                 {error}
               </p>
+            )}
+
+            {brands.length > 0 && (
+              <div className="flex flex-col gap-1.5">
+                <label
+                  htmlFor="project-brand"
+                  className="text-2xs font-semibold uppercase tracking-wider text-text-tertiary"
+                >
+                  브랜드
+                </label>
+                <select
+                  id="project-brand"
+                  value={brandId}
+                  onChange={(e) => setBrandId(e.target.value)}
+                  className={fieldClass}
+                  required
+                >
+                  {brands.map((brand) => (
+                    <option key={brand.id} value={brand.id}>
+                      {brand.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
             )}
 
             <div className="flex flex-col gap-1.5">

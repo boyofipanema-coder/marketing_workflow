@@ -8,6 +8,7 @@ DELETE FROM task;
 DELETE FROM milestone;
 DELETE FROM workstream;
 DELETE FROM project;
+DELETE FROM brand;
 DELETE FROM member;
 DELETE FROM workspace;
 

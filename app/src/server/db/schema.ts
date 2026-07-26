@@ -17,6 +17,22 @@ export const workspace = sqliteTable("workspace", {
 });
 
 // ---------------------------------------------------------------------------
+// brand
+// ---------------------------------------------------------------------------
+export const brand = sqliteTable("brand", {
+  id: text("id").primaryKey(),
+  workspace_id: text("workspace_id")
+    .notNull()
+    .references(() => workspace.id),
+  name: text("name").notNull(),
+  /** Brand identity only. Status colours remain reserved for work state. */
+  color: text("color").notNull().default("#0a84ff"),
+  archived_at: text("archived_at"),
+  created_at: text("created_at").notNull(),
+  updated_at: text("updated_at").notNull(),
+});
+
+// ---------------------------------------------------------------------------
 // member
 // ---------------------------------------------------------------------------
 export const member = sqliteTable("member", {
@@ -63,6 +79,7 @@ export const project = sqliteTable("project", {
   workspace_id: text("workspace_id")
     .notNull()
     .references(() => workspace.id),
+  brand_id: text("brand_id").references(() => brand.id),
   name: text("name").notNull(),
   one_line_objective: text("one_line_objective"),
   project_lead_id: text("project_lead_id")
@@ -222,9 +239,18 @@ export const activity_log = sqliteTable("activity_log", {
 // ---------------------------------------------------------------------------
 export const workspaceRelations = relations(workspace, ({ many }) => ({
   members: many(member),
+  brands: many(brand),
   projects: many(project),
   tasks: many(task),
   activity_logs: many(activity_log),
+}));
+
+export const brandRelations = relations(brand, ({ one, many }) => ({
+  workspace: one(workspace, {
+    fields: [brand.workspace_id],
+    references: [workspace.id],
+  }),
+  projects: many(project),
 }));
 
 export const memberRelations = relations(member, ({ one, many }) => ({
@@ -258,6 +284,10 @@ export const projectRelations = relations(project, ({ one, many }) => ({
   workspace: one(workspace, {
     fields: [project.workspace_id],
     references: [workspace.id],
+  }),
+  brand: one(brand, {
+    fields: [project.brand_id],
+    references: [brand.id],
   }),
   project_lead: one(member, {
     fields: [project.project_lead_id],
@@ -340,6 +370,9 @@ export const activity_logRelations = relations(activity_log, ({ one }) => ({
 // ---------------------------------------------------------------------------
 export type Workspace = typeof workspace.$inferSelect;
 export type NewWorkspace = typeof workspace.$inferInsert;
+
+export type Brand = typeof brand.$inferSelect;
+export type NewBrand = typeof brand.$inferInsert;
 
 export type Member = typeof member.$inferSelect;
 export type NewMember = typeof member.$inferInsert;

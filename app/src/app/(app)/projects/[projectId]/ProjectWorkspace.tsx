@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { Archive, MoreHorizontal, Pencil, RotateCcw } from "lucide-react";
+import { Archive, ChevronRight, MoreHorizontal, Pencil, RotateCcw } from "lucide-react";
 import TaskList from "@/components/tasks/TaskList";
 import InlineAdd from "@/components/tasks/InlineAdd";
 import TaskDetailPanel from "@/components/tasks/TaskDetailPanel";
@@ -20,7 +20,7 @@ import {
   restoreProjectAction,
 } from "@/app/actions/projects";
 import { isMilestone } from "@/lib/board-graph";
-import type { Project, Task, Workstream, Member } from "@/server/db/schema";
+import type { Brand, Project, Task, Workstream, Member } from "@/server/db/schema";
 
 export interface ProjectWorkspaceProps {
   project: Project;
@@ -34,6 +34,7 @@ export interface ProjectWorkspaceProps {
   allProjects: Project[];
   /** Workstreams across the workspace, for the detail panel's picker. */
   allWorkstreams: Workstream[];
+  brands: Brand[];
   dependencies?: Record<string, string[]>;
 }
 
@@ -66,6 +67,7 @@ export default function ProjectWorkspace({
   viewerId,
   allProjects,
   allWorkstreams,
+  brands,
   dependencies,
 }: ProjectWorkspaceProps) {
   const router = useRouter();
@@ -99,6 +101,7 @@ export default function ProjectWorkspace({
   const lead = project.project_lead_id
     ? members[project.project_lead_id]
     : undefined;
+  const projectBrand = brands.find((brand) => brand.id === project.brand_id);
   const archived = project.archived_at !== null;
 
   async function addTask(title: string) {
@@ -137,6 +140,14 @@ export default function ProjectWorkspace({
         <header className="mb-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
+              {projectBrand && (
+                <div className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold text-text-tertiary">
+                  <span className="size-2 rounded-[3px]" style={{ background: projectBrand.color }} />
+                  {projectBrand.name}
+                  <ChevronRight className="size-3" aria-hidden />
+                  프로젝트
+                </div>
+              )}
               <h1 className="font-serif text-2xl font-semibold leading-tight text-text">
                 {project.name}
               </h1>
@@ -362,6 +373,7 @@ export default function ProjectWorkspace({
         open={editOpen}
         onOpenChange={setEditOpen}
         members={memberList}
+        brands={brands}
         project={project}
         defaultLeadId={viewerId}
         onSaved={() => router.refresh()}

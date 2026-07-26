@@ -10,8 +10,8 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { createDb } from "@/server/db/client";
 import { validateSession } from "@/server/auth/session";
 import { SESSION_COOKIE_NAME } from "@/server/auth/constants";
-import { task, project, workstream, member, activity_log } from "@/server/db/schema";
-import type { Task, Project, Workstream, Member } from "@/server/db/schema";
+import { task, project, brand, workstream, member, activity_log } from "@/server/db/schema";
+import type { Task, Project, Brand, Workstream, Member } from "@/server/db/schema";
 import type { Database } from "@/server/db/client";
 import { dependencyMap } from "@/server/services/dependency";
 
@@ -118,6 +118,22 @@ export async function getInboxTasks(
       )
     )
     .orderBy(asc(task.sort_order), asc(task.created_at));
+}
+
+// ---------------------------------------------------------------------------
+// Brand queries
+// ---------------------------------------------------------------------------
+
+/** Fetch active brands for the workspace, in stable creation order. */
+export async function getWorkspaceBrands(
+  db: Database,
+  workspaceId: string
+): Promise<Brand[]> {
+  return db
+    .select()
+    .from(brand)
+    .where(and(eq(brand.workspace_id, workspaceId), isNull(brand.archived_at)))
+    .orderBy(asc(brand.created_at), asc(brand.name));
 }
 
 // ---------------------------------------------------------------------------

@@ -2,10 +2,15 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { FolderPlus, Plus } from "lucide-react";
 import TaskSection from "@/components/tasks/TaskSection";
 import TaskDetailPanel from "@/components/tasks/TaskDetailPanel";
 import WorkflowCanvas, { type Focus } from "@/components/workflow/WorkflowCanvas";
 import { useTaskController } from "@/components/tasks/useTaskController";
+import BrandFormDialog from "@/components/projects/BrandFormDialog";
+import ProjectFormDialog from "@/components/projects/ProjectFormDialog";
+import { Button } from "@/components/ui";
+import { createProjectTaskAction } from "@/app/actions/tasks";
 import {
   myFocus,
   needsAttention,
@@ -13,11 +18,12 @@ import {
   teamInMotion,
   teamWaiting,
 } from "@/lib/derive";
-import type { Task, Project, Workstream, Member } from "@/server/db/schema";
+import type { Task, Brand, Project, Workstream, Member } from "@/server/db/schema";
 
 export interface HomeContentProps {
   viewerId: string;
   tasks: Task[];
+  brands: Brand[];
   projects: Project[];
   workstreams: Workstream[];
   members: Member[];
@@ -34,6 +40,7 @@ export interface HomeContentProps {
 export default function HomeContent({
   viewerId,
   tasks,
+  brands,
   projects,
   workstreams,
   members,
@@ -46,6 +53,9 @@ export default function HomeContent({
   // The board is the landing view. On a phone it is unreadable, so the personal
   // lists lead there instead; server and first client render agree on the board.
   const [showBoard, setShowBoard] = useState(true);
+  const [brandDialogOpen, setBrandDialogOpen] = useState(false);
+  const [projectDialogOpen, setProjectDialogOpen] = useState(false);
+  const [projectBrandId, setProjectBrandId] = useState<string | undefined>();
 
   useEffect(() => {
     if (window.matchMedia("(max-width: 640px)").matches) setShowBoard(false);
@@ -94,6 +104,18 @@ export default function HomeContent({
     onToggleKey: controller.toggleKey,
   };
 
+  function startProject(brandId?: string) {
+    setProjectBrandId(brandId ?? brands[0]?.id);
+    setProjectDialogOpen(true);
+  }
+
+  async function addProjectTask(projectId: string, title: string) {
+    const result = await createProjectTaskAction(projectId, title);
+    if (!result.success) return false;
+    router.refresh();
+    return true;
+  }
+
   return (
     <>
       {/* No page title. "홈" is already the selected item in the nav, and a
@@ -103,9 +125,25 @@ export default function HomeContent({
         {/* Workspace counts only. Adding a task is a global action and already
             lives in the top bar — a second identical button here was the same
             command twice, 40px apart. */}
-        {showBoard && boardTasks.length > 0 && (
-          <div className="mb-2 text-xs text-text-tertiary">
-            진행 중인 프로젝트 {projects.length}개 · 업무 {boardTasks.length}건
+        {showBoard && (
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <div className="mr-auto text-xs text-text-tertiary">
+              브랜드 {brands.length}개 · 프로젝트 {projects.length}개 · 업무 {boardTasks.length}건
+            </div>
+            <Button variant="ghost" size="sm" onClick={() => setBrandDialogOpen(true)}>
+              <Plus aria-hidden />
+              브랜드
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => startProject()}
+              disabled={brands.length === 0}
+              title={brands.length === 0 ? "브랜드를 먼저 만들어 주세요" : undefined}
+            >
+              <FolderPlus aria-hidden />
+              프로젝트
+            </Button>
           </div>
         )}
 
@@ -120,15 +158,19 @@ export default function HomeContent({
 
         {/* The board leads: the whole workspace at a glance, grouped by
             project, before any personal list. */}
-        {showBoard && boardTasks.length > 0 && (
+        {showBoard && (brands.length > 0 || projects.length > 0 || boardTasks.length > 0) && (
           <section className="mb-10" aria-label="전체 업무 흐름">
             <WorkflowCanvas
               tasks={boardTasks}
+              brands={brands}
               workstreams={workstreams}
               members={membersRecord}
               projects={projects}
               defaultGroupBy="project"
+              hierarchyMode
               onSelect={controller.select}
+              onAddProject={(brandId) => startProject(brandId)}
+              onAddProjectTask={addProjectTask}
               focus={boardFocus}
               onFocusChange={setBoardFocus}
               dependencies={dependencies}
@@ -205,6 +247,22 @@ export default function HomeContent({
         onPatch={controller.patch}
         onCancelTask={controller.cancel}
         onRestoreTask={controller.restore}
+      />
+
+      <BrandFormDialog
+        open={brandDialogOpen}
+        onOpenChange={setBrandDialogOpen}
+        onSaved={() => router.refresh()}
+      />
+
+      <ProjectFormDialog
+        open={projectDialogOpen}
+        onOpenChange={setProjectDialogOpen}
+        members={members}
+        brands={brands}
+        defaultBrandId={projectBrandId}
+        defaultLeadId={viewerId}
+        onSaved={() => router.refresh()}
       />
     </>
   );

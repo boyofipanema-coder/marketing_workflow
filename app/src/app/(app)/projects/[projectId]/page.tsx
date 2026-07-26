@@ -6,6 +6,7 @@ import {
   getProjectWorkstreams,
   getWorkspaceMembers,
   getWorkspaceProjects,
+  getWorkspaceBrands,
   getWorkspaceWorkstreams,
   getProjectMilestones,
   getDependencyMap,
@@ -39,6 +40,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
     members,
     allProjects,
     allWorkstreams,
+    brands,
   ] = await Promise.all([
     getProjectTasks(db, projectId, workspaceId),
     getProjectWorkstreams(db, projectId, workspaceId),
@@ -47,6 +49,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
     getWorkspaceMembers(db, workspaceId),
     getWorkspaceProjects(db, workspaceId),
     getWorkspaceWorkstreams(db, workspaceId),
+    getWorkspaceBrands(db, workspaceId),
   ]);
 
   const membersRecord = Object.fromEntries(memberMap(members));
@@ -62,6 +65,7 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
       viewerId={viewer.id}
       allProjects={allProjects}
       allWorkstreams={allWorkstreams}
+      brands={brands}
     />
   );
 }

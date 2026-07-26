@@ -3,12 +3,12 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Minus, Plus, Maximize2, ChevronRight, CornerDownRight, ArrowUpRight } from "lucide-react";
+import { Minus, Plus, Maximize2, ChevronRight, CornerDownRight, ArrowUpRight, FolderPlus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { statusMeta, type TaskStatus } from "@/lib/status";
 import { createSubtaskAction } from "@/app/actions/tasks";
 import InlineAdd from "@/components/tasks/InlineAdd";
-import type { Task, Workstream, Member, Project } from "@/server/db/schema";
+import type { Task, Brand, Workstream, Member, Project } from "@/server/db/schema";
 import { buildBoardGraph, isKey, laneKeyFor, type ChildMap, type GroupBy } from "@/lib/board-graph";
 
 /**
@@ -103,11 +103,16 @@ interface Lane {
   name: string;
   color: string;
   avatar?: string;
+  /** Present only in the fixed Brand → Project hierarchy. */
+  brandKey?: string;
+  objective?: string | null;
 }
 
 // ── geometry ──────────────────────────────────────────────────────────────────
 const TOP = 50;
-const LANEPAD = 190;
+// A real hierarchy column, not a caption gutter: project needs enough width
+// to carry its name, objective, progress and direct task creation.
+const LANEPAD = 220;
 const COLW = 252;
 const COLGAP = 18;
 const NODEW = COLW - COLGAP - 6;
@@ -120,6 +125,9 @@ const VGAP = 12;
 const CHIP_H = 34;
 const LANE_PAD = 12;
 const LANE_GAP = 18;
+const BRAND_HEAD_H = 64;
+const BRAND_EMPTY_H = 58;
+const BRAND_GAP = 28;
 const CAP = 4;
 const ADD_H = 42; // inline "add subtask" input row
 // A key task earns its extra height from importance alone — never from how many
@@ -169,6 +177,16 @@ interface Rail {
 }
 interface Layout {
   lanes: (Lane & { y: number; h: number; done: number; total: number })[];
+  brands: {
+    key: string;
+    name: string;
+    color: string;
+    y: number;
+    h: number;
+    projectCount: number;
+    done: number;
+    total: number;
+  }[];
   columns: { i: number; x: number; count: number }[];
   nodes: Positioned[];
   rails: Rail[];
@@ -188,6 +206,7 @@ function dueBucket(due: string | null): { key: string; name: string; color: stri
   return { key: "later", name: "나중에", color: "rgb(var(--status-inbox))", order: 3 };
 }
 const OWNER_COLORS = ["#0a84ff", "#af52de", "#30b0c7", "#ff9500", "#34c759", "#ff375f"];
+const EMPTY_BRANDS: Brand[] = [];
 function ownerColor(id: string): string {
   let h = 0;
   for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
@@ -216,8 +235,10 @@ function computeLayout(
   parentOf: Map<string, string>,
   workstreams: Workstream[],
   members: Record<string, Member>,
+  brands: Brand[],
   projects: Project[],
   groupBy: GroupBy,
+  hierarchyMode: boolean,
   cellsOpen: Set<string>,
   subsOpen: Set<string>,
   addingId: string | null,
@@ -233,11 +254,30 @@ function computeLayout(
 
   let lanes: Lane[] = [];
   if (groupBy === "project") {
+    const brandById = new Map(brands.map((b) => [b.id, b]));
+    const brandOrder = new Map(brands.map((b, i) => [b.id, i]));
     lanes = projects
-      .filter((p) => roots.some((t) => t.project_id === p.id) || msIn(p.id))
-      .map((p) => ({ key: p.id, name: p.name, color: "rgb(var(--accent))" }));
+      .filter((p) => hierarchyMode || roots.some((t) => t.project_id === p.id) || msIn(p.id))
+      .sort(
+        (a, b) =>
+          (brandOrder.get(a.brand_id ?? "") ?? 9999) -
+            (brandOrder.get(b.brand_id ?? "") ?? 9999) ||
+          a.created_at.localeCompare(b.created_at),
+      )
+      .map((p) => ({
+        key: p.id,
+        name: p.name,
+        objective: p.one_line_objective,
+        color: brandById.get(p.brand_id ?? "")?.color ?? "rgb(var(--accent))",
+        brandKey: p.brand_id ?? "_unfiled",
+      }));
     if (roots.some((t) => !t.project_id))
-      lanes.push({ key: "_inbox", name: "인박스", color: "rgb(var(--status-inbox))" });
+      lanes.push({
+        key: "_inbox",
+        name: "인박스",
+        color: "rgb(var(--status-inbox))",
+        brandKey: "_inbox",
+      });
   } else if (groupBy === "workstream") {
     lanes = [...workstreams]
       .sort((a, b) => a.order - b.order)
@@ -322,12 +362,13 @@ function computeLayout(
   const rails: Rail[] = [];
   const overflow: Layout["overflow"] = [];
   const laneOut: Layout["lanes"] = [];
+  const brandOut: Layout["brands"] = [];
   let y = TOP;
   if (boardMs.length) {
     rails.push(buildRail("_board", boardMs, y));
     y += RAIL_H + RAIL_GAP + LANE_GAP;
   }
-  for (const lane of lanes) {
+  const placeLane = (lane: Lane) => {
     const laneTasks = placed.filter((t) => laneKeyOf(t) === lane.key);
     const done = laneTasks.filter((t) => t.status === "Done").length;
     const laneTop = y;
@@ -336,7 +377,10 @@ function computeLayout(
     // deadlines read as belonging to that stream of work.
     const railH = laneMs ? RAIL_H + RAIL_GAP : 0;
     if (laneMs) rails.push(buildRail(lane.key, laneMs, laneTop + RAIL_GAP));
-    let laneMaxBottom = laneTop + railH + CARD_BASE;
+    // In hierarchy mode the project column is a full row, not a tiny caption.
+    // Its objective, progress and creation control all fit without colliding
+    // with the first task card.
+    let laneMaxBottom = laneTop + railH + (hierarchyMode ? 166 : CARD_BASE);
     for (let s = 0; s < STAGE_COUNT; s++) {
       const arr = cell.get(`${lane.key}|${s}`) ?? [];
       const isOpen = cellsOpen.has(`${lane.key}|${s}`);
@@ -355,6 +399,58 @@ function computeLayout(
     }
     laneOut.push({ ...lane, y: laneTop, h: laneMaxBottom - laneTop + LANE_PAD, done, total: laneTasks.length });
     y = laneMaxBottom + LANE_PAD + LANE_GAP;
+  };
+
+  if (hierarchyMode && groupBy === "project") {
+    const brandById = new Map(brands.map((b) => [b.id, b]));
+    const groups = brands.map((b) => ({
+      key: b.id,
+      name: b.name,
+      color: b.color,
+      lanes: lanes.filter((l) => l.brandKey === b.id),
+    }));
+    const unfiled = lanes.filter(
+      (l) => l.brandKey === "_unfiled" || (l.brandKey && !brandById.has(l.brandKey) && l.brandKey !== "_inbox")
+    );
+    if (unfiled.length)
+      groups.push({
+        key: "_unfiled",
+        name: "브랜드 미지정",
+        color: "#8e8e93",
+        lanes: unfiled,
+      });
+    const inbox = lanes.filter((l) => l.brandKey === "_inbox");
+    if (inbox.length)
+      groups.push({
+        key: "_inbox",
+        name: "분류 전 업무",
+        color: "rgb(var(--status-inbox))",
+        lanes: inbox,
+      });
+
+    for (const group of groups) {
+      const brandTop = y;
+      y += BRAND_HEAD_H;
+      for (const lane of group.lanes) placeLane(lane);
+      if (group.lanes.length === 0) y += BRAND_EMPTY_H;
+      const groupLaneKeys = new Set(group.lanes.map((l) => l.key));
+      const projectLanes = laneOut.filter((l) => groupLaneKeys.has(l.key));
+      const total = projectLanes.reduce((sum, l) => sum + l.total, 0);
+      const done = projectLanes.reduce((sum, l) => sum + l.done, 0);
+      brandOut.push({
+        key: group.key,
+        name: group.name,
+        color: group.color,
+        y: brandTop,
+        h: y - brandTop - LANE_GAP + 10,
+        projectCount: group.lanes.length,
+        done,
+        total,
+      });
+      y += BRAND_GAP - LANE_GAP;
+    }
+  } else {
+    for (const lane of lanes) placeLane(lane);
   }
   const contentBottom = y - LANE_GAP;
 
@@ -407,7 +503,17 @@ function computeLayout(
     }
   }
 
-  return { lanes: laneOut, columns, nodes, rails, overflow, edges, worldW: LANEPAD + STAGE_COUNT * COLW + 40, worldH: contentBottom + 40 };
+  return {
+    lanes: laneOut,
+    brands: brandOut,
+    columns,
+    nodes,
+    rails,
+    overflow,
+    edges,
+    worldW: LANEPAD + STAGE_COUNT * COLW + 40,
+    worldH: contentBottom + 40,
+  };
 }
 
 // ── component ─────────────────────────────────────────────────────────────────
@@ -415,11 +521,19 @@ export interface WorkflowCanvasProps {
   tasks: Task[];
   workstreams: Workstream[];
   members: Record<string, Member>;
+  /** Top-level containers for the integrated workspace hierarchy. */
+  brands?: Brand[];
   /** Needed to name project lanes. Pass on workspace-wide boards. */
   projects?: Project[];
   /** Lane axis to open on. Home groups by project, a project by workstream. */
   defaultGroupBy?: GroupBy;
+  /** Locks Home to Brand → Project → Task instead of offering competing pivots. */
+  hierarchyMode?: boolean;
   onSelect: (task: Task) => void;
+  /** Opens project creation anchored to a brand section. */
+  onAddProject?: (brandId: string) => void;
+  /** Creates a top-level task directly in a project row. */
+  onAddProjectTask?: (projectId: string, title: string) => Promise<boolean>;
   /** Creates a top-level task in this project. Omit to hide the add affordance. */
   onAddTask?: (title: string) => Promise<boolean>;
   /** Controls the focus filter from outside (e.g. the project summary strip). */
@@ -444,9 +558,13 @@ export default function WorkflowCanvas({
   tasks,
   workstreams,
   members,
+  brands = EMPTY_BRANDS,
   projects,
   defaultGroupBy = "workstream",
+  hierarchyMode = false,
   onSelect,
+  onAddProject,
+  onAddProjectTask,
   onAddTask,
   focus: focusProp,
   onFocusChange,
@@ -471,9 +589,13 @@ export default function WorkflowCanvas({
   const [addingFor, setAddingFor] = useState<string | null>(null);
   const [addValue, setAddValue] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
+  const [addingProjectId, setAddingProjectId] = useState<string | null>(null);
+  const [projectAddValue, setProjectAddValue] = useState("");
+  const [projectAddError, setProjectAddError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const router = useRouter();
   const addInputRef = useRef<HTMLInputElement>(null);
+  const projectInputRef = useRef<HTMLInputElement>(null);
 
   const stageRef = useRef<HTMLDivElement>(null);
   const worldRef = useRef<HTMLDivElement>(null);
@@ -486,8 +608,8 @@ export default function WorkflowCanvas({
   );
 
   const layout = useMemo(
-    () => computeLayout(placed, roots, milestones, childMap, laneOf, parentOf, workstreams, members, projects ?? [], groupBy, cellsOpen, subsOpen, addingFor, dependencies),
-    [placed, roots, milestones, childMap, laneOf, parentOf, workstreams, members, projects, groupBy, cellsOpen, subsOpen, addingFor, dependencies],
+    () => computeLayout(placed, roots, milestones, childMap, laneOf, parentOf, workstreams, members, brands, projects ?? [], groupBy, hierarchyMode, cellsOpen, subsOpen, addingFor, dependencies),
+    [placed, roots, milestones, childMap, laneOf, parentOf, workstreams, members, brands, projects, groupBy, hierarchyMode, cellsOpen, subsOpen, addingFor, dependencies],
   );
 
   // open the inline subtask composer under a card
@@ -516,6 +638,29 @@ export default function WorkflowCanvas({
         router.refresh();
       } else {
         setAddError(res.error ?? "세부 업무를 추가하지 못했습니다");
+      }
+    });
+  }
+
+  function startProjectTask(projectId: string) {
+    setAddingProjectId(projectId);
+    setProjectAddValue("");
+    setProjectAddError(null);
+    requestAnimationFrame(() => projectInputRef.current?.focus());
+  }
+
+  function submitProjectTask(projectId: string) {
+    const title = projectAddValue.trim();
+    if (!title || !onAddProjectTask) return;
+    setProjectAddError(null);
+    startTransition(async () => {
+      const ok = await onAddProjectTask(projectId, title);
+      if (ok) {
+        setProjectAddValue("");
+        setAddingProjectId(null);
+        router.refresh();
+      } else {
+        setProjectAddError("업무를 추가하지 못했습니다.");
       }
     });
   }
@@ -699,18 +844,28 @@ export default function WorkflowCanvas({
     <div className="relative left-1/2 -ml-[50vw] w-screen">
       {/* toolbar */}
       <div className="mx-auto flex max-w-[1400px] flex-wrap items-center gap-3 px-4 pb-3 sm:px-6" data-ui>
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">기준</span>
-          <div className="flex gap-0.5 rounded-lg bg-surface-2 p-0.5">
-            {GROUP_OPTS.filter((o) => o.id !== "project" || projects).map((o) => (
-              <button key={o.id} type="button" aria-pressed={groupBy === o.id}
-                onClick={() => { setGroupBy(o.id); setCellsOpen(new Set()); }}
-                className={cn("rounded-md px-2.5 py-1 text-xs font-medium transition-colors", groupBy === o.id ? "bg-surface text-text shadow-xs" : "text-text-secondary hover:text-text")}>
-                {o.label}
-              </button>
-            ))}
+        {hierarchyMode ? (
+          <div className="flex items-center gap-1.5 text-xs font-semibold text-text-secondary" aria-label="업무 구조">
+            <span className="rounded-md bg-surface-3 px-2.5 py-1 text-text">브랜드</span>
+            <ChevronRight className="size-3.5 text-text-quaternary" aria-hidden />
+            <span className="rounded-md bg-surface-2 px-2.5 py-1 text-text">프로젝트</span>
+            <ChevronRight className="size-3.5 text-text-quaternary" aria-hidden />
+            <span className="px-1 py-1">업무</span>
           </div>
-        </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">기준</span>
+            <div className="flex gap-0.5 rounded-lg bg-surface-2 p-0.5">
+              {GROUP_OPTS.filter((o) => o.id !== "project" || projects).map((o) => (
+                <button key={o.id} type="button" aria-pressed={groupBy === o.id}
+                  onClick={() => { setGroupBy(o.id); setCellsOpen(new Set()); }}
+                  className={cn("rounded-md px-2.5 py-1 text-xs font-medium transition-colors", groupBy === o.id ? "bg-surface text-text shadow-xs" : "text-text-secondary hover:text-text")}>
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {onAddTask && (
           <div className="min-w-[9rem] max-w-xs flex-1">
             <InlineAdd onAdd={onAddTask} label="업무 추가" placeholder="업무명 입력 후 Enter" />
@@ -733,6 +888,62 @@ export default function WorkflowCanvas({
         className={cn("relative min-h-[440px] w-full cursor-grab touch-none select-none overflow-hidden border-y border-separator bg-surface-2/40", stageHeightClass)}
         style={{ backgroundImage: "radial-gradient(rgb(var(--text-quaternary)/0.28) 1px, transparent 1.4px)", backgroundSize: "24px 24px" }}>
         <div ref={worldRef} className="absolute left-0 top-0 origin-top-left will-change-transform">
+          {/* Brand containers sit behind their project rows. The dedicated
+              header means project never collapses into a card caption. */}
+          {layout.brands.map((brand) => (
+            <div key={`brand-${brand.key}`}>
+              <div
+                className="absolute rounded-[22px] border border-separator bg-surface/25 shadow-xs"
+                style={{
+                  top: brand.y,
+                  left: 0,
+                  width: LANEPAD + STAGE_COUNT * COLW - COLGAP,
+                  height: brand.h,
+                }}
+              />
+              <div
+                className="absolute rounded-l-[22px]"
+                style={{ top: brand.y, left: 0, width: 5, height: brand.h, background: brand.color }}
+              />
+              <div
+                className="absolute flex items-center gap-3"
+                style={{ top: brand.y + 13, left: 18, width: LANEPAD + STAGE_COUNT * COLW - COLGAP - 36 }}
+              >
+                <span className="size-3 rounded-[4px]" style={{ background: brand.color }} aria-hidden />
+                <div className="min-w-0">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">
+                    브랜드
+                  </div>
+                  <div className="truncate text-[16px] font-semibold tracking-tight text-text">
+                    {brand.name}
+                  </div>
+                </div>
+                <div className="text-[11px] font-medium tabular-nums text-text-tertiary">
+                  프로젝트 {brand.projectCount} · 업무 {brand.total} · 완료 {brand.done}
+                </div>
+                {onAddProject && !brand.key.startsWith("_") && (
+                  <button
+                    type="button"
+                    data-ui
+                    onClick={() => onAddProject(brand.key)}
+                    className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-lg bg-surface-2 px-3 text-xs font-semibold text-text-secondary transition-[transform,background-color,color] hover:bg-surface-3 hover:text-text active:scale-[0.97]"
+                  >
+                    <FolderPlus className="size-3.5" aria-hidden />
+                    프로젝트 추가
+                  </button>
+                )}
+              </div>
+              {brand.projectCount === 0 && (
+                <div
+                  className="absolute text-xs text-text-tertiary"
+                  style={{ top: brand.y + BRAND_HEAD_H + 12, left: 28 }}
+                >
+                  프로젝트를 추가하면 이 아래에 업무 흐름이 만들어집니다.
+                </div>
+              )}
+            </div>
+          ))}
+
           {/* columns */}
           {layout.columns.map((c) => (
             <div key={c.i} className="absolute top-0" style={{ left: c.x, top: TOP - 40 }}>
@@ -753,15 +964,25 @@ export default function WorkflowCanvas({
             <div key={l.key}>
               <div
                 className="absolute rounded-2xl border border-separator/70 bg-surface/40"
-                style={{ top: l.y, left: 0, width: LANEPAD + STAGE_COUNT * COLW - COLGAP, height: l.h }}
+                style={{
+                  top: l.y,
+                  left: hierarchyMode ? 18 : 0,
+                  width: LANEPAD + STAGE_COUNT * COLW - COLGAP - (hierarchyMode ? 18 : 0),
+                  height: l.h,
+                }}
               />
               {/* the band's colour rail — the only place the lane colour lives,
                   so it never competes with the status colours on the cards */}
               <div
                 className="absolute rounded-l-2xl"
-                style={{ top: l.y, left: 0, width: 3, height: l.h, background: l.color }}
+                style={{ top: l.y, left: hierarchyMode ? 18 : 0, width: 3, height: l.h, background: l.color }}
               />
-              <div className="absolute flex flex-col gap-1.5 rounded-xl border border-separator bg-surface/90 p-3 backdrop-blur" style={{ top: l.y + 10, left: 10, width: LANEPAD - 28 }}>
+              <div className="absolute flex flex-col gap-1.5 rounded-xl border border-separator bg-surface/95 p-3 shadow-xs backdrop-blur" style={{ top: l.y + 10, left: hierarchyMode ? 28 : 10, width: hierarchyMode ? LANEPAD - 38 : LANEPAD - 28 }}>
+                {hierarchyMode && (
+                  <div className="text-[9px] font-semibold uppercase tracking-wider text-text-tertiary">
+                    프로젝트
+                  </div>
+                )}
                 <div className="flex items-center gap-2 text-[13px] font-semibold text-text">
                   {l.avatar ? <span className="grid size-5 place-items-center rounded-full text-[9px] font-bold text-white" style={{ background: l.color }}>{l.avatar}</span> : <span className="size-2.5 rounded" style={{ background: l.color }} />}
                   {/* With 프로젝트 gone from the nav, the band label is the way
@@ -774,8 +995,66 @@ export default function WorkflowCanvas({
                     <span className="truncate">{l.name}</span>
                   )}
                 </div>
+                {hierarchyMode && l.objective && (
+                  <div className="line-clamp-2 text-[10px] leading-relaxed text-text-tertiary">
+                    {l.objective}
+                  </div>
+                )}
                 <div className="text-[10.5px] font-medium tabular-nums text-text-tertiary">완료 {l.done}/{l.total}</div>
                 <div className="h-1.5 overflow-hidden rounded-full bg-surface-3"><div className="h-full rounded-full bg-status-done transition-[width] duration-500 ease-out" style={{ width: `${l.total ? (l.done / l.total) * 100 : 0}%` }} /></div>
+                {hierarchyMode && onAddProjectTask && !l.key.startsWith("_") && (
+                  addingProjectId === l.key ? (
+                    <div data-ui className="mt-1" onPointerDown={(e) => e.stopPropagation()}>
+                      <div className="flex items-center gap-1">
+                        <input
+                          ref={projectInputRef}
+                          value={projectAddValue}
+                          disabled={pending}
+                          onChange={(e) => setProjectAddValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              submitProjectTask(l.key);
+                            } else if (e.key === "Escape") {
+                              setAddingProjectId(null);
+                              setProjectAddValue("");
+                            }
+                          }}
+                          onBlur={() => {
+                            if (!projectAddValue.trim() && !pending) setAddingProjectId(null);
+                          }}
+                          placeholder="업무명"
+                          aria-label={`${l.name}에 업무 추가`}
+                          className="h-7 min-w-0 flex-1 rounded-md border border-accent bg-surface px-2 text-[11px] text-text placeholder:text-text-quaternary focus:outline-none focus:ring-2 focus:ring-accent/30"
+                        />
+                        <button
+                          type="button"
+                          disabled={pending || !projectAddValue.trim()}
+                          onClick={() => submitProjectTask(l.key)}
+                          className="grid size-7 shrink-0 place-items-center rounded-md bg-accent text-white active:scale-95 disabled:opacity-40"
+                          aria-label="업무 저장"
+                        >
+                          <Plus className="size-3.5" />
+                        </button>
+                      </div>
+                      {projectAddError && (
+                        <div role="alert" className="mt-1 text-[9.5px] text-flag-blocked">
+                          {projectAddError}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      data-ui
+                      onClick={() => startProjectTask(l.key)}
+                      className="mt-0.5 flex h-7 items-center gap-1 rounded-md px-1 text-[10.5px] font-semibold text-text-tertiary transition-colors hover:bg-surface-2 hover:text-accent active:scale-[0.98]"
+                    >
+                      <Plus className="size-3" aria-hidden />
+                      업무 추가
+                    </button>
+                  )
+                )}
               </div>
             </div>
           ))}

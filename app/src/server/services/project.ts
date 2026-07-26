@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import {
   project,
+  brand,
   member as memberTable,
   type Project,
   type NewProject,
@@ -14,6 +15,7 @@ import { NotFoundError, ValidationError } from "./errors";
 
 export interface CreateProjectParams {
   workspaceId: string;
+  brandId?: string | null;
   name: string;
   projectLeadId: string;
   oneLineObjective?: string | null;
@@ -22,11 +24,24 @@ export interface CreateProjectParams {
 }
 
 export interface ProjectPatch {
+  brandId?: string | null;
   name?: string;
   oneLineObjective?: string | null;
   projectLeadId?: string;
   targetStartDate?: string | null;
   targetEndDate?: string | null;
+}
+
+async function assertBrandInWorkspace(
+  db: Database,
+  workspaceId: string,
+  brandId: string
+): Promise<void> {
+  const [row] = await db
+    .select({ id: brand.id })
+    .from(brand)
+    .where(and(eq(brand.id, brandId), eq(brand.workspace_id, workspaceId)));
+  if (!row) throw new ValidationError("브랜드를 찾을 수 없습니다.");
 }
 
 // ---------------------------------------------------------------------------
@@ -92,6 +107,8 @@ export async function createProject(
 ): Promise<Project> {
   const name = validateProjectName(params.name);
   await assertLeadInWorkspace(db, params.workspaceId, params.projectLeadId);
+  if (params.brandId)
+    await assertBrandInWorkspace(db, params.workspaceId, params.brandId);
 
   const start = params.targetStartDate
     ? validateDate(params.targetStartDate, "시작일")
@@ -107,6 +124,7 @@ export async function createProject(
   const newProject: NewProject = {
     id: crypto.randomUUID(),
     workspace_id: params.workspaceId,
+    brand_id: params.brandId ?? null,
     name,
     one_line_objective: params.oneLineObjective ?? null,
     project_lead_id: params.projectLeadId,
@@ -138,6 +156,11 @@ export async function editProject(
 
   if (patch.name !== undefined) {
     updates.name = validateProjectName(patch.name);
+  }
+  if (patch.brandId !== undefined) {
+    if (patch.brandId)
+      await assertBrandInWorkspace(db, workspaceId, patch.brandId);
+    updates.brand_id = patch.brandId;
   }
   if (patch.oneLineObjective !== undefined) {
     updates.one_line_objective = patch.oneLineObjective;
