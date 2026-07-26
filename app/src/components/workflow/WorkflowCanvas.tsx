@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Minus, Plus, Maximize2, ChevronRight, CornerDownRight, ArrowUpRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { statusMeta, type TaskStatus } from "@/lib/status";
@@ -736,7 +737,15 @@ export default function WorkflowCanvas({
               <div className="absolute flex flex-col gap-1.5 rounded-xl border border-separator bg-surface/90 p-3 backdrop-blur" style={{ top: l.y + 10, left: 10, width: LANEPAD - 28 }}>
                 <div className="flex items-center gap-2 text-[13px] font-semibold text-text">
                   {l.avatar ? <span className="grid size-5 place-items-center rounded-full text-[9px] font-bold text-white" style={{ background: l.color }}>{l.avatar}</span> : <span className="size-2.5 rounded" style={{ background: l.color }} />}
-                  <span className="truncate">{l.name}</span>
+                  {/* With 프로젝트 gone from the nav, the band label is the way
+                      into a project's 업무 영역·마일스톤 settings. */}
+                  {groupBy === "project" && !l.key.startsWith("_") ? (
+                    <Link href={`/projects/${l.key}`} data-ui className="truncate hover:text-accent hover:underline">
+                      {l.name}
+                    </Link>
+                  ) : (
+                    <span className="truncate">{l.name}</span>
+                  )}
                 </div>
                 <div className="text-[10.5px] font-medium tabular-nums text-text-tertiary">완료 {l.done}/{l.total}</div>
                 <div className="h-1.5 overflow-hidden rounded-full bg-surface-3"><div className="h-full rounded-full bg-status-done transition-[width] duration-500 ease-out" style={{ width: `${l.total ? (l.done / l.total) * 100 : 0}%` }} /></div>

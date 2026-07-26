@@ -11,12 +11,14 @@ import { cn } from "@/lib/utils";
 
 // ── Nav items ────────────────────────────────────────────────────────────────
 
+// Two destinations, because there are two questions: "what is the state of the
+// work" (홈, the canvas) and "what do I do next" (내 업무). 인박스, 프로젝트 and
+// 팀 were never separate places — they are the canvas grouped or filtered a
+// different way, and the toolbar already does that. Their routes still resolve
+// so old links keep working; they just stopped being top-level nav.
 const NAV_ITEMS = [
   { href: "/home", label: "홈" },
   { href: "/my-work", label: "내 업무" },
-  { href: "/inbox", label: "인박스" },
-  { href: "/projects", label: "프로젝트" },
-  { href: "/team", label: "팀" },
 ] as const;
 
 // ── NavBar ────────────────────────────────────────────────────────────────────
@@ -37,9 +39,9 @@ export default function NavBar() {
     }
     setQuickAddError(null);
     setShowQuickAdd(false);
-    // A task added from the nav bar lands in the Inbox — go there so it is
-    // visible rather than silently filed away.
-    router.push("/inbox");
+    // Stay where you are. The task lands unfiled and shows up in the board's
+    // 인박스 band without navigating away from whatever you were looking at —
+    // capturing a thought should not cost you your place.
     router.refresh();
   };
 
