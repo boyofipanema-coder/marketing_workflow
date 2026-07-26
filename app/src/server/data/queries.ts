@@ -3,14 +3,15 @@
  * These functions are used in server components and server actions only.
  */
 
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { createDb } from "@/server/db/client";
 import { validateSession } from "@/server/auth/session";
 import { SESSION_COOKIE_NAME } from "@/server/auth/constants";
-import { task, project, workstream, member } from "@/server/db/schema";
+import { workspacePassword } from "@/server/auth/workspace-password";
+import { task, project, workstream, member, activity_log } from "@/server/db/schema";
 import type { Task, Project, Workstream, Member } from "@/server/db/schema";
 import type { Database } from "@/server/db/client";
 import { dependencyMap } from "@/server/services/dependency";
@@ -40,8 +41,13 @@ export async function getCurrentMember(): Promise<{
     }
   }
 
-  // No/invalid session — auto-enter as the default workspace member.
-  // (Login is intentionally bypassed at this stage; see getDefaultMember.)
+  // With a workspace password configured, no session means no data. Without
+  // one, keep auto-entering — see workspacePassword() for why the switch is
+  // the secret's existence rather than a flag someone has to remember to flip.
+  if (workspacePassword(env)) {
+    redirect("/login");
+  }
+
   const currentMember = await getDefaultMember(db);
   if (!currentMember) {
     // No members seeded at all — nothing we can do but send to login.
@@ -293,4 +299,46 @@ export async function getDependencyMap(
 ): Promise<Record<string, string[]>> {
   const map = await dependencyMap(db, workspaceId);
   return Object.fromEntries(map);
+}
+
+// ---------------------------------------------------------------------------
+// Activity
+// ---------------------------------------------------------------------------
+
+export interface ActivityEntry {
+  id: string;
+  change_type: string;
+  from_value: string | null;
+  to_value: string | null;
+  created_at: string;
+  actor_name: string;
+}
+
+/** Recent changes to one task, newest first. Scoped by workspace. */
+export async function getTaskActivity(
+  db: Database,
+  taskId: string,
+  workspaceId: string,
+  limit = 20
+): Promise<ActivityEntry[]> {
+  const rows = await db
+    .select({ log: activity_log, actor: member })
+    .from(activity_log)
+    .innerJoin(member, eq(activity_log.actor_id, member.id))
+    .where(
+      and(
+        eq(activity_log.task_id, taskId),
+        eq(activity_log.workspace_id, workspaceId)
+      )
+    )
+    .orderBy(desc(activity_log.created_at))
+    .limit(limit);
+  return rows.map((r) => ({
+    id: r.log.id,
+    change_type: r.log.change_type,
+    from_value: r.log.from_value,
+    to_value: r.log.to_value,
+    created_at: r.log.created_at,
+    actor_name: r.actor.name,
+  }));
 }

@@ -647,6 +647,33 @@ export default function WorkflowCanvas({
     d.raf = requestAnimationFrame(step);
   }
 
+  /**
+   * Keeps a keyboard-focused card inside the viewport. Cards are real buttons,
+   * so Tab already reaches them — but the stage is pan/zoom, so focus could
+   * land on something scrolled out of sight and the user would be typing at a
+   * card they cannot see.
+   */
+  function revealNode(x: number, y: number, h: number) {
+    const st = stageRef.current;
+    if (!st) return;
+    const s = view.current.scale;
+    const left = x * s + view.current.x;
+    const top = y * s + view.current.y;
+    const right = left + NODEW * s;
+    const bottom = top + h * s;
+    let dx = 0;
+    let dy = 0;
+    if (left < 8) dx = 8 - left;
+    else if (right > st.clientWidth - 8) dx = st.clientWidth - 8 - right;
+    if (top < 8) dy = 8 - top;
+    else if (bottom > st.clientHeight - 8) dy = st.clientHeight - 8 - bottom;
+    if (!dx && !dy) return;
+    const b = bounds();
+    view.current.x = Math.max(b.minX, Math.min(b.maxX, view.current.x + dx));
+    view.current.y = Math.max(b.minY, Math.min(b.maxY, view.current.y + dy));
+    applyView();
+  }
+
   const toggleSet = (setter: typeof setSubsOpen) => (k: string) =>
     setter((prev) => {
       const n = new Set(prev);
@@ -855,7 +882,7 @@ export default function WorkflowCanvas({
             const parentTitle = parentId ? tasks.find((x) => x.id === parentId)?.title : undefined;
             const rows = hasKids && open ? subRows(task, 0) : [];
             return (
-              <div key={task.id} data-card onPointerEnter={() => setHotLane(laneKey)} onPointerLeave={() => setHotLane((hh) => (hh === laneKey ? null : hh))}
+              <div key={task.id} data-card onFocusCapture={() => revealNode(x, y, h)} onPointerEnter={() => setHotLane(laneKey)} onPointerLeave={() => setHotLane((hh) => (hh === laneKey ? null : hh))}
                 className={cn("group absolute flex flex-col overflow-hidden rounded-[14px] bg-surface transition-[opacity,box-shadow] duration-200",
                   // Importance is carried by weight and elevation only — never by
                   // colour, which belongs exclusively to status.

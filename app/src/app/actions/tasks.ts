@@ -13,7 +13,7 @@ import {
   reorderTasks,
   type TaskPatch,
 } from "@/server/services/task";
-import { getCurrentMember } from "@/server/data/queries";
+import { getCurrentMember, getTaskActivity, type ActivityEntry } from "@/server/data/queries";
 import { addDependency, removeDependency } from "@/server/services/dependency";
 import { runAction, type ActionResult } from "./result";
 import type { Task } from "@/server/db/schema";
@@ -193,4 +193,14 @@ export async function removeDependencyAction(
   });
   if (result.success) revalidateAll();
   return result;
+}
+
+/** Recent changes to a task, for the detail panel's history. */
+export async function getTaskActivityAction(
+  taskId: string
+): Promise<ActionResult<ActivityEntry[]>> {
+  return runAction("getTaskActivityAction", async () => {
+    const { member, db } = await getCurrentMember();
+    return getTaskActivity(db, taskId, member.workspace_id);
+  });
 }

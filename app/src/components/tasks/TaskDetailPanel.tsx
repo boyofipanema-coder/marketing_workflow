@@ -16,7 +16,8 @@ import { cn } from "@/lib/utils";
 import { TASK_STATUSES, STATUS_META } from "@/lib/status";
 import { todayKST } from "@/lib/derive";
 import type { Task, Project, Workstream, Member } from "@/server/db/schema";
-import { addDependencyAction, removeDependencyAction } from "@/app/actions/tasks";
+import { addDependencyAction, removeDependencyAction, getTaskActivityAction } from "@/app/actions/tasks";
+import type { ActivityEntry } from "@/server/data/queries";
 import type { TaskPatchInput } from "@/app/actions/tasks";
 import type { SaveState } from "./useTaskStore";
 
@@ -67,6 +68,21 @@ function Field({
   );
 }
 
+/** activity_log change_type → Korean. Unknown types fall through as-is. */
+const CHANGE_LABEL: Record<string, string> = {
+  title: "제목",
+  description: "설명",
+  status: "상태",
+  importance: "중요도",
+  kind: "종류",
+  assignee: "담당자",
+  reviewer: "검토자",
+  project: "프로젝트",
+  workstream: "업무 영역",
+  start_date: "시작일",
+  due_date: "마감일",
+};
+
 const selectClass =
   "h-10 w-full rounded-lg border border-border bg-surface px-3 text-base text-text transition-[border-color,box-shadow] duration-fast ease-out hover:border-border-strong focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-50";
 
@@ -104,6 +120,7 @@ export default function TaskDetailPanel({
     date: string;
   } | null>(null);
   const [depError, setDepError] = useState<string | null>(null);
+  const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const router = useRouter();
   const descriptionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingDescription = useRef<string | null>(null);
@@ -119,6 +136,11 @@ export default function TaskDetailPanel({
     setTitle(task.title);
     setDescription(task.description ?? "");
     setWaitDraft(null);
+    setActivity([]);
+    const id = task.id;
+    void getTaskActivityAction(id).then((r) => {
+      if (r.success && r.data) setActivity(r.data);
+    });
   }, [task?.id, task?.version]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const projectWorkstreams = useMemo(
@@ -517,6 +539,24 @@ export default function TaskDetailPanel({
                       <p role="alert" className="text-xs text-flag-blocked">{depError}</p>
                     )}
                   </div>
+                </Field>
+              )}
+
+              {activity.length > 0 && (
+                <Field label="변경 이력">
+                  <ul className="flex flex-col gap-1.5">
+                    {activity.map((a) => (
+                      <li key={a.id} className="flex items-baseline gap-2 text-xs text-text-secondary">
+                        <span className="shrink-0 tabular-nums text-text-quaternary">
+                          {a.created_at.slice(5, 10).replace("-", "/")}
+                        </span>
+                        <span className="flex-1">
+                          {a.actor_name} · {CHANGE_LABEL[a.change_type] ?? a.change_type}
+                          {a.to_value ? ` → ${a.to_value}` : ""}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
                 </Field>
               )}
 

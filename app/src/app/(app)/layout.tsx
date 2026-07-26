@@ -1,4 +1,6 @@
+import { getCloudflareContext } from "@opennextjs/cloudflare";
 import NavBar from "@/components/NavBar";
+import { workspacePassword } from "@/server/auth/workspace-password";
 import { getCurrentMember } from "@/server/data/queries";
 
 /**
@@ -12,8 +14,8 @@ export const dynamic = "force-dynamic";
 
 /**
  * App shell layout — wraps all app screens.
- * Login is intentionally bypassed at this stage: getCurrentMember auto-enters
- * as the default workspace member when no valid session is present.
+ * getCurrentMember redirects to /login once a workspace password is set; until
+ * then it auto-enters as the default member.
  */
 export default async function AppLayout({
   children,
@@ -22,10 +24,12 @@ export default async function AppLayout({
 }) {
   // Resolves a member (real session or default) and warms the request.
   await getCurrentMember();
+  const { env } = await getCloudflareContext({ async: true });
+  const canLogout = Boolean(workspacePassword(env));
 
   return (
     <div className="min-h-screen bg-bg">
-      <NavBar />
+      <NavBar canLogout={canLogout} />
       {/* Offset for the fixed 48px (h-12) nav */}
       <main className="pt-12">{children}</main>
     </div>
