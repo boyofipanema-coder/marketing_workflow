@@ -7,7 +7,6 @@ import { Plus, Search, Menu, X } from "lucide-react";
 import QuickAdd from "./QuickAdd";
 import { Button } from "@/components/ui";
 import { createTaskAction } from "@/app/actions/tasks";
-import { logoutAction } from "@/app/(auth)/login/actions";
 import { cn } from "@/lib/utils";
 
 // ── Nav items ────────────────────────────────────────────────────────────────
@@ -24,7 +23,7 @@ const NAV_ITEMS = [
 
 // ── NavBar ────────────────────────────────────────────────────────────────────
 
-export default function NavBar({ canLogout = false }: { canLogout?: boolean }) {
+export default function NavBar() {
   const pathname = usePathname();
   const router = useRouter();
   const [showQuickAdd, setShowQuickAdd] = useState(false);
@@ -124,16 +123,6 @@ export default function NavBar({ canLogout = false }: { canLogout?: boolean }) {
               <Plus aria-hidden />
               <span className="hidden xs:inline sm:inline">업무 추가</span>
             </Button>
-
-            {/* Only shown once a workspace password exists — without one the
-                app auto-enters and there is nothing to log out of. */}
-            {canLogout && (
-              <form action={logoutAction}>
-                <Button variant="ghost" size="sm" type="submit">
-                  나가기
-                </Button>
-              </form>
-            )}
 
             <Button
               variant="ghost"

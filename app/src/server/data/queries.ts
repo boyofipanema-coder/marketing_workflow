@@ -10,7 +10,6 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { createDb } from "@/server/db/client";
 import { validateSession } from "@/server/auth/session";
 import { SESSION_COOKIE_NAME } from "@/server/auth/constants";
-import { workspacePassword } from "@/server/auth/workspace-password";
 import { task, project, workstream, member, activity_log } from "@/server/db/schema";
 import type { Task, Project, Workstream, Member } from "@/server/db/schema";
 import type { Database } from "@/server/db/client";
@@ -41,13 +40,8 @@ export async function getCurrentMember(): Promise<{
     }
   }
 
-  // With a workspace password configured, no session means no data. Without
-  // one, keep auto-entering — see workspacePassword() for why the switch is
-  // the secret's existence rather than a flag someone has to remember to flip.
-  if (workspacePassword(env)) {
-    redirect("/login");
-  }
-
+  // No/invalid session — auto-enter as the default workspace member.
+  // (Login is intentionally bypassed at this stage; see getDefaultMember.)
   const currentMember = await getDefaultMember(db);
   if (!currentMember) {
     // No members seeded at all — nothing we can do but send to login.
