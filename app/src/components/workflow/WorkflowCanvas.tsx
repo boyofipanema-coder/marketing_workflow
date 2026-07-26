@@ -358,7 +358,7 @@ const VGAP = 12;
 const CHIP_H = 34;
 const LANE_PAD = 12;
 const LANE_GAP = 18;
-const BRAND_HEAD_H = 64;
+const BRAND_HEAD_H = 96;
 const BRAND_EMPTY_H = 58;
 const BRAND_GAP = 28;
 const CAP = 4;
@@ -1049,10 +1049,10 @@ export default function WorkflowCanvas({
                 style={{ top: brand.y + 12, left: 10, width: 4, height: Math.max(20, brand.h - 24), background: brand.color }}
               />
               <div
-                className="absolute z-20 flex items-center"
+                className="absolute z-20 flex items-start"
                 style={{ top: brand.y + 10, left: 28, width: boardW - 48 }}
               >
-                <span className="mr-2.5 size-3 shrink-0 rounded-[4px]" style={{ background: brand.color }} aria-hidden />
+                <span className="mr-2.5 mt-5 size-3 shrink-0 rounded-[4px]" style={{ background: brand.color }} aria-hidden />
                 <div className="min-w-0" style={{ width: LANEPAD - 76 }}>
                   <div className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">
                     브랜드
@@ -1063,28 +1063,28 @@ export default function WorkflowCanvas({
                   <div className="truncate text-[10px] font-medium tabular-nums text-text-tertiary">
                     프로젝트 {brand.projectCount} · 업무 {brand.total} · 완료 {brand.done}
                   </div>
+                  {onAddProject && !brand.key.startsWith("_") && (
+                    <div className="group/project-add relative mt-1.5 w-max">
+                      <button
+                        type="button"
+                        data-ui
+                        onClick={() => onAddProject(brand.key)}
+                        aria-describedby={`project-add-help-${brand.key}`}
+                        className="material-thin inline-flex h-7 items-center gap-1.5 rounded-xl px-2.5 text-[10.5px] font-semibold text-text-secondary shadow-xs transition-[transform,color,box-shadow] hover:text-text hover:shadow-sm active:scale-[0.97]"
+                      >
+                        <FolderPlus className="size-3" aria-hidden />
+                        프로젝트 추가
+                      </button>
+                      <span
+                        id={`project-add-help-${brand.key}`}
+                        role="tooltip"
+                        className="pointer-events-none absolute left-0 top-full z-40 mt-2 w-56 translate-y-1 origin-top-left rounded-xl border border-separator bg-elevated/95 px-3 py-2 text-[11px] font-medium leading-relaxed text-text-secondary opacity-0 shadow-lg backdrop-blur-xl transition-[opacity,transform] group-hover/project-add:translate-y-0 group-hover/project-add:opacity-100 group-focus-within/project-add:translate-y-0 group-focus-within/project-add:opacity-100"
+                      >
+                        프로젝트를 추가하면 이 아래에 업무 흐름이 만들어집니다.
+                      </span>
+                    </div>
+                  )}
                 </div>
-                {onAddProject && !brand.key.startsWith("_") && (
-                  <div className="group/project-add relative ml-3 shrink-0">
-                    <button
-                      type="button"
-                      data-ui
-                      onClick={() => onAddProject(brand.key)}
-                      aria-describedby={`project-add-help-${brand.key}`}
-                      className="material-thin inline-flex h-8 items-center gap-1.5 rounded-xl px-3 text-xs font-semibold text-text-secondary shadow-xs transition-[transform,color,box-shadow] hover:text-text hover:shadow-sm active:scale-[0.97]"
-                    >
-                      <FolderPlus className="size-3.5" aria-hidden />
-                      프로젝트 추가
-                    </button>
-                    <span
-                      id={`project-add-help-${brand.key}`}
-                      role="tooltip"
-                      className="pointer-events-none absolute left-0 top-full z-40 mt-2 w-56 translate-y-1 origin-top-left rounded-xl border border-separator bg-elevated/95 px-3 py-2 text-[11px] font-medium leading-relaxed text-text-secondary opacity-0 shadow-lg backdrop-blur-xl transition-[opacity,transform] group-hover/project-add:translate-y-0 group-hover/project-add:opacity-100 group-focus-within/project-add:translate-y-0 group-focus-within/project-add:opacity-100"
-                    >
-                      프로젝트를 추가하면 이 아래에 업무 흐름이 만들어집니다.
-                    </span>
-                  </div>
-                )}
               </div>
             </div>
           ))}

@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Briefcase, FolderPlus, Plus, Tags, ChevronDown } from "lucide-react";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import { Briefcase, Check, ChevronDown, FolderPlus, Plus, Tags } from "lucide-react";
 import TaskSection from "@/components/tasks/TaskSection";
 import TaskDetailPanel from "@/components/tasks/TaskDetailPanel";
 import TaskFormDialog from "@/components/tasks/TaskFormDialog";
@@ -58,7 +59,9 @@ export default function HomeContent({
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [projectBrandId, setProjectBrandId] = useState<string | undefined>();
   const [editingProject, setEditingProject] = useState<Project | null>(null);
-  const [brandFilterId, setBrandFilterId] = useState("all");
+  // An empty selection means "all brands". This gives the filter a safe,
+  // useful fallback when the final checked brand is cleared.
+  const [brandFilterIds, setBrandFilterIds] = useState<string[]>([]);
   const [taskProjectId, setTaskProjectId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -72,6 +75,14 @@ export default function HomeContent({
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
   }, [router]);
+
+  useEffect(() => {
+    setBrandFilterIds((current) => {
+      const availableIds = new Set(brands.map((brand) => brand.id));
+      const next = current.filter((id) => availableIds.has(id));
+      return next.length === current.length ? current : next;
+    });
+  }, [brands]);
 
   const membersRecord = useMemo(
     () => Object.fromEntries(members.map((m) => [m.id, m])),
@@ -98,17 +109,19 @@ export default function HomeContent({
   );
   const visibleProjects = useMemo(
     () =>
-      brandFilterId === "all"
+      brandFilterIds.length === 0
         ? projects
-        : projects.filter((project) => project.brand_id === brandFilterId),
-    [brandFilterId, projects]
+        : projects.filter(
+            (project) => project.brand_id && brandFilterIds.includes(project.brand_id)
+          ),
+    [brandFilterIds, projects]
   );
   const visibleBrands = useMemo(
     () =>
-      brandFilterId === "all"
+      brandFilterIds.length === 0
         ? brands
-        : brands.filter((brand) => brand.id === brandFilterId),
-    [brandFilterId, brands]
+        : brands.filter((brand) => brandFilterIds.includes(brand.id)),
+    [brandFilterIds, brands]
   );
   const visibleProjectIds = useMemo(
     () => new Set(visibleProjects.map((project) => project.id)),
@@ -116,13 +129,20 @@ export default function HomeContent({
   );
   const visibleBoardTasks = useMemo(
     () =>
-      brandFilterId === "all"
+      brandFilterIds.length === 0
         ? boardTasks
         : boardTasks.filter(
             (task) => task.project_id && visibleProjectIds.has(task.project_id)
           ),
-    [boardTasks, brandFilterId, visibleProjectIds]
+    [boardTasks, brandFilterIds, visibleProjectIds]
   );
+  const brandFilterLabel = useMemo(() => {
+    if (brandFilterIds.length === 0) return "전체 브랜드";
+    if (brandFilterIds.length === 1) {
+      return brands.find((brand) => brand.id === brandFilterIds[0])?.name ?? "전체 브랜드";
+    }
+    return `브랜드 ${brandFilterIds.length}개`;
+  }, [brandFilterIds, brands]);
 
   const shared = {
     members: membersRecord,
@@ -138,9 +158,19 @@ export default function HomeContent({
   function startProject(brandId?: string) {
     setEditingProject(null);
     setProjectBrandId(
-      brandId ?? (brandFilterId !== "all" ? brandFilterId : brands[0]?.id)
+      brandId ?? (brandFilterIds.length === 1 ? brandFilterIds[0] : brands[0]?.id)
     );
     setProjectDialogOpen(true);
+  }
+
+  function toggleBrandFilter(brandId: string, checked: boolean) {
+    setBrandFilterIds((current) => {
+      if (checked) {
+        return current.includes(brandId) ? current : [...current, brandId];
+      }
+      const next = current.filter((id) => id !== brandId);
+      return next.length === 0 ? [] : next;
+    });
   }
 
   return (
@@ -205,30 +235,78 @@ export default function HomeContent({
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <label className="material-thin relative inline-flex h-9 items-center gap-2 rounded-xl pl-3 pr-8 text-xs font-semibold text-text-secondary shadow-xs">
-                      <Tags className="size-3.5 text-text-tertiary" aria-hidden />
-                      <span className="sr-only">브랜드별 업무 필터</span>
-                      <select
-                        aria-label="브랜드별 업무 필터"
-                        value={brandFilterId}
-                        onChange={(event) => setBrandFilterId(event.target.value)}
-                        className="absolute inset-0 cursor-pointer appearance-none rounded-xl bg-transparent pl-8 pr-8 text-xs font-semibold text-text-secondary outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      >
-                        <option value="all">전체 브랜드</option>
-                        {brands.map((brand) => (
-                          <option key={brand.id} value={brand.id}>
-                            {brand.name}
-                          </option>
-                        ))}
-                      </select>
-                      <span className="invisible">
-                        {brandFilterId === "all"
-                          ? "전체 브랜드"
-                          : brands.find((brand) => brand.id === brandFilterId)?.name ??
-                            "전체 브랜드"}
-                      </span>
-                      <ChevronDown className="pointer-events-none absolute right-2.5 size-3.5 text-text-tertiary" aria-hidden />
-                    </label>
+                    <DropdownMenu.Root>
+                      <DropdownMenu.Trigger asChild>
+                        <button
+                          type="button"
+                          aria-label="브랜드별 업무 필터"
+                          className="material-thin inline-flex h-9 min-w-32 items-center gap-2 rounded-xl px-3 text-xs font-semibold text-text-secondary shadow-xs outline-none transition-[background-color,box-shadow,transform] duration-150 hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.98]"
+                        >
+                          <Tags className="size-3.5 shrink-0 text-text-tertiary" aria-hidden />
+                          <span className="max-w-32 truncate">{brandFilterLabel}</span>
+                          <ChevronDown className="ml-auto size-3.5 shrink-0 text-text-tertiary" aria-hidden />
+                        </button>
+                      </DropdownMenu.Trigger>
+                      <DropdownMenu.Portal>
+                        <DropdownMenu.Content
+                          align="end"
+                          sideOffset={6}
+                          collisionPadding={12}
+                          className="z-[80] max-h-[min(70vh,28rem)] min-w-56 overflow-y-auto rounded-2xl border border-border/80 bg-elevated/95 p-1.5 shadow-xl backdrop-blur-xl data-[state=open]:animate-scale-in"
+                        >
+                          <DropdownMenu.CheckboxItem
+                            checked={brandFilterIds.length === 0}
+                            onCheckedChange={() => setBrandFilterIds([])}
+                            onSelect={(event) => event.preventDefault()}
+                            className="flex cursor-default select-none items-center gap-2.5 rounded-xl px-2.5 py-2 text-[13px] font-semibold text-text outline-none transition-colors data-[highlighted]:bg-accent data-[highlighted]:text-white"
+                          >
+                            <span
+                              aria-hidden
+                              className={`grid size-4 shrink-0 place-items-center rounded-[5px] border transition-colors ${
+                                brandFilterIds.length === 0
+                                  ? "border-accent bg-accent text-white"
+                                  : "border-border bg-surface"
+                              }`}
+                            >
+                              {brandFilterIds.length === 0 && <Check className="size-3" strokeWidth={3} />}
+                            </span>
+                            전체 브랜드
+                          </DropdownMenu.CheckboxItem>
+                          <DropdownMenu.Separator className="my-1 h-px bg-border/70" />
+                          {brands.map((brand) => {
+                            const checked = brandFilterIds.includes(brand.id);
+                            return (
+                              <DropdownMenu.CheckboxItem
+                                key={brand.id}
+                                checked={checked}
+                                onCheckedChange={(nextChecked) =>
+                                  toggleBrandFilter(brand.id, nextChecked === true)
+                                }
+                                onSelect={(event) => event.preventDefault()}
+                                className="flex cursor-default select-none items-center gap-2.5 rounded-xl px-2.5 py-2 text-[13px] font-medium text-text outline-none transition-colors data-[highlighted]:bg-accent data-[highlighted]:text-white"
+                              >
+                                <span
+                                  aria-hidden
+                                  className={`grid size-4 shrink-0 place-items-center rounded-[5px] border transition-colors ${
+                                    checked
+                                      ? "border-accent bg-accent text-white"
+                                      : "border-border bg-surface"
+                                  }`}
+                                >
+                                  {checked && <Check className="size-3" strokeWidth={3} />}
+                                </span>
+                                <span
+                                  className="size-2 shrink-0 rounded-full"
+                                  style={{ backgroundColor: brand.color }}
+                                  aria-hidden
+                                />
+                                <span className="truncate">{brand.name}</span>
+                              </DropdownMenu.CheckboxItem>
+                            );
+                          })}
+                        </DropdownMenu.Content>
+                      </DropdownMenu.Portal>
+                    </DropdownMenu.Root>
                     <Button
                       variant="ghost"
                       size="sm"
