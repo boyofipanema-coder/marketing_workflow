@@ -161,7 +161,12 @@ export const task = sqliteTable("task", {
 });
 
 // ---------------------------------------------------------------------------
-// milestone
+// milestone — LEGACY, no longer read or written.
+//
+// Migration 0004 moved every row into `task` with kind = "milestone"; a
+// milestone is now a task, so it inherits owners, dates, dependencies and the
+// activity log for free. The table is kept only as the record of that move.
+// Read milestones through the milestone service or getProjectMilestones().
 // ---------------------------------------------------------------------------
 export const milestone = sqliteTable("milestone", {
   id: text("id").primaryKey(),

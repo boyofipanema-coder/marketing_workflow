@@ -13,6 +13,8 @@ import {
   review,
   later,
   currentISOWeekKST,
+  teamInMotion,
+  teamWaiting,
 } from "../derive";
 import type { Task } from "@/server/db/schema";
 import { makeTaskFixture } from "@/server/db/fixtures";
@@ -323,6 +325,43 @@ describe("later", () => {
     const result = later([t, t2], "v");
     expect(result).toContain(t);
     expect(result).not.toContain(t2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Milestones are markers, not work
+// ---------------------------------------------------------------------------
+
+// A milestone is a task with kind = "milestone" (migration 0004). Every one of
+// these sections is a count of what someone has to DO, so a deadline showing
+// up in "진행 중" or "지금 할 일" would be a lie about workload.
+describe("milestones are excluded from every derived section", () => {
+  it("does not count a milestone in teamInMotion even when its status is InProgress", () => {
+    const ms = makeTask({ kind: "milestone", status: "InProgress" });
+    expect(teamInMotion([ms])).not.toContain(ms);
+  });
+
+  it("does not count a milestone in myFocus even when assigned and InProgress", () => {
+    const ms = makeTask({
+      kind: "milestone",
+      assignee_id: "v",
+      status: "InProgress",
+    });
+    expect(myFocus([ms], "v")).not.toContain(ms);
+  });
+
+  it("does not count an overdue milestone in needsAttention", () => {
+    const ms = makeTask({
+      kind: "milestone",
+      status: "ToDo",
+      due_date: "2024-01-01",
+    });
+    expect(needsAttention([ms], NOW_KST_2024_03_15)).not.toContain(ms);
+  });
+
+  it("does not count a milestone in teamWaiting", () => {
+    const ms = makeTask({ kind: "milestone", status: "Waiting" });
+    expect(teamWaiting([ms])).not.toContain(ms);
   });
 });
 

@@ -1,10 +1,11 @@
 /**
  * Migration tests.
  *
- * Migration 0002 is the only one that rewrites existing rows (the sort_order
- * backfill). These tests apply the earlier migrations, insert rows the way a
- * live database would already hold them, and only then apply 0002 — so a
- * regression in the backfill shows up here rather than in production ordering.
+ * 0002 (the sort_order backfill) and 0004 (moving milestones into `task`) are
+ * the only migrations that touch existing rows. These tests apply the earlier
+ * migrations, insert rows the way a live database would already hold them, and
+ * only then apply the one under test — so a regression shows up here rather
+ * than in someone's data.
  */
 
 import { describe, it, expect } from "vitest";
@@ -191,5 +192,145 @@ describe("0002 — sort_order backfill", () => {
 
     insert("d1");
     expect(() => insert("d2")).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 0004 — milestone → task
+// ---------------------------------------------------------------------------
+
+interface MilestoneRow {
+  id: string;
+  project_id: string;
+  name: string;
+  due_date: string;
+}
+
+/** A database migrated as far as 0003, with a project the milestones hang off. */
+function preMilestoneDb() {
+  const sqlite = legacyDb();
+  apply(sqlite, "0002_recovery_fields");
+  apply(sqlite, "0003_task_hierarchy");
+  sqlite
+    .prepare(
+      `INSERT INTO project
+         (id, workspace_id, name, project_lead_id, created_at, updated_at)
+       VALUES ('p1', 'ws1', 'Project One', 'lead1', '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')`
+    )
+    .run();
+  return sqlite;
+}
+
+function insertMilestones(sqlite: Database.Database, rows: MilestoneRow[]) {
+  const stmt = sqlite.prepare(
+    "INSERT INTO milestone (id, project_id, name, due_date) VALUES (?, ?, ?, ?)"
+  );
+  for (const r of rows) stmt.run(r.id, r.project_id, r.name, r.due_date);
+}
+
+function milestoneTasks(sqlite: Database.Database) {
+  return sqlite
+    .prepare(
+      `SELECT id, title, due_date, kind, status, workspace_id, project_id,
+              created_by, sort_order
+       FROM task WHERE kind = 'milestone' ORDER BY due_date, id`
+    )
+    .all() as Record<string, unknown>[];
+}
+
+describe("0004 — milestones become tasks", () => {
+  it("carries every milestone across with its name and date", () => {
+    const sqlite = preMilestoneDb();
+    insertMilestones(sqlite, [
+      { id: "m1", project_id: "p1", name: "Kickoff", due_date: "2024-04-01" },
+      { id: "m2", project_id: "p1", name: "Launch", due_date: "2024-06-01" },
+    ]);
+
+    apply(sqlite, "0004_milestone_as_task");
+
+    const rows = milestoneTasks(sqlite);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({
+      id: "ms-m1",
+      title: "Kickoff",
+      due_date: "2024-04-01",
+      kind: "milestone",
+      status: "ToDo",
+      workspace_id: "ws1",
+      project_id: "p1",
+      created_by: "lead1",
+    });
+    expect(rows[1]).toMatchObject({ id: "ms-m2", title: "Launch" });
+  });
+
+  // Ids are derived rather than generated precisely so a half-applied migration
+  // can be re-run without doubling every deadline on the board.
+  it("is a no-op when applied twice", () => {
+    const sqlite = preMilestoneDb();
+    insertMilestones(sqlite, [
+      { id: "m1", project_id: "p1", name: "Kickoff", due_date: "2024-04-01" },
+    ]);
+
+    apply(sqlite, "0004_milestone_as_task");
+    // The index is created once; re-running only the data half is what matters.
+    sqlite.exec("DROP INDEX idx_task_project_kind");
+    apply(sqlite, "0004_milestone_as_task");
+
+    expect(milestoneTasks(sqlite)).toHaveLength(1);
+  });
+
+  it("orders milestones after the project's existing top-level tasks", () => {
+    const sqlite = preMilestoneDb();
+    insertTasks(sqlite, [
+      { id: "t1", project_id: "p1", created_at: "2024-03-01T00:00:00Z" },
+      { id: "t2", project_id: "p1", created_at: "2024-03-02T00:00:00Z" },
+    ]);
+    insertMilestones(sqlite, [
+      { id: "m2", project_id: "p1", name: "Launch", due_date: "2024-06-01" },
+      { id: "m1", project_id: "p1", name: "Kickoff", due_date: "2024-04-01" },
+    ]);
+
+    apply(sqlite, "0004_milestone_as_task");
+
+    const orders = Object.fromEntries(
+      milestoneTasks(sqlite).map((r) => [r.id, r.sort_order])
+    );
+    expect(orders).toEqual({ "ms-m1": 2, "ms-m2": 3 });
+  });
+
+  it("leaves the source rows in place", () => {
+    const sqlite = preMilestoneDb();
+    insertMilestones(sqlite, [
+      { id: "m1", project_id: "p1", name: "Kickoff", due_date: "2024-04-01" },
+    ]);
+
+    apply(sqlite, "0004_milestone_as_task");
+
+    const count = sqlite
+      .prepare("SELECT COUNT(*) AS n FROM milestone")
+      .get() as { n: number };
+    expect(count.n).toBe(1);
+  });
+
+  it("does not disturb ordinary tasks", () => {
+    const sqlite = preMilestoneDb();
+    insertTasks(sqlite, [
+      { id: "keep", project_id: "p1", created_at: "2024-03-01T00:00:00Z" },
+    ]);
+    insertMilestones(sqlite, [
+      { id: "m1", project_id: "p1", name: "Kickoff", due_date: "2024-04-01" },
+    ]);
+
+    apply(sqlite, "0004_milestone_as_task");
+
+    const row = sqlite
+      .prepare("SELECT id, title, kind, sort_order FROM task WHERE id = 'keep'")
+      .get();
+    expect(row).toEqual({
+      id: "keep",
+      title: "Task keep",
+      kind: "task",
+      sort_order: 0,
+    });
   });
 });

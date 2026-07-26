@@ -10,20 +10,8 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { createDb } from "@/server/db/client";
 import { validateSession } from "@/server/auth/session";
 import { SESSION_COOKIE_NAME } from "@/server/auth/constants";
-import {
-  task,
-  project,
-  workstream,
-  member,
-  milestone,
-} from "@/server/db/schema";
-import type {
-  Task,
-  Project,
-  Workstream,
-  Member,
-  Milestone,
-} from "@/server/db/schema";
+import { task, project, workstream, member } from "@/server/db/schema";
+import type { Task, Project, Workstream, Member } from "@/server/db/schema";
 import type { Database } from "@/server/db/client";
 
 // ---------------------------------------------------------------------------
@@ -249,38 +237,46 @@ export function memberMap(members: Member[]): Map<string, Member> {
 // Milestone queries
 // ---------------------------------------------------------------------------
 
+// A milestone is a task with kind = "milestone" (migration 0004). These read
+// from `task`, not the legacy `milestone` table, and return Task rows.
+
 /** Fetch all milestones for a project, scoped by workspace, earliest due first. */
 export async function getProjectMilestones(
   db: Database,
   projectId: string,
   workspaceId: string
-): Promise<Milestone[]> {
-  const rows = await db
-    .select({ ms: milestone })
-    .from(milestone)
-    .innerJoin(project, eq(milestone.project_id, project.id))
+): Promise<Task[]> {
+  return db
+    .select()
+    .from(task)
     .where(
       and(
-        eq(milestone.project_id, projectId),
-        eq(project.workspace_id, workspaceId)
+        eq(task.project_id, projectId),
+        eq(task.workspace_id, workspaceId),
+        eq(task.kind, "milestone"),
+        isNull(task.cancelled_at)
       )
     )
-    .orderBy(asc(milestone.due_date));
-  return rows.map((r) => r.ms);
+    .orderBy(asc(task.due_date));
 }
 
-/** Fetch every milestone in the workspace, earliest due first. */
+/** Fetch every milestone in the workspace's active projects, earliest due first. */
 export async function getWorkspaceMilestones(
   db: Database,
   workspaceId: string
-): Promise<Milestone[]> {
+): Promise<Task[]> {
   const rows = await db
-    .select({ ms: milestone })
-    .from(milestone)
-    .innerJoin(project, eq(milestone.project_id, project.id))
+    .select({ t: task })
+    .from(task)
+    .innerJoin(project, eq(task.project_id, project.id))
     .where(
-      and(eq(project.workspace_id, workspaceId), isNull(project.archived_at))
+      and(
+        eq(task.workspace_id, workspaceId),
+        eq(task.kind, "milestone"),
+        isNull(task.cancelled_at),
+        isNull(project.archived_at)
+      )
     )
-    .orderBy(asc(milestone.due_date));
-  return rows.map((r) => r.ms);
+    .orderBy(asc(task.due_date));
+  return rows.map((r) => r.t);
 }

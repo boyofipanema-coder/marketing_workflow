@@ -8,14 +8,16 @@ import { Button } from "@/components/ui";
 import EmptyState from "@/components/EmptyState";
 import ProjectFormDialog from "@/components/projects/ProjectFormDialog";
 import { restoreProjectAction } from "@/app/actions/projects";
-import type { Project, Member, Task, Milestone } from "@/server/db/schema";
+import { isMilestone } from "@/lib/board-graph";
+import type { Project, Member, Task } from "@/server/db/schema";
 
 export interface ProjectsContentProps {
   projects: Project[];
   archivedProjects: Project[];
   tasks: Task[];
   members: Member[];
-  milestones: Milestone[];
+  /** Milestone-kind tasks across the workspace. */
+  milestones: Task[];
   viewerId: string;
 }
 
@@ -116,14 +118,22 @@ export default function ProjectsContent({
               ? membersById.get(project.project_lead_id)
               : undefined;
             const projectTasks = tasks.filter(
-              (t) => t.project_id === project.id && t.cancelled_at === null
+              (t) =>
+                t.project_id === project.id &&
+                t.cancelled_at === null &&
+                !isMilestone(t)
             );
             const openCount = projectTasks.filter(
               (t) => t.status !== "Done"
             ).length;
             const nextMilestone = milestones
-              .filter((m) => m.project_id === project.id)
-              .sort((a, b) => (a.due_date < b.due_date ? -1 : 1))[0];
+              .filter(
+                (m) =>
+                  m.project_id === project.id &&
+                  m.status !== "Done" &&
+                  !!m.due_date
+              )
+              .sort((a, b) => (a.due_date! < b.due_date! ? -1 : 1))[0];
 
             return (
               <li key={project.id}>
@@ -176,9 +186,9 @@ export default function ProjectsContent({
 
                     {nextMilestone && (
                       <span className="text-xs text-text-tertiary">
-                        다음 마일스톤 · {nextMilestone.name}{" "}
+                        다음 마일스톤 · {nextMilestone.title}{" "}
                         <span className="tabular-nums">
-                          {fmt(nextMilestone.due_date)}
+                          {fmt(nextMilestone.due_date!)}
                         </span>
                       </span>
                     )}

@@ -8,11 +8,12 @@ import {
 } from "@/app/actions/milestones";
 import { Button, Input } from "@/components/ui";
 import EmptyState from "@/components/EmptyState";
-import type { Milestone } from "@/server/db/schema";
+import type { Task } from "@/server/db/schema";
 
 interface MilestoneManagerProps {
   projectId: string;
-  milestones: Milestone[];
+  /** Milestone-kind tasks for this project, earliest due first. */
+  milestones: Task[];
 }
 
 const dateClass =
@@ -39,7 +40,7 @@ export default function MilestoneManager({
   const [busy, setBusy] = useState(false);
 
   const signature = milestones
-    .map((m) => `${m.id}:${m.name}:${m.due_date}`)
+    .map((m) => `${m.id}:${m.title}:${m.due_date}`)
     .join(",");
   const [lastSignature, setLastSignature] = useState(signature);
   if (signature !== lastSignature) {
@@ -48,7 +49,11 @@ export default function MilestoneManager({
   }
 
   const sorted = [...items].sort((a, b) =>
-    a.due_date < b.due_date ? -1 : a.due_date > b.due_date ? 1 : 0
+    (a.due_date ?? "") < (b.due_date ?? "")
+      ? -1
+      : (a.due_date ?? "") > (b.due_date ?? "")
+        ? 1
+        : 0
   );
 
   async function handleCreate(e: React.FormEvent) {
@@ -79,7 +84,7 @@ export default function MilestoneManager({
         m.id === id
           ? {
               ...m,
-              name: next.name ?? m.name,
+              title: next.name ?? m.title,
               due_date: next.dueDate ?? m.due_date,
             }
           : m
@@ -118,13 +123,13 @@ export default function MilestoneManager({
               className="flex flex-wrap items-center gap-2 rounded-lg border border-separator bg-surface px-3 py-2"
             >
               <Input
-                defaultValue={ms.name}
-                aria-label={`${ms.name} 이름`}
+                defaultValue={ms.title}
+                aria-label={`${ms.title} 이름`}
                 className="h-9 flex-1 min-w-[8rem]"
                 onBlur={(e) => {
                   const value = e.target.value.trim();
-                  if (value && value !== ms.name) void patch(ms.id, { name: value });
-                  else e.target.value = ms.name;
+                  if (value && value !== ms.title) void patch(ms.id, { name: value });
+                  else e.target.value = ms.title;
                 }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") e.currentTarget.blur();
@@ -132,15 +137,15 @@ export default function MilestoneManager({
               />
               <input
                 type="date"
-                value={ms.due_date}
-                aria-label={`${ms.name} 마감일`}
+                value={ms.due_date ?? ""}
+                aria-label={`${ms.title} 마감일`}
                 className={dateClass}
                 onChange={(e) => {
                   if (e.target.value) void patch(ms.id, { dueDate: e.target.value });
                 }}
               />
               <span className="text-xs tabular-nums text-text-tertiary">
-                {fmt(ms.due_date)}
+                {ms.due_date ? fmt(ms.due_date) : "날짜 미정"}
               </span>
             </li>
           ))}

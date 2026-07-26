@@ -89,14 +89,28 @@ const lines: string[] = [
   taskInsert("task_p3_06", WS_ID, "proj_brand_strategy", "ws3_presentation", "경영진 리허설 — 30분 리뷰", "최종 보고 2일 전 진행.", "Inbox", "m_admin_01", null, null, isoDate(5), 1, "m_admin_01", t, t, null, null),
   taskInsert("task_p3_07", WS_ID, "proj_brand_strategy", "ws3_research", "상반기 캠페인 데이터 핵심 인사이트 정리", "전략 자료 3번 섹션에 반영. 상위 3~5개 발견 강조.", "Waiting", "m_04", "m_admin_01", isoDate(-9), isoDate(-4), 2, "m_admin_01", t, t, null, null),
   "",
+  // Milestones are tasks (migration 0004). Seeding the legacy `milestone`
+  // table here would strand them: on a fresh database 0004 has already run by
+  // the time the seed lands, so nothing would ever move them across.
   "-- Milestones",
-  `INSERT INTO milestone (id, project_id, name, due_date) VALUES ('ms_p1_01', 'proj_auralee_launch', '크리에이티브 소재 확정', ${esc(isoDate(3))}) ON CONFLICT (id) DO NOTHING;`,
-  `INSERT INTO milestone (id, project_id, name, due_date) VALUES ('ms_p1_02', 'proj_auralee_launch', '25 SS 론칭일', ${esc(isoDate(14))}) ON CONFLICT (id) DO NOTHING;`,
-  `INSERT INTO milestone (id, project_id, name, due_date) VALUES ('ms_p2_01', 'proj_cultural_collab', '파트너 계약 완료', ${esc(isoDate(7))}) ON CONFLICT (id) DO NOTHING;`,
-  `INSERT INTO milestone (id, project_id, name, due_date) VALUES ('ms_p2_02', 'proj_cultural_collab', '컬처 믹서 이벤트', ${esc(isoDate(30))}) ON CONFLICT (id) DO NOTHING;`,
-  `INSERT INTO milestone (id, project_id, name, due_date) VALUES ('ms_p3_01', 'proj_brand_strategy', '발표 자료 초안 완성', ${esc(isoDate(2))}) ON CONFLICT (id) DO NOTHING;`,
-  `INSERT INTO milestone (id, project_id, name, due_date) VALUES ('ms_p3_02', 'proj_brand_strategy', '경영진 발표', ${esc(isoDate(7))}) ON CONFLICT (id) DO NOTHING;`,
+  milestoneInsert("ms_p1_01", "proj_auralee_launch", "크리에이티브 소재 확정", isoDate(3), 0),
+  milestoneInsert("ms_p1_02", "proj_auralee_launch", "25 SS 론칭일", isoDate(14), 1),
+  milestoneInsert("ms_p2_01", "proj_cultural_collab", "파트너 계약 완료", isoDate(7), 0),
+  milestoneInsert("ms_p2_02", "proj_cultural_collab", "컬처 믹서 이벤트", isoDate(30), 1),
+  milestoneInsert("ms_p3_01", "proj_brand_strategy", "발표 자료 초안 완성", isoDate(2), 0),
+  milestoneInsert("ms_p3_02", "proj_brand_strategy", "경영진 발표", isoDate(7), 1),
 ];
+
+/** A milestone: a task whose kind says it is a date the project turns on. */
+function milestoneInsert(
+  id: string,
+  projectId: string,
+  name: string,
+  dueDate: string,
+  order: number
+): string {
+  return `INSERT INTO task (id, workspace_id, project_id, workstream_id, parent_task_id, title, description, status, importance, kind, assignee_id, reviewer_id, start_date, due_date, sort_order, version, created_by, created_at, updated_at, completed_at, cancelled_at) VALUES (${esc(id)}, ${esc(WS_ID)}, ${esc(projectId)}, NULL, NULL, ${esc(name)}, NULL, 'ToDo', 'normal', 'milestone', NULL, NULL, NULL, ${esc(dueDate)}, ${100 + order}, 1, 'm_admin_01', ${esc(t)}, ${esc(t)}, NULL, NULL) ON CONFLICT (id) DO NOTHING;`;
+}
 
 function taskInsert(
   id: string,

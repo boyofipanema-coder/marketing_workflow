@@ -133,6 +133,10 @@ const ADD_H = 42; // inline "add subtask" input row
 // A key task earns its extra height from importance alone — never from how many
 // subtasks it happens to carry (see cardHeight).
 const KEY_EXTRA = 14;
+// milestone rail
+const RAIL_H = 58;
+const RAIL_LABEL_W = 76; // left inset holding the "마일스톤" caption
+const RAIL_GAP = 8;
 
 function cardHeight(t: Task, cm: ChildMap, open: Set<string>, addingId: string | null): number {
   const hasKids = kids(cm, t.id).length > 0;
@@ -153,10 +157,29 @@ interface Positioned {
   y: number;
   h: number;
 }
+/** One diamond on a milestone rail. */
+interface Mark {
+  task: Task;
+  x: number;
+  w: number;
+}
+/**
+ * A chronological strip of milestone markers. Its x axis is due-date order,
+ * NOT the stage grid, so it is drawn opaque: the column tints stop at its edge,
+ * which is what tells you the position means something else in here.
+ */
+interface Rail {
+  key: string;
+  y: number;
+  x: number;
+  w: number;
+  marks: Mark[];
+}
 interface Layout {
   lanes: (Lane & { y: number; h: number; done: number; total: number })[];
   columns: { i: number; x: number; count: number }[];
   nodes: Positioned[];
+  rails: Rail[];
   overflow: { cellKey: string; x: number; y: number; count: number; open: boolean }[];
   edges: { d: string; laneKey: string; kind: "flow" | "parent" }[];
   worldW: number;
@@ -178,9 +201,23 @@ function ownerColor(id: string): string {
   return OWNER_COLORS[h % OWNER_COLORS.length];
 }
 
+/**
+ * Which band a milestone belongs to, or null for "no band on this axis".
+ *
+ * Grouping by 업무 영역, a milestone that has not been filed under one is a
+ * project-level marker: it belongs to every band and therefore to none. Those
+ * go on the board rail above all the bands rather than inventing a 미분류 band
+ * that holds nothing but markers.
+ */
+function milestoneLaneKey(m: Task, groupBy: GroupBy): string | null {
+  if (groupBy === "workstream") return m.workstream_id;
+  return laneKeyFor(m, groupBy);
+}
+
 function computeLayout(
   placed: Task[],
   roots: Task[],
+  milestones: Task[],
   cm: ChildMap,
   laneOf: Map<string, string>,
   parentOf: Map<string, string>,
@@ -195,18 +232,22 @@ function computeLayout(
   // Lane membership is decided by the root of a task's tree, so a promoted
   // descendant always appears in the same band as the work it belongs to.
   const laneKeyOf = (t: Task): string => laneOf.get(t.id) ?? laneKeyFor(t, groupBy);
+  // A band earns its place from milestones too — a project whose only content
+  // this quarter is a deadline still has to appear.
+  const msIn = (key: string) =>
+    milestones.some((m) => milestoneLaneKey(m, groupBy) === key);
 
   let lanes: Lane[] = [];
   if (groupBy === "project") {
     lanes = projects
-      .filter((p) => roots.some((t) => t.project_id === p.id))
+      .filter((p) => roots.some((t) => t.project_id === p.id) || msIn(p.id))
       .map((p) => ({ key: p.id, name: p.name, color: "rgb(var(--accent))" }));
     if (roots.some((t) => !t.project_id))
       lanes.push({ key: "_inbox", name: "인박스", color: "rgb(var(--status-inbox))" });
   } else if (groupBy === "workstream") {
     lanes = [...workstreams]
       .sort((a, b) => a.order - b.order)
-      .filter((ws) => roots.some((t) => t.workstream_id === ws.id))
+      .filter((ws) => roots.some((t) => t.workstream_id === ws.id) || msIn(ws.id))
       // --accent is a bare RGB triplet, so it has to be wrapped; passing it raw
       // yields an invalid colour and the lane rail silently disappears.
       .map((ws) => ({ key: ws.id, name: ws.name, color: "rgb(var(--accent))" }));
@@ -246,20 +287,67 @@ function computeLayout(
         (a.due_date ?? "9999").localeCompare(b.due_date ?? "9999"),
     );
 
+  // Bucket the milestones. Anything whose band does not exist on this axis
+  // falls through to the board-wide rail.
+  const laneKeys = new Set(lanes.map((l) => l.key));
+  const msByLane = new Map<string, Task[]>();
+  const boardMs: Task[] = [];
+  for (const m of milestones) {
+    const key = milestoneLaneKey(m, groupBy);
+    if (key && laneKeys.has(key)) {
+      const arr = msByLane.get(key);
+      if (arr) arr.push(m);
+      else msByLane.set(key, [m]);
+    } else {
+      boardMs.push(m);
+    }
+  }
+
+  const railX = LANEPAD;
+  const railW = STAGE_COUNT * COLW - COLGAP;
+  const buildRail = (key: string, list: Task[], y: number): Rail => {
+    // Position carries due-date ORDER only; the exact date is on every label,
+    // so a crowded rail degrades into a readable list rather than a lie about
+    // how far apart two deadlines are.
+    const inner = railW - RAIL_LABEL_W - 16;
+    const slot = inner / list.length;
+    return {
+      key,
+      y,
+      x: railX,
+      w: railW,
+      marks: list.map((t, i) => ({
+        task: t,
+        x: railX + RAIL_LABEL_W + slot * i,
+        w: Math.max(34, slot - 10),
+      })),
+    };
+  };
+
   const nodes: Positioned[] = [];
+  const rails: Rail[] = [];
   const overflow: Layout["overflow"] = [];
   const laneOut: Layout["lanes"] = [];
   let y = TOP;
+  if (boardMs.length) {
+    rails.push(buildRail("_board", boardMs, y));
+    y += RAIL_H + RAIL_GAP + LANE_GAP;
+  }
   for (const lane of lanes) {
     const laneTasks = placed.filter((t) => laneKeyOf(t) === lane.key);
     const done = laneTasks.filter((t) => effStatus(t, cm) === "Done").length;
     const laneTop = y;
-    let laneMaxBottom = laneTop + CARD_BASE;
+    const laneMs = msByLane.get(lane.key);
+    // The band's own rail sits above its cards, inside the band, so the
+    // deadlines read as belonging to that stream of work.
+    const railH = laneMs ? RAIL_H + RAIL_GAP : 0;
+    if (laneMs) rails.push(buildRail(lane.key, laneMs, laneTop + RAIL_GAP));
+    let laneMaxBottom = laneTop + railH + CARD_BASE;
     for (let s = 0; s < STAGE_COUNT; s++) {
       const arr = cell.get(`${lane.key}|${s}`) ?? [];
       const isOpen = cellsOpen.has(`${lane.key}|${s}`);
       const shown = isOpen ? arr : arr.slice(0, CAP);
-      let cy = laneTop + 10;
+      let cy = laneTop + 10 + railH;
       for (const t of shown) {
         const h = cardHeight(t, cm, subsOpen, addingId);
         nodes.push({ task: t, x: LANEPAD + s * COLW, y: cy, h });
@@ -322,7 +410,7 @@ function computeLayout(
     });
   }
 
-  return { lanes: laneOut, columns, nodes, overflow, edges, worldW: LANEPAD + STAGE_COUNT * COLW + 40, worldH: contentBottom + 40 };
+  return { lanes: laneOut, columns, nodes, rails, overflow, edges, worldW: LANEPAD + STAGE_COUNT * COLW + 40, worldH: contentBottom + 40 };
 }
 
 // ── component ─────────────────────────────────────────────────────────────────
@@ -376,14 +464,14 @@ export default function WorkflowCanvas({
   const view = useRef({ x: 0, y: 8, scale: 1 });
 
   // Which nodes get a card, and how a promoted one points back at its parent.
-  const { childMap, roots, placed, laneOf, parentOf } = useMemo(
+  const { childMap, roots, placed, laneOf, parentOf, milestones } = useMemo(
     () => buildBoardGraph(tasks, groupBy),
     [tasks, groupBy],
   );
 
   const layout = useMemo(
-    () => computeLayout(placed, roots, childMap, laneOf, parentOf, workstreams, members, projects ?? [], groupBy, cellsOpen, subsOpen, addingFor),
-    [placed, roots, childMap, laneOf, parentOf, workstreams, members, projects, groupBy, cellsOpen, subsOpen, addingFor],
+    () => computeLayout(placed, roots, milestones, childMap, laneOf, parentOf, workstreams, members, projects ?? [], groupBy, cellsOpen, subsOpen, addingFor),
+    [placed, roots, milestones, childMap, laneOf, parentOf, workstreams, members, projects, groupBy, cellsOpen, subsOpen, addingFor],
   );
 
   // open the inline subtask composer under a card
@@ -624,6 +712,49 @@ export default function WorkflowCanvas({
                 <div className="text-[10.5px] font-medium tabular-nums text-text-tertiary">완료 {l.done}/{l.total}</div>
                 <div className="h-1.5 overflow-hidden rounded-full bg-surface-3"><div className="h-full rounded-full bg-status-done transition-[width] duration-500 ease-out" style={{ width: `${l.total ? (l.done / l.total) * 100 : 0}%` }} /></div>
               </div>
+            </div>
+          ))}
+
+          {/* milestone rails — diamonds, never rectangles. Shape is what says
+              "this is a date the project turns on", not a piece of work, and it
+              has to be unmistakable at any zoom. */}
+          {layout.rails.map((rail) => (
+            <div key={`rail-${rail.key}`}>
+              {/* Opaque on purpose: the stage-column tints stop at the rail's
+                  edge, which is the cue that x means due-date order in here and
+                  not the stage grid. */}
+              <div className="absolute rounded-xl border border-separator bg-surface shadow-xs"
+                style={{ left: rail.x, top: rail.y, width: rail.w, height: RAIL_H }} />
+              <div className="absolute inline-flex items-center gap-1.5 whitespace-nowrap text-[10px] font-semibold uppercase tracking-wider text-text-tertiary"
+                style={{ left: rail.x + 12, top: rail.y + 9 }}>
+                <span className="size-2 rotate-45 border border-text-tertiary" aria-hidden />
+                마일스톤
+              </div>
+              <div className="absolute bg-separator"
+                style={{ left: rail.x + RAIL_LABEL_W, top: rail.y + 13, width: rail.w - RAIL_LABEL_W - 16, height: 1 }} />
+              {rail.marks.map((mk) => {
+                const met = mk.task.status === "Done";
+                const late = overdue(mk.task, mk.task.status);
+                // Colour still means status and nothing else; the diamond's fill
+                // means met/unmet.
+                const tone = met
+                  ? "rgb(var(--status-done))"
+                  : late
+                    ? "rgb(var(--flag-overdue))"
+                    : "rgb(var(--text-secondary))";
+                return (
+                  <button key={mk.task.id} type="button" data-card onClick={() => onSelect(mk.task)}
+                    className="absolute flex flex-col items-start gap-0.5 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    style={{ left: mk.x, top: rail.y + 8, width: mk.w }}>
+                    <span className="size-[11px] shrink-0 rotate-45 rounded-[2px] border-2"
+                      style={{ borderColor: tone, background: met ? tone : "rgb(var(--surface))" }} aria-hidden />
+                    <span className={cn("w-full truncate text-[10.5px] font-semibold text-text", met && "text-text-secondary line-through")}>{mk.task.title}</span>
+                    <span className="w-full truncate text-[9.5px] font-medium tabular-nums" style={{ color: tone }}>
+                      {mk.task.due_date ? fmtDue(mk.task.due_date) : "날짜 미정"}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           ))}
 

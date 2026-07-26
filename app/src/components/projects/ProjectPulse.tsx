@@ -3,11 +3,13 @@
 import { useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { todayKST } from "@/lib/derive";
-import type { Task, Milestone } from "@/server/db/schema";
+import { isMilestone } from "@/lib/board-graph";
+import type { Task } from "@/server/db/schema";
 
 export interface ProjectPulseProps {
   tasks: Task[];
-  milestones: Milestone[];
+  /** Milestone-kind tasks for this project. */
+  milestones: Task[];
   /** Clicking a stat jumps the board to that subset. */
   onFocus?: (focus: "do" | "wait" | "over") => void;
 }
@@ -38,7 +40,11 @@ export default function ProjectPulse({
 }: ProjectPulseProps) {
   const summary = useMemo(() => {
     const today = todayKST(new Date());
-    const live = tasks.filter((t) => !t.cancelled_at && !t.parent_task_id);
+    // Milestones are markers, not work: counting them here would inflate the
+    // completion percentage with dates nobody has to do.
+    const live = tasks.filter(
+      (t) => !t.cancelled_at && !t.parent_task_id && !isMilestone(t)
+    );
     const done = live.filter((t) => t.status === "Done");
 
     const stats: Stat[] = [
@@ -71,8 +77,8 @@ export default function ProjectPulse({
     ];
 
     const upcoming = [...milestones]
-      .filter((m) => m.due_date >= today)
-      .sort((a, b) => (a.due_date < b.due_date ? -1 : 1))[0];
+      .filter((m) => m.status !== "Done" && !!m.due_date && m.due_date >= today)
+      .sort((a, b) => (a.due_date! < b.due_date! ? -1 : 1))[0];
 
     return {
       total: live.length,
@@ -100,9 +106,9 @@ export default function ProjectPulse({
 
         {summary.upcoming && (
           <span className="text-xs text-text-secondary">
-            다음 마일스톤 · {summary.upcoming.name}{" "}
+            다음 마일스톤 · {summary.upcoming.title}{" "}
             <span className="tabular-nums text-text-tertiary">
-              {fmt(summary.upcoming.due_date)}
+              {fmt(summary.upcoming.due_date!)}
             </span>
           </span>
         )}

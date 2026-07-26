@@ -18,20 +18,16 @@ import {
   archiveProjectAction,
   restoreProjectAction,
 } from "@/app/actions/projects";
-import type {
-  Project,
-  Task,
-  Workstream,
-  Member,
-  Milestone,
-} from "@/server/db/schema";
+import { isMilestone } from "@/lib/board-graph";
+import type { Project, Task, Workstream, Member } from "@/server/db/schema";
 
 export interface ProjectWorkspaceProps {
   project: Project;
   workstreams: Workstream[];
   tasks: Task[];
   members: Record<string, Member>;
-  milestones: Milestone[];
+  /** Milestone-kind tasks for this project. Also present in `tasks`. */
+  milestones: Task[];
   viewerId: string;
   /** Projects the task detail panel can move a task into. */
   allProjects: Project[];
@@ -125,8 +121,10 @@ export default function ProjectWorkspace({
     router.refresh();
   }
 
+  // The list is a list of work. Milestones live on the board's rail and in the
+  // 영역·마일스톤 tab, so they never show up here as ordinary rows.
   const visibleTasks = controller.tasks.filter(
-    (t) => t.parent_task_id === null
+    (t) => t.parent_task_id === null && !isMilestone(t)
   );
 
   return (

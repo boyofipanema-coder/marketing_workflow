@@ -1,9 +1,14 @@
-import { eq } from "drizzle-orm";
-import {
-  milestone,
-  type Milestone,
-  type NewMilestone,
-} from "@/server/db/schema";
+/**
+ * Milestones, stored as tasks with kind = "milestone" (see migration 0004).
+ *
+ * The functions here exist because a milestone is *created* differently from a
+ * task — a name and a date, no title-only shortcut — not because it is stored
+ * differently. Everything after creation (owner, status, dependencies) goes
+ * through the ordinary task service.
+ */
+
+import { and, eq, isNull, sql } from "drizzle-orm";
+import { task, type Task, type NewTask } from "@/server/db/schema";
 import { type Database } from "@/server/db/client";
 import { NotFoundError, ValidationError } from "./errors";
 import { loadScopedProject } from "./project";
@@ -15,6 +20,8 @@ import { loadScopedProject } from "./project";
 export interface CreateMilestoneParams {
   projectId: string;
   workspaceId: string;
+  /** Recorded as created_by, like any other task. */
+  memberId: string;
   name: string;
   dueDate: string;
 }
@@ -45,21 +52,44 @@ function validateDueDate(raw: string): string {
   return raw;
 }
 
-/** Loads a milestone, verifying its project belongs to the caller's workspace. */
+/** Loads a milestone task, scoped to the caller's workspace. */
 async function loadScopedMilestone(
   db: Database,
   milestoneId: string,
   workspaceId: string
-): Promise<Milestone> {
+): Promise<Task> {
   const rows = await db
     .select()
-    .from(milestone)
-    .where(eq(milestone.id, milestoneId));
+    .from(task)
+    .where(
+      and(
+        eq(task.id, milestoneId),
+        eq(task.workspace_id, workspaceId),
+        eq(task.kind, "milestone")
+      )
+    );
   const current = rows[0];
   if (!current) throw new NotFoundError(`Milestone ${milestoneId} not found`);
-
-  await loadScopedProject(db, current.project_id, workspaceId);
   return current;
+}
+
+/** Next sort_order among the project's top-level rows. */
+async function nextSortOrder(
+  db: Database,
+  workspaceId: string,
+  projectId: string
+): Promise<number> {
+  const rows = await db
+    .select({ value: sql<number>`coalesce(max(${task.sort_order}), -1)` })
+    .from(task)
+    .where(
+      and(
+        eq(task.workspace_id, workspaceId),
+        eq(task.project_id, projectId),
+        isNull(task.parent_task_id)
+      )
+    );
+  return (rows[0]?.value ?? -1) + 1;
 }
 
 // ---------------------------------------------------------------------------
@@ -69,39 +99,67 @@ async function loadScopedMilestone(
 export async function createMilestone(
   db: Database,
   params: CreateMilestoneParams
-): Promise<Milestone> {
-  const name = validateName(params.name);
+): Promise<Task> {
+  const title = validateName(params.name);
   const dueDate = validateDueDate(params.dueDate);
   await loadScopedProject(db, params.projectId, params.workspaceId);
 
-  const newMilestone: NewMilestone = {
+  const now = new Date().toISOString();
+  const newTask: NewTask = {
     id: crypto.randomUUID(),
+    workspace_id: params.workspaceId,
     project_id: params.projectId,
-    name,
+    workstream_id: null,
+    parent_task_id: null,
+    title,
+    description: null,
+    status: "ToDo",
+    importance: "normal",
+    kind: "milestone",
+    assignee_id: null,
+    reviewer_id: null,
+    start_date: null,
     due_date: dueDate,
+    due_time: null,
+    sort_order: await nextSortOrder(db, params.workspaceId, params.projectId),
+    version: 1,
+    created_by: params.memberId,
+    created_at: now,
+    updated_at: now,
+    completed_at: null,
+    cancelled_at: null,
   };
 
-  await db.insert(milestone).values(newMilestone);
-  return newMilestone as Milestone;
+  await db.insert(task).values(newTask);
+  return newTask as Task;
 }
 
+/**
+ * Rename or re-date a milestone.
+ *
+ * Deliberately not version-guarded: the milestone list edits one field at a
+ * time with no version in hand, and two people renaming the same milestone in
+ * the same second is not a conflict worth a stale-write error. Anything that
+ * needs optimistic concurrency (status, owner) goes through editTask.
+ */
 export async function editMilestone(
   db: Database,
   milestoneId: string,
   workspaceId: string,
   patch: MilestonePatch
-): Promise<Milestone> {
+): Promise<Task> {
   const current = await loadScopedMilestone(db, milestoneId, workspaceId);
 
-  const updates: Partial<Milestone> = {};
-
-  if (patch.name !== undefined) {
-    updates.name = validateName(patch.name);
-  }
-  if (patch.dueDate !== undefined) {
+  const updates: Partial<Task> = {};
+  if (patch.name !== undefined) updates.title = validateName(patch.name);
+  if (patch.dueDate !== undefined)
     updates.due_date = validateDueDate(patch.dueDate);
-  }
 
-  await db.update(milestone).set(updates).where(eq(milestone.id, milestoneId));
-  return { ...current, ...updates } as Milestone;
+  if (Object.keys(updates).length === 0) return current;
+
+  updates.updated_at = new Date().toISOString();
+  updates.version = current.version + 1;
+
+  await db.update(task).set(updates).where(eq(task.id, milestoneId));
+  return { ...current, ...updates } as Task;
 }

@@ -116,6 +116,52 @@ describe("buildBoardGraph — lane inheritance", () => {
   });
 });
 
+// Shape encodes kind on the board: a milestone is a diamond on a rail, so it
+// must never reach the code that draws rectangles.
+describe("buildBoardGraph — milestones", () => {
+  const ms = (id: string, extra: Partial<Task> = {}) =>
+    t(id, null, { kind: "milestone", due_date: "2026-09-01", ...extra });
+
+  it("keeps a milestone out of roots and placed", () => {
+    const g = buildBoardGraph([t("a"), ms("m1")], "workstream");
+    expect(g.placed.map((x) => x.id)).toEqual(["a"]);
+    expect(g.roots.map((x) => x.id)).toEqual(["a"]);
+  });
+
+  it("returns milestones earliest due first", () => {
+    const g = buildBoardGraph(
+      [ms("late", { due_date: "2026-12-01" }), ms("early", { due_date: "2026-01-05" })],
+      "workstream"
+    );
+    expect(g.milestones.map((x) => x.id)).toEqual(["early", "late"]);
+  });
+
+  it("excludes a cancelled milestone", () => {
+    const g = buildBoardGraph(
+      [ms("gone", { cancelled_at: "2026-02-01T00:00:00Z" })],
+      "workstream"
+    );
+    expect(g.milestones).toHaveLength(0);
+  });
+
+  // A milestone marked key is still a date, not work. Importance must not be
+  // able to smuggle it back onto the grid as a card.
+  it("does not place a milestone even when it is marked key", () => {
+    const g = buildBoardGraph([ms("m1", key)], "workstream");
+    expect(g.placed).toHaveLength(0);
+    expect(g.milestones.map((x) => x.id)).toEqual(["m1"]);
+  });
+
+  // Filing work under a milestone must not hide it: the parent has no card, so
+  // the child would vanish if it were still treated as a subtask.
+  it("promotes a task whose parent is a milestone to its own card", () => {
+    const g = buildBoardGraph([ms("m1"), t("under", "m1")], "workstream");
+    expect(g.placed.map((x) => x.id)).toEqual(["under"]);
+    expect(g.roots.map((x) => x.id)).toEqual(["under"]);
+    expect(g.parentOf.has("under")).toBe(false);
+  });
+});
+
 describe("buildBoardGraph — malformed data", () => {
   // Not reachable through the UI, but a bad row must not hang the board.
   it("survives a parent cycle", () => {

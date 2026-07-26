@@ -81,6 +81,15 @@ function notCancelled(task: Task): boolean {
   return task.cancelled_at === null || task.cancelled_at === undefined;
 }
 
+/**
+ * Milestones are tasks (migration 0004), but they are markers rather than work:
+ * "진행 중 3건" must not count a deadline. Every derived section funnels through
+ * applyFilter, so excluding them here covers all of them at once.
+ */
+function isWork(task: Task): boolean {
+  return task.kind !== "milestone";
+}
+
 function sortByDueDateAscNullsLast(tasks: Task[]): Task[] {
   return [...tasks].sort((a, b) => {
     if (a.due_date === null || a.due_date === undefined) return 1;
@@ -90,7 +99,9 @@ function sortByDueDateAscNullsLast(tasks: Task[]): Task[] {
 }
 
 function applyFilter(tasks: Task[], filter: ViewFilter): Task[] {
-  return sortByDueDateAscNullsLast(tasks.filter(notCancelled).filter(filter));
+  return sortByDueDateAscNullsLast(
+    tasks.filter(notCancelled).filter(isWork).filter(filter)
+  );
 }
 
 /** assignee=viewer AND status in {InProgress, Review} */

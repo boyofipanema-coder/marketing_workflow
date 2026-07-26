@@ -29,6 +29,13 @@
       "when": 1785110000000,
       "tag": "0003_task_hierarchy",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1785196000000,
+      "tag": "0004_milestone_as_task",
+      "breakpoints": true
     }
   ]
 }

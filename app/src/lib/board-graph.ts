@@ -23,10 +23,20 @@ export interface BoardGraph {
   laneOf: Map<string, string>;
   /** taskId → nearest ancestor that also has a card (only for promoted nodes). */
   parentOf: Map<string, string>;
+  /**
+   * Milestones, earliest first. Kept out of `roots`/`placed` entirely: shape
+   * encodes kind on this board, so a milestone is a diamond on a rail and never
+   * a rectangle in the grid.
+   */
+  milestones: Task[];
 }
 
 export function isKey(t: Task): boolean {
   return t.importance === "key";
+}
+
+export function isMilestone(t: Task): boolean {
+  return t.kind === "milestone";
 }
 
 /** Bucket boundaries for the "마감" lane axis, in days from today. */
@@ -57,12 +67,19 @@ export function buildBoardGraph(
   groupBy: GroupBy,
   now?: Date
 ): BoardGraph {
-  const live = tasks.filter((t) => !t.cancelled_at);
+  const alive = tasks.filter((t) => !t.cancelled_at);
+  const milestones = alive
+    .filter(isMilestone)
+    .sort((a, b) => (a.due_date ?? "9999").localeCompare(b.due_date ?? "9999"));
+
+  // Milestones are removed before the tree is built, so a task filed under one
+  // is treated as top-level rather than orphaned into an invisible parent.
+  const live = alive.filter((t) => !isMilestone(t));
   const byId = new Map(live.map((t) => [t.id, t]));
 
   const childMap: ChildMap = new Map();
   for (const t of live) {
-    if (!t.parent_task_id) continue;
+    if (!t.parent_task_id || !byId.has(t.parent_task_id)) continue;
     const siblings = childMap.get(t.parent_task_id);
     if (siblings) siblings.push(t);
     else childMap.set(t.parent_task_id, [t]);
@@ -71,8 +88,10 @@ export function buildBoardGraph(
     arr.sort((a, b) => (a.due_date ?? "9999").localeCompare(b.due_date ?? "9999"));
   }
 
-  const roots = live.filter((t) => !t.parent_task_id);
-  const placed = live.filter((t) => !t.parent_task_id || isKey(t));
+  const isRoot = (t: Task) =>
+    !t.parent_task_id || !byId.has(t.parent_task_id);
+  const roots = live.filter(isRoot);
+  const placed = live.filter((t) => isRoot(t) || isKey(t));
   const placedIds = new Set(placed.map((t) => t.id));
 
   // Cycles cannot occur through the UI, but a corrupt row must not hang the
@@ -106,5 +125,5 @@ export function buildBoardGraph(
     if (up && up.id !== t.id) parentOf.set(t.id, up.id);
   }
 
-  return { childMap, roots, placed, laneOf, parentOf };
+  return { childMap, roots, placed, laneOf, parentOf, milestones };
 }

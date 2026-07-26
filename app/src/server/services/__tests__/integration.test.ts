@@ -30,6 +30,7 @@ import {
 } from "@/server/services/project";
 import { createWorkstream } from "@/server/services/workstream";
 import { createMilestone, editMilestone } from "@/server/services/milestone";
+import { getProjectMilestones } from "@/server/data/queries";
 import {
   StaleVersionError,
   ValidationError,
@@ -671,6 +672,7 @@ describe("Project, workstream, milestone", () => {
     const created = await createMilestone(db as never, {
       projectId: PROJECT_ID,
       workspaceId: WS_ID,
+      memberId: MEMBER_ID,
       name: "Launch",
       dueDate: "2026-09-01",
     });
@@ -680,11 +682,51 @@ describe("Project, workstream, milestone", () => {
     expect(edited.due_date).toBe("2026-09-15");
   });
 
+  // A milestone is a task now (migration 0004): it has to be storable and
+  // findable as one, or nothing downstream — board, dependencies, activity —
+  // can treat it uniformly.
+  it("stores a milestone as a task of kind 'milestone'", async () => {
+    const created = await createMilestone(db as never, {
+      projectId: PROJECT_ID,
+      workspaceId: WS_ID,
+      memberId: MEMBER_ID,
+      name: "Kickoff",
+      dueDate: "2026-10-01",
+    });
+
+    expect(created.kind).toBe("milestone");
+    expect(created.title).toBe("Kickoff");
+    expect(created.parent_task_id).toBeNull();
+    expect(created.created_by).toBe(MEMBER_ID);
+
+    const rows = await getProjectMilestones(
+      db as never,
+      PROJECT_ID,
+      WS_ID
+    );
+    expect(rows.map((r) => r.id)).toContain(created.id);
+  });
+
+  it("refuses to edit a milestone from another workspace", async () => {
+    const created = await createMilestone(db as never, {
+      projectId: PROJECT_ID,
+      workspaceId: WS_ID,
+      memberId: MEMBER_ID,
+      name: "Scoped",
+      dueDate: "2026-11-01",
+    });
+
+    await expect(
+      editMilestone(db as never, created.id, OTHER_WS_ID, { name: "Stolen" })
+    ).rejects.toThrow(NotFoundError);
+  });
+
   it("rejects a malformed milestone due date", async () => {
     await expect(
       createMilestone(db as never, {
         projectId: PROJECT_ID,
         workspaceId: WS_ID,
+        memberId: MEMBER_ID,
         name: "Bad date",
         dueDate: "2026/09/01",
       })
