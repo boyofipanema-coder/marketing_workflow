@@ -121,7 +121,12 @@ export default function ProjectFormDialog({
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-40 bg-[rgb(var(--material-scrim))] backdrop-blur-sm data-[state=open]:animate-fade-in" />
-        <Dialog.Content className="fixed inset-x-0 bottom-0 z-50 max-h-[90vh] overflow-y-auto rounded-t-2xl border border-separator bg-elevated p-5 shadow-xl data-[state=open]:animate-scale-in sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:w-full sm:max-w-lg sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl">
+        {/* Animation lives on the inner wrapper, not here: the scale-in
+            keyframe sets a bare `transform: scale()`, which would otherwise
+            permanently clobber the -translate-1/2 centering below once the
+            animation's fill-mode holds its last frame. */}
+        <Dialog.Content className="group fixed inset-x-0 bottom-0 z-50 max-h-[90vh] overflow-y-auto rounded-t-2xl border border-separator bg-elevated shadow-xl sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:w-full sm:max-w-lg sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl">
+        <div className="p-5 group-data-[state=open]:animate-scale-in">
           <div className="mb-4 flex items-start justify-between gap-4">
             <Dialog.Title className="text-lg font-semibold text-text">
               {editing ? "프로젝트 수정" : "새 프로젝트"}
@@ -278,6 +283,7 @@ export default function ProjectFormDialog({
               </div>
             </div>
           </form>
+        </div>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
