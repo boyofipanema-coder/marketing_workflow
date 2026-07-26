@@ -15,6 +15,7 @@ interface TaskFormDialogProps {
   workstreams: Workstream[];
   members: Member[];
   defaultProjectId: string | null;
+  defaultParentTask?: Task | null;
   onCreated?: (task: Task) => void;
 }
 
@@ -55,6 +56,7 @@ export default function TaskFormDialog({
   workstreams,
   members,
   defaultProjectId,
+  defaultParentTask = null,
   onCreated,
 }: TaskFormDialogProps) {
   const today = useMemo(() => todayKST(new Date()), []);
@@ -81,8 +83,8 @@ export default function TaskFormDialog({
     setStatus("ToDo");
     setImportance("normal");
     setKind("task");
-    setProjectId(defaultProjectId ?? projects.find((project) => !project.archived_at)?.id ?? "");
-    setWorkstreamId("");
+    setProjectId(defaultParentTask?.project_id ?? defaultProjectId ?? projects.find((project) => !project.archived_at)?.id ?? "");
+    setWorkstreamId(defaultParentTask?.workstream_id ?? "");
     setAssigneeId("");
     setStartDate("");
     setDueDate("");
@@ -91,7 +93,7 @@ export default function TaskFormDialog({
     setFollowUpAt("");
     setPending(false);
     setError(null);
-  }, [open, defaultProjectId, projects]);
+  }, [open, defaultProjectId, defaultParentTask, projects]);
 
   const projectWorkstreams = useMemo(
     () => workstreams.filter((workstream) => workstream.project_id === projectId),
@@ -118,6 +120,7 @@ export default function TaskFormDialog({
     setError(null);
     const result = await createDetailedProjectTaskAction({
       projectId,
+      parentTaskId: defaultParentTask?.id ?? null,
       title: cleanTitle,
       description: description.trim() || null,
       status,
@@ -158,10 +161,12 @@ export default function TaskFormDialog({
             <header className="flex items-center justify-between border-b border-separator/80 px-5 py-4 sm:px-6">
               <div>
                 <Dialog.Title className="text-lg font-semibold tracking-tight text-text">
-                  업무 추가
+                  {defaultParentTask ? "세부업무 추가" : "업무 추가"}
                 </Dialog.Title>
                 <p className="mt-0.5 text-xs text-text-tertiary">
-                  필요한 정보를 한 번에 입력합니다.
+                  {defaultParentTask
+                    ? `“${defaultParentTask.title}” 아래에 필요한 정보를 한 번에 입력합니다.`
+                    : "필요한 정보를 한 번에 입력합니다."}
                 </p>
               </div>
               <Dialog.Close asChild>
@@ -184,13 +189,13 @@ export default function TaskFormDialog({
 
               <div className="grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(19rem,0.8fr)]">
                 <section className="flex min-w-0 flex-col gap-4">
-                  <Field label="업무명" htmlFor="create-task-title">
+                  <Field label={defaultParentTask ? "세부업무명" : "업무명"} htmlFor="create-task-title">
                     <input
                       id="create-task-title"
                       autoFocus
                       value={title}
                       onChange={(event) => setTitle(event.target.value)}
-                      placeholder="완료할 업무를 적어 주세요"
+                      placeholder={defaultParentTask ? "완료할 세부업무를 적어 주세요" : "완료할 업무를 적어 주세요"}
                       className="h-12 w-full rounded-xl border border-border bg-surface/80 px-3.5 text-base font-semibold text-text shadow-xs outline-none transition-[border-color,box-shadow] placeholder:font-normal placeholder:text-text-quaternary hover:border-border-strong focus:border-accent focus:ring-2 focus:ring-accent/20"
                     />
                   </Field>
@@ -252,6 +257,7 @@ export default function TaskFormDialog({
                     <select
                       id="create-task-project"
                       value={projectId}
+                      disabled={Boolean(defaultParentTask)}
                       onChange={(event) => {
                         setProjectId(event.target.value);
                         setWorkstreamId("");

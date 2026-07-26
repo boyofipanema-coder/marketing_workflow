@@ -26,6 +26,7 @@ export type CreateTaskResult = ActionResult<Task>;
 
 export interface CreateProjectTaskInput {
   projectId: string;
+  parentTaskId?: string | null;
   title: string;
   description?: string | null;
   status?: Exclude<Task["status"], "Inbox">;
@@ -91,6 +92,7 @@ export async function createDetailedProjectTaskAction(
       workspaceId: member.workspace_id,
       memberId: member.id,
       projectId: input.projectId,
+      parentTaskId: input.parentTaskId,
       title: input.title,
       description: input.description,
       status: input.status,

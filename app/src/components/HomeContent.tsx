@@ -63,6 +63,7 @@ export default function HomeContent({
   // useful fallback when the final checked brand is cleared.
   const [brandFilterIds, setBrandFilterIds] = useState<string[]>([]);
   const [taskProjectId, setTaskProjectId] = useState<string | null>(null);
+  const [taskParent, setTaskParent] = useState<Task | null>(null);
 
   useEffect(() => {
     if (window.matchMedia("(max-width: 640px)").matches) setShowBoard(false);
@@ -218,7 +219,14 @@ export default function HomeContent({
               hierarchyMode
               onSelect={controller.select}
               onAddProject={(brandId) => startProject(brandId)}
-              onAddProjectTask={setTaskProjectId}
+              onAddProjectTask={(projectId) => {
+                setTaskParent(null);
+                setTaskProjectId(projectId);
+              }}
+              onAddSubtask={(parent) => {
+                setTaskParent(parent);
+                setTaskProjectId(parent.project_id);
+              }}
               onEditProject={setEditingProject}
               focus={boardFocus}
               onFocusChange={setBoardFocus}
@@ -406,12 +414,16 @@ export default function HomeContent({
       <TaskFormDialog
         open={taskProjectId !== null}
         onOpenChange={(open) => {
-          if (!open) setTaskProjectId(null);
+          if (!open) {
+            setTaskProjectId(null);
+            setTaskParent(null);
+          }
         }}
         projects={projects}
         workstreams={workstreams}
         members={members}
         defaultProjectId={taskProjectId}
+        defaultParentTask={taskParent}
         onCreated={() => router.refresh()}
       />
 

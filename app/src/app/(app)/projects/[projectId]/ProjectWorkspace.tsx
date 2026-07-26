@@ -74,6 +74,7 @@ export default function ProjectWorkspace({
   const [boardFocus, setBoardFocus] = useState<Focus>("all");
   const [editOpen, setEditOpen] = useState(false);
   const [taskCreateOpen, setTaskCreateOpen] = useState(false);
+  const [taskParent, setTaskParent] = useState<Task | null>(null);
   const [projectError, setProjectError] = useState<string | null>(null);
 
   const controller = useTaskController(tasks);
@@ -103,6 +104,11 @@ export default function ProjectWorkspace({
     : undefined;
   const projectBrand = brands.find((brand) => brand.id === project.brand_id);
   const archived = project.archived_at !== null;
+
+  function startTask(parent: Task | null = null) {
+    setTaskParent(parent);
+    setTaskCreateOpen(true);
+  }
 
   async function toggleArchive() {
     const result = archived
@@ -260,7 +266,8 @@ export default function ProjectWorkspace({
               workstreams={workstreams}
               members={members}
               onSelect={controller.select}
-              onAddTask={archived ? undefined : () => setTaskCreateOpen(true)}
+              onAddTask={archived ? undefined : () => startTask()}
+              onAddSubtask={archived ? undefined : startTask}
               focus={boardFocus}
               onFocusChange={setBoardFocus}
               // Project header, pulse strip and tabs sit above the board here,
@@ -288,7 +295,7 @@ export default function ProjectWorkspace({
                 {!archived && (
                   <button
                     type="button"
-                    onClick={() => setTaskCreateOpen(true)}
+                    onClick={() => startTask()}
                     className="inline-flex h-10 items-center gap-2 rounded-xl bg-accent px-4 text-sm font-semibold text-white shadow-sm transition-[background-color,transform] hover:bg-accent-hover active:scale-[0.98]"
                   >
                     <Plus className="size-4" aria-hidden />
@@ -317,7 +324,7 @@ export default function ProjectWorkspace({
               archived ? undefined : (
                 <button
                   type="button"
-                  onClick={() => setTaskCreateOpen(true)}
+                  onClick={() => startTask()}
                   className="material-thin inline-flex h-10 items-center gap-2 rounded-xl px-4 text-sm font-semibold text-text-secondary shadow-xs transition-[transform,color,box-shadow] hover:text-text hover:shadow-sm active:scale-[0.98]"
                 >
                   <Plus className="size-4" aria-hidden />
@@ -369,11 +376,15 @@ export default function ProjectWorkspace({
 
       <TaskFormDialog
         open={taskCreateOpen}
-        onOpenChange={setTaskCreateOpen}
+        onOpenChange={(open) => {
+          setTaskCreateOpen(open);
+          if (!open) setTaskParent(null);
+        }}
         projects={allProjects}
         workstreams={allWorkstreams}
         members={memberList}
         defaultProjectId={project.id}
+        defaultParentTask={taskParent}
         onCreated={() => {
           setProjectError(null);
           router.refresh();

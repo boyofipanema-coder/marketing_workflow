@@ -25,7 +25,6 @@ import { statusMeta, displayGroup, type TaskStatus } from "@/lib/status";
 import {
   cancelTaskAction,
   completeTaskAction,
-  createSubtaskAction,
   editTaskAction,
   reopenTaskAction,
 } from "@/app/actions/tasks";
@@ -367,7 +366,6 @@ const BRAND_HEAD_H = 0;
 const BRAND_EMPTY_H = 100;
 const BRAND_GAP = 28;
 const CAP = 4;
-const ADD_H = 42; // inline "add subtask" input row
 // A key task earns its extra height from importance alone — never from how many
 // subtasks it happens to carry (see cardHeight).
 const KEY_EXTRA = 14;
@@ -420,7 +418,7 @@ export function cardHeight(
   t: Task,
   cm: ChildMap,
   open: Set<string>,
-  addingId: string | null,
+  _addingId: string | null,
   lod: Lod = "full",
   showInlineSubtasks = true
 ): number {
@@ -434,7 +432,7 @@ export function cardHeight(
     // them there), so it must not reserve height for them either.
     if (lod === "full" && open.has(t.id)) h += SUB_PAD + visibleRows(t, cm, open) * ROW_H;
   }
-  h += addingId === t.id ? ADD_H : ADDBTN_H; // input while composing, else the add footer
+  h += ADDBTN_H;
   return h;
 }
 
@@ -525,7 +523,6 @@ function computeLayout(
   hierarchyGeometry: HierarchyGeometry | null,
   cellsOpen: Set<string>,
   subsOpen: Set<string>,
-  addingId: string | null,
   lod: Lod,
   projectBrand: Map<string, string>,
   colW: number,
@@ -689,7 +686,7 @@ function computeLayout(
       const shown = isOpen ? ordered : ordered.slice(0, CAP);
       let cy = laneTop + 10 + railH;
       for (const t of shown) {
-        const h = cardHeight(t, cm, subsOpen, addingId, lod, !hierarchyMode);
+        const h = cardHeight(t, cm, subsOpen, null, lod, !hierarchyMode);
         nodes.push({ task: t, x: lanePad + s * colW, y: cy, h });
         cy += h + VGAP;
       }
@@ -839,6 +836,8 @@ export interface WorkflowCanvasProps {
   onAddProject?: (brandId: string) => void;
   /** Opens detailed task creation anchored to a project row. */
   onAddProjectTask?: (projectId: string) => void;
+  /** Opens detailed task creation anchored beneath a parent task. */
+  onAddSubtask?: (parent: Task) => void;
   /** Opens detailed task creation in this project. Omit to hide the affordance. */
   onAddTask?: () => void;
   /** Controls the focus filter from outside (e.g. the project summary strip). */
@@ -867,6 +866,7 @@ export default function WorkflowCanvas({
   onSelect,
   onAddProject,
   onAddProjectTask,
+  onAddSubtask,
   onAddTask,
   focus: focusProp,
   onFocusChange,
@@ -885,13 +885,9 @@ export default function WorkflowCanvas({
   };
   const [cellsOpen, setCellsOpen] = useState<Set<string>>(new Set());
   const [subsOpen, setSubsOpen] = useState<Set<string>>(new Set());
-  const [addingFor, setAddingFor] = useState<string | null>(null);
-  const [addValue, setAddValue] = useState("");
-  const [addError, setAddError] = useState<string | null>(null);
   const [stageWidth, setStageWidth] = useState(0);
-  const [pending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
   const router = useRouter();
-  const addInputRef = useRef<HTMLInputElement>(null);
 
   const stageRef = useRef<HTMLDivElement>(null);
   const hierarchyView = hierarchyMode && groupBy === "brand";
@@ -946,39 +942,9 @@ export default function WorkflowCanvas({
   const lod = "full" as Lod;
 
   const layout = useMemo(
-    () => computeLayout(canvasPlaced, roots, milestones, childMap, laneOf, canvasParentOf, workstreams, members, brands, projects ?? [], effectiveGroupBy, hierarchyView, hierarchyGeometry, cellsOpen, subsOpen, addingFor, lod, projectBrand, colW, nodeW, dependencies),
-    [canvasPlaced, roots, milestones, childMap, laneOf, canvasParentOf, workstreams, members, brands, projects, effectiveGroupBy, hierarchyView, hierarchyGeometry, cellsOpen, subsOpen, addingFor, lod, projectBrand, colW, nodeW, dependencies],
+    () => computeLayout(canvasPlaced, roots, milestones, childMap, laneOf, canvasParentOf, workstreams, members, brands, projects ?? [], effectiveGroupBy, hierarchyView, hierarchyGeometry, cellsOpen, subsOpen, lod, projectBrand, colW, nodeW, dependencies),
+    [canvasPlaced, roots, milestones, childMap, laneOf, canvasParentOf, workstreams, members, brands, projects, effectiveGroupBy, hierarchyView, hierarchyGeometry, cellsOpen, subsOpen, lod, projectBrand, colW, nodeW, dependencies],
   );
-
-  // open the inline subtask composer under a card
-  function startAdd(taskId: string) {
-    setAddValue("");
-    setAddError(null);
-    setAddingFor(taskId);
-    if (kids(childMap, taskId).length > 0) setSubsOpen((p) => new Set(p).add(taskId));
-    requestAnimationFrame(() => addInputRef.current?.focus());
-  }
-  function cancelAdd() {
-    setAddingFor(null);
-    setAddValue("");
-    setAddError(null);
-  }
-  function submitAdd(parentId: string) {
-    const title = addValue.trim();
-    if (!title) return;
-    setAddError(null);
-    startTransition(async () => {
-      const res = await createSubtaskAction(parentId, title);
-      if (res.success) {
-        setAddValue("");
-        setAddingFor(null);
-        setSubsOpen((p) => new Set(p).add(parentId)); // reveal the new child
-        router.refresh();
-      } else {
-        setAddError(res.error ?? "세부 업무를 추가하지 못했습니다");
-      }
-    });
-  }
 
   // A task is blocked while any predecessor is unfinished. Derived, not stored.
   const blockedBy = useMemo(() => {
@@ -1419,6 +1385,9 @@ export default function WorkflowCanvas({
                         <span className={cn("size-1.5 rounded-full", meta.dot)} />{task.status === "Waiting" && !hasKids ? "대기 중" : meta.label}
                       </span>
                       {lod === "full" && task.due_date && <span className={cn("inline-flex items-center gap-1 text-[10.5px] tabular-nums", over ? "font-semibold text-flag-overdue" : "text-text-tertiary")}>{over ? "⚠" : "📅"} {fmtDue(task.due_date)}</span>}
+                      <span className={cn("inline-flex items-center text-[11px] font-medium text-text-secondary", lod === "compact" && "hidden")}>
+                        {assignee ? <span className="grid h-5 min-w-5 place-items-center rounded-full px-1.5 text-[9px] font-bold tracking-tight text-white" style={{ background: ownerColor(assignee.id) }}>{assignee.name}</span> : "미지정"}
+                      </span>
                       {/* The two facts that make a Waiting task actionable. */}
                       {lod === "full" && task.status === "Waiting" && task.waiting_party_text && (
                         <span className="w-full truncate text-[10px] text-text-tertiary">
@@ -1426,9 +1395,6 @@ export default function WorkflowCanvas({
                           {task.follow_up_at && ` · ${fmtDue(task.follow_up_at)} 확인`}
                         </span>
                       )}
-                      <span className={cn("ml-auto inline-flex items-center gap-1.5 text-[11px] font-medium text-text-secondary", lod === "compact" && "hidden")}>
-                        {assignee ? <span className="grid h-5 min-w-5 place-items-center rounded-full px-1.5 text-[9px] font-bold tracking-tight text-white" style={{ background: ownerColor(assignee.id) }}>{assignee.name}</span> : "미지정"}
-                      </span>
                     </div>
                     {/* No progress bar. A leaf task has no measurable percentage
                         — it is in a status, and the status pill above already
@@ -1472,32 +1438,10 @@ export default function WorkflowCanvas({
                     </div>
                   )}
 
-                  {/* footer: inline subtask composer, or the add affordance */}
-                  {addingFor === task.id ? (
-                    <div data-ui className="mt-auto flex flex-col gap-1" style={{ height: ADD_H - 8 }} onPointerDown={(e) => e.stopPropagation()}>
-                      <div className="flex items-center gap-1.5">
-                        <input
-                          ref={addInputRef}
-                          value={addValue}
-                          disabled={pending}
-                          onChange={(e) => setAddValue(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") { e.preventDefault(); submitAdd(task.id); }
-                            else if (e.key === "Escape") { e.preventDefault(); cancelAdd(); }
-                          }}
-                          onBlur={() => { if (!addValue.trim() && !pending) cancelAdd(); }}
-                          placeholder="세부 업무를 입력하세요"
-                          className="h-7 w-full rounded-md border border-accent bg-surface px-2 text-[12px] text-text placeholder:text-text-quaternary focus:outline-none focus:ring-2 focus:ring-accent/30"
-                        />
-                        <button type="button" disabled={pending || !addValue.trim()} onClick={() => submitAdd(task.id)}
-                          className="grid size-7 shrink-0 place-items-center rounded-md bg-accent text-white transition-colors hover:bg-accent-hover disabled:opacity-40">
-                          <Plus className="size-4" />
-                        </button>
-                      </div>
-                      {addError && <span className="text-[10px] text-flag-blocked">{addError}</span>}
-                    </div>
-                  ) : (
-                    <button type="button" data-ui onClick={() => startAdd(task.id)}
+                  {/* footer: detailed subtask creation uses the same dialog as a
+                      main task, with this task fixed as its parent. */}
+                  {onAddSubtask && task.project_id && (
+                    <button type="button" data-ui onClick={() => onAddSubtask(task)}
                       className="mt-auto flex items-center gap-1 self-start rounded-md px-1.5 py-1 text-[11px] font-medium text-text-tertiary opacity-0 transition-opacity hover:text-accent group-hover:opacity-100 focus-visible:opacity-100"
                       style={{ height: ADDBTN_H - 8 }}>
                       <Plus className="size-3.5" /> 세부 업무 추가

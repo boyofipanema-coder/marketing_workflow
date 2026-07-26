@@ -940,6 +940,47 @@ describe("Task ordering", () => {
     expect(first.sort_order).toBe(0);
     expect(second.sort_order).toBe(1);
   });
+
+  it("creates a detailed task beneath its parent in one insert", async () => {
+    const parent = await createProjectTask(db as never, {
+      workspaceId: WS_ID,
+      projectId: PROJECT_ID,
+      title: "Parent",
+      memberId: MEMBER_ID,
+    });
+    const child = await createProjectTask(db as never, {
+      workspaceId: WS_ID,
+      projectId: PROJECT_ID,
+      parentTaskId: parent.id,
+      title: "Detailed child",
+      description: "Full context",
+      status: "Waiting",
+      importance: "key",
+      assigneeId: MEMBER_ID,
+      startDate: "2026-07-27",
+      dueDate: "2026-08-01",
+      dueTime: "15:00",
+      waitingPartyText: "본사 승인",
+      followUpAt: "2026-07-30",
+      memberId: MEMBER_ID,
+    });
+
+    expect(child).toMatchObject({
+      parent_task_id: parent.id,
+      project_id: PROJECT_ID,
+      title: "Detailed child",
+      description: "Full context",
+      status: "Waiting",
+      importance: "key",
+      assignee_id: MEMBER_ID,
+      start_date: "2026-07-27",
+      due_date: "2026-08-01",
+      due_time: "15:00",
+      waiting_party_text: "본사 승인",
+      follow_up_at: "2026-07-30",
+      sort_order: 0,
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------

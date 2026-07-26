@@ -36,6 +36,7 @@ export interface CreateByTitleParams {
 export interface CreateProjectTaskParams {
   workspaceId: string;
   projectId: string;
+  parentTaskId?: string | null;
   title: string;
   memberId: string;
   workstreamId?: string | null;
@@ -654,6 +655,16 @@ export async function createProjectTask(
     throw new ValidationError("보관된 프로젝트에는 업무를 추가할 수 없습니다.");
   }
 
+  const parent = params.parentTaskId
+    ? await loadScoped(db, params.parentTaskId, params.workspaceId)
+    : null;
+  if (parent?.cancelled_at) {
+    throw new ValidationError("취소된 업무에는 세부 업무를 추가할 수 없습니다.");
+  }
+  if (parent && parent.project_id !== params.projectId) {
+    throw new ValidationError("부모 업무와 같은 프로젝트를 선택해 주세요.");
+  }
+
   if (params.workstreamId) {
     const [ws] = await db
       .select()
@@ -720,6 +731,7 @@ export async function createProjectTask(
     id: crypto.randomUUID(),
     workspace_id: params.workspaceId,
     project_id: params.projectId,
+    parent_task_id: parent?.id ?? null,
     workstream_id: params.workstreamId ?? null,
     title,
     description: params.description?.trim() || null,
@@ -737,7 +749,7 @@ export async function createProjectTask(
       db,
       params.workspaceId,
       params.projectId,
-      null
+      parent?.id ?? null
     ),
     version: 1,
     created_by: params.memberId,
