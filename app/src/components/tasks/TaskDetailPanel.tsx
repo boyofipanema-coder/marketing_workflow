@@ -32,6 +32,7 @@ export interface TaskDetailPanelProps {
   projects: Project[];
   /** Every workstream the viewer can see; filtered to the task's project here. */
   workstreams: Workstream[];
+  members: Member[];
   open: boolean;
   saveState: SaveState;
   /** Present when the last write lost a version race. */
@@ -49,16 +50,18 @@ function Field({
   label,
   htmlFor,
   children,
+  className,
 }: {
   label: string;
   htmlFor?: string;
   children: React.ReactNode;
+  className?: string;
 }) {
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className={cn("flex min-w-0 flex-col gap-1.5", className)}>
       <label
         htmlFor={htmlFor}
-        className="text-2xs font-semibold uppercase tracking-wider text-text-tertiary"
+        className="text-xs font-semibold text-text-secondary"
       >
         {label}
       </label>
@@ -83,7 +86,7 @@ const CHANGE_LABEL: Record<string, string> = {
 };
 
 const selectClass =
-  "h-10 w-full rounded-lg border border-border bg-surface px-3 text-base text-text transition-[border-color,box-shadow] duration-fast ease-out hover:border-border-strong focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-50";
+  "h-11 w-full rounded-xl border border-border bg-surface/80 px-3 text-sm text-text shadow-xs transition-[border-color,box-shadow,background-color] duration-fast ease-out hover:border-border-strong focus:border-accent focus:bg-surface focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:opacity-50";
 
 /** Adds `days` to a KST YYYY-MM-DD string. */
 function shiftDate(base: string, days: number): string {
@@ -99,6 +102,7 @@ export default function TaskDetailPanel({
   task,
   projects,
   workstreams,
+  members,
   open,
   saveState,
   error,
@@ -211,8 +215,8 @@ export default function TaskDetailPanel({
           className="
             material-panel material-edge
             group fixed inset-0 z-50 overflow-hidden
-            sm:inset-auto sm:left-1/2 sm:top-1/2 sm:h-auto sm:max-h-[82dvh] sm:w-full sm:max-w-2xl
-            sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl
+            sm:inset-auto sm:left-1/2 sm:top-1/2 sm:h-auto sm:max-h-[calc(100dvh-2rem)] sm:w-[calc(100vw-2rem)] sm:max-w-5xl
+            sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-[24px]
             sm:border sm:border-separator sm:shadow-xl
             focus:outline-none
           "
@@ -264,11 +268,11 @@ export default function TaskDetailPanel({
               선택된 업무가 없습니다
             </div>
           ) : (
-            <div className="flex flex-1 flex-col gap-5 overflow-y-auto px-5 py-4">
+            <div className="grid flex-1 grid-cols-1 content-start gap-5 overflow-y-auto px-5 py-5 sm:px-6 lg:grid-cols-2">
               {error && (
                 <div
                   role="alert"
-                  className="flex items-start gap-2 rounded-lg border border-flag-blocked/30 bg-flag-blocked/10 px-3 py-2.5 text-xs text-flag-blocked"
+                  className="flex items-start gap-2 rounded-xl border border-flag-blocked/30 bg-flag-blocked/10 px-3 py-2.5 text-xs text-flag-blocked lg:col-span-2"
                 >
                   <AlertTriangle className="mt-px h-3.5 w-3.5 flex-shrink-0" aria-hidden />
                   <span>
@@ -280,7 +284,7 @@ export default function TaskDetailPanel({
               )}
 
               {cancelled && (
-                <div className="flex items-center justify-between gap-2 rounded-lg border border-separator bg-surface-2 px-3 py-2.5 text-xs text-text-secondary">
+                <div className="flex items-center justify-between gap-2 rounded-xl border border-separator bg-surface-2 px-3 py-2.5 text-xs text-text-secondary lg:col-span-2">
                   <span>취소된 업무입니다. 복구해야 수정할 수 있습니다.</span>
                   <button
                     type="button"
@@ -294,7 +298,7 @@ export default function TaskDetailPanel({
               )}
 
               {/* Title — commits on Enter or blur */}
-              <Field label="업무명" htmlFor="task-title">
+              <Field label="업무명" htmlFor="task-title" className="lg:col-span-2">
                 <input
                   id="task-title"
                   value={title}
@@ -318,12 +322,12 @@ export default function TaskDetailPanel({
                       setTitle(task.title);
                     }
                   }}
-                  className="w-full rounded-lg border border-transparent bg-transparent px-0 py-1 text-lg font-semibold leading-snug text-text transition-colors hover:border-border focus:border-accent focus:px-3 focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-60"
+                  className="w-full rounded-xl border border-transparent bg-transparent px-0 py-1 text-xl font-semibold leading-snug tracking-tight text-text transition-[border-color,padding,box-shadow] hover:border-border focus:border-accent focus:px-3 focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:opacity-60"
                 />
               </Field>
 
               {/* Quick actions */}
-              <div className="flex flex-wrap gap-1.5">
+              <div className="flex flex-wrap gap-1.5 lg:col-span-2">
                 <QuickChip
                   disabled={readOnly}
                   active={task.due_date === today}
@@ -353,26 +357,28 @@ export default function TaskDetailPanel({
                 </QuickChip>
               </div>
 
-              {/* Description — debounced */}
-              <Field label="세부 내용" htmlFor="task-description">
+              <div className="grid gap-5 lg:col-span-2 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
+                <section className="flex min-w-0 flex-col gap-4">
+                {/* Description — debounced */}
+                <Field label="세부 내용" htmlFor="task-description">
                 <textarea
                   id="task-description"
-                  rows={5}
+                  rows={7}
                   value={description}
                   disabled={readOnly}
                   onChange={(e) => handleDescriptionChange(e.target.value)}
                   onBlur={flushDescription}
                   placeholder="배경, 결과물, 참고 링크를 적어 두세요."
-                  className="w-full resize-y rounded-lg border border-border bg-surface px-3 py-2 text-base leading-relaxed text-text placeholder:text-text-quaternary transition-[border-color,box-shadow] duration-fast ease-out hover:border-border-strong focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:opacity-60"
+                  className="min-h-40 w-full resize-y rounded-xl border border-border bg-surface/80 px-3.5 py-3 text-sm leading-relaxed text-text shadow-xs placeholder:text-text-quaternary transition-[border-color,box-shadow] duration-fast ease-out hover:border-border-strong focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:opacity-60"
                 />
-              </Field>
+                </Field>
 
-              <Field label="진행 상태" htmlFor="task-status">
+                <Field label="진행 상태" htmlFor="task-status">
                 <div
                   id="task-status"
                   role="radiogroup"
                   aria-label="진행 상태"
-                  className="grid grid-cols-3 gap-1 rounded-lg border border-border bg-surface-2 p-1"
+                  className="grid grid-cols-3 gap-1 rounded-xl border border-border bg-surface-2/70 p-1"
                 >
                   {DISPLAY_STATUS_GROUPS.map((group) => {
                     const current = waitDraft ? "Waiting" : displayGroup(task.status);
@@ -400,7 +406,7 @@ export default function TaskDetailPanel({
                           void patch({ status: group });
                         }}
                         className={cn(
-                          "h-9 rounded-md text-sm font-medium transition-colors duration-fast ease-out disabled:opacity-50",
+                          "h-10 rounded-[10px] text-sm font-semibold transition-colors duration-fast ease-out disabled:opacity-50",
                           active
                             ? "bg-surface text-text shadow-sm"
                             : "text-text-secondary hover:text-text"
@@ -411,12 +417,12 @@ export default function TaskDetailPanel({
                     );
                   })}
                 </div>
-              </Field>
+                </Field>
 
               {/* A Waiting task without a who and a when is one nobody ever
                   comes back to, so both are required to enter the state. */}
-              {(waitDraft || task.status === "Waiting") && (
-                <>
+                {(waitDraft || task.status === "Waiting") && (
+                  <div className="grid gap-3 sm:grid-cols-2">
                   <Field label="무엇을 기다리나요" htmlFor="task-waiting-party">
                     <input
                       id="task-waiting-party"
@@ -461,7 +467,7 @@ export default function TaskDetailPanel({
                     />
                   </Field>
 
-                  {waitDraft && (
+                    {waitDraft && (
                     <button
                       type="button"
                       disabled={!waitDraft.party.trim() || !waitDraft.date}
@@ -473,33 +479,17 @@ export default function TaskDetailPanel({
                         });
                         if (ok) setWaitDraft(null);
                       }}
-                      className="h-10 rounded-lg bg-accent text-base font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-40"
+                      className="h-11 rounded-xl bg-accent text-sm font-semibold text-white transition-colors hover:bg-accent-hover disabled:opacity-40"
                     >
                       대기로 변경
                     </button>
-                  )}
-                </>
-              )}
+                    )}
+                  </div>
+                )}
+                </section>
 
-              {activity.length > 0 && (
-                <Field label="변경 이력">
-                  <ul className="flex flex-col gap-1.5">
-                    {activity.map((a) => (
-                      <li key={a.id} className="flex items-baseline gap-2 text-xs text-text-secondary">
-                        <span className="shrink-0 tabular-nums text-text-quaternary">
-                          {a.created_at.slice(5, 10).replace("-", "/")}
-                        </span>
-                        <span className="flex-1">
-                          {a.actor_name} · {CHANGE_LABEL[a.change_type] ?? a.change_type}
-                          {a.to_value ? ` → ${a.to_value}` : ""}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </Field>
-              )}
-
-              <Field label="프로젝트" htmlFor="task-project">
+                <section className="grid min-w-0 content-start gap-3 sm:grid-cols-2">
+                <Field label="프로젝트" htmlFor="task-project">
                 <select
                   id="task-project"
                   value={task.project_id ?? ""}
@@ -541,7 +531,70 @@ export default function TaskDetailPanel({
                 </select>
               </Field>
 
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Field label="담당자" htmlFor="task-assignee">
+                <select
+                  id="task-assignee"
+                  value={task.assignee_id ?? ""}
+                  disabled={readOnly}
+                  onChange={(e) =>
+                    void patch({ assignee_id: e.target.value || null })
+                  }
+                  className={selectClass}
+                >
+                  <option value="">담당자 없음</option>
+                  {members.map((member) => (
+                    <option key={member.id} value={member.id}>
+                      {member.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+
+              <Field label="검토자" htmlFor="task-reviewer">
+                <select
+                  id="task-reviewer"
+                  value={task.reviewer_id ?? ""}
+                  disabled={readOnly}
+                  onChange={(e) =>
+                    void patch({ reviewer_id: e.target.value || null })
+                  }
+                  className={selectClass}
+                >
+                  <option value="">검토자 없음</option>
+                  {members.map((member) => (
+                    <option key={member.id} value={member.id}>
+                      {member.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+
+              <Field label="업무 유형">
+                <div className="grid grid-cols-2 gap-1 rounded-xl border border-border bg-surface-2/70 p-1">
+                  {([
+                    ["task", "업무"],
+                    ["milestone", "마일스톤"],
+                  ] as const).map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      disabled={readOnly}
+                      aria-pressed={task.kind === value}
+                      onClick={() => void patch({ kind: value })}
+                      className={cn(
+                        "h-9 rounded-[9px] text-xs font-semibold transition-[background-color,color,box-shadow] disabled:opacity-50",
+                        task.kind === value
+                          ? "bg-surface text-text shadow-sm"
+                          : "text-text-secondary hover:text-text"
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </Field>
+
+              <div className="grid grid-cols-1 gap-3 sm:col-span-2 sm:grid-cols-2">
                 <Field label="시작일" htmlFor="task-start">
                   <input
                     id="task-start"
@@ -609,6 +662,26 @@ export default function TaskDetailPanel({
                   </p>
                 )}
               </Field>
+                </section>
+              </div>
+
+              {activity.length > 0 && (
+                <Field label="변경 이력" className="lg:col-span-2">
+                  <ul className="flex flex-col gap-1.5">
+                    {activity.map((a) => (
+                      <li key={a.id} className="flex items-baseline gap-2 text-xs text-text-secondary">
+                        <span className="shrink-0 tabular-nums text-text-quaternary">
+                          {a.created_at.slice(5, 10).replace("-", "/")}
+                        </span>
+                        <span className="flex-1">
+                          {a.actor_name} · {CHANGE_LABEL[a.change_type] ?? a.change_type}
+                          {a.to_value ? ` → ${a.to_value}` : ""}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </Field>
+              )}
             </div>
           )}
 

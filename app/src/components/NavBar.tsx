@@ -70,15 +70,13 @@ export default function NavBar({ members, brands, viewerId }: NavBarProps) {
 
   return (
     <>
-      {/* ── Top bar — translucent chrome; content scrolls underneath ──────── */}
-      {/* 48px, not 56 — chrome should cost the workspace as little vertical
-          space as possible while keeping 44px touch targets inside it. */}
-      <header className="material-chrome fixed inset-x-0 top-0 z-40 h-12">
-        <div className="mx-auto flex h-full max-w-7xl items-center gap-5 px-4 sm:px-6">
+      {/* ── Top bar — ordinary document flow, never pinned over the board ── */}
+      <header className="relative z-40 border-b border-separator/70 bg-surface/[0.72] backdrop-blur-xl">
+        <div className="mx-auto flex h-14 max-w-[1400px] items-center gap-5 px-4 sm:px-6">
           {/* Wordmark — editorial serif accent */}
           <Link
             href="/home"
-            className="flex-shrink-0 rounded text-[17px] font-semibold tracking-tight text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex-shrink-0 rounded text-[18px] font-semibold tracking-[-0.02em] text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             aria-label="마케팅 워크플로 홈"
           >
             워크플로
@@ -95,7 +93,7 @@ export default function NavBar({ members, brands, viewerId }: NavBarProps) {
                 href={href}
                 aria-current={isActive(href) ? "page" : undefined}
                 className={cn(
-                  "whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors duration-fast ease-out",
+                  "whitespace-nowrap rounded-[10px] px-3 py-2 text-sm font-semibold transition-[transform,background-color,color] duration-fast ease-out active:scale-[0.97]",
                   isActive(href)
                     ? "bg-surface-3 text-text"
                     : "text-text-secondary hover:bg-surface-2 hover:text-text",
@@ -119,7 +117,7 @@ export default function NavBar({ members, brands, viewerId }: NavBarProps) {
                 onChange={(e) => setSearchTerm(e.target.value)}
                 placeholder="검색"
                 aria-label="업무 검색"
-                className="h-8 w-44 rounded-md border border-border bg-surface-2 pl-8 pr-3 text-sm text-text placeholder:text-text-quaternary transition-[border-color,box-shadow] duration-fast ease-out focus:border-accent focus:bg-surface focus:outline-none focus:ring-2 focus:ring-accent/30 lg:w-56"
+                className="h-9 w-44 rounded-xl border border-border bg-surface-2/70 pl-8 pr-3 text-sm text-text placeholder:text-text-quaternary transition-[border-color,box-shadow,background-color] duration-fast ease-out focus:border-accent focus:bg-surface focus:outline-none focus:ring-2 focus:ring-accent/25 lg:w-56"
               />
             </form>
 
@@ -195,7 +193,7 @@ export default function NavBar({ members, brands, viewerId }: NavBarProps) {
         {/* Mobile nav dropdown */}
         {mobileMenuOpen && (
           <nav
-            className="material-chrome border-t border-separator px-4 pb-3 pt-2 sm:hidden"
+            className="border-t border-separator/70 bg-surface/[0.82] px-4 pb-3 pt-2 backdrop-blur-xl sm:hidden"
             aria-label="모바일 메뉴"
           >
             {NAV_ITEMS.map(({ href, label }) => (

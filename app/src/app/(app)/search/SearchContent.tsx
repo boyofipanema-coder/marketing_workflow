@@ -270,6 +270,7 @@ export default function SearchContent({
         task={controller.selected}
         projects={projects}
         workstreams={workstreams}
+        members={members}
         open={controller.panelOpen}
         saveState={
           controller.selected ? store.stateOf(controller.selected.id) : "idle"

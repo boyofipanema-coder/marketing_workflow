@@ -127,6 +127,55 @@ describe("Task lifecycle — create → edit → Done → cancel → restore", (
     expect(task.cancelled_at).toBeNull();
   });
 
+  it("creates a project task with every detailed-dialog field atomically", async () => {
+    const task = await createProjectTask(db as never, {
+      workspaceId: WS_ID,
+      projectId: PROJECT_ID,
+      title: "Detailed task",
+      memberId: MEMBER_ID,
+      description: "Background and outcome",
+      status: "Waiting",
+      importance: "key",
+      kind: "task",
+      assigneeId: MEMBER_ID,
+      reviewerId: MEMBER_ID,
+      startDate: "2026-07-27",
+      dueDate: "2026-07-30",
+      dueTime: "16:30",
+      waitingPartyText: "본사 승인",
+      followUpAt: "2026-07-28",
+    });
+
+    expect(task).toMatchObject({
+      project_id: PROJECT_ID,
+      title: "Detailed task",
+      description: "Background and outcome",
+      status: "Waiting",
+      importance: "key",
+      kind: "task",
+      assignee_id: MEMBER_ID,
+      reviewer_id: MEMBER_ID,
+      start_date: "2026-07-27",
+      due_date: "2026-07-30",
+      due_time: "16:30",
+      waiting_party_text: "본사 승인",
+      follow_up_at: "2026-07-28",
+      version: 1,
+    });
+  });
+
+  it("rejects an incomplete Waiting task from the detailed dialog", async () => {
+    await expect(
+      createProjectTask(db as never, {
+        workspaceId: WS_ID,
+        projectId: PROJECT_ID,
+        title: "Incomplete wait",
+        memberId: MEMBER_ID,
+        status: "Waiting",
+      })
+    ).rejects.toThrow(ValidationError);
+  });
+
   it("edits a task title", async () => {
     const task = await createByTitle(db as never, {
       title: "Original",

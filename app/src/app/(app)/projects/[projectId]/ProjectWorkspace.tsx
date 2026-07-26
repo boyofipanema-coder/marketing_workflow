@@ -3,17 +3,16 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { Archive, ChevronRight, MoreHorizontal, Pencil, RotateCcw } from "lucide-react";
+import { Archive, ChevronRight, MoreHorizontal, Pencil, Plus, RotateCcw } from "lucide-react";
 import TaskList from "@/components/tasks/TaskList";
-import InlineAdd from "@/components/tasks/InlineAdd";
 import TaskDetailPanel from "@/components/tasks/TaskDetailPanel";
+import TaskFormDialog from "@/components/tasks/TaskFormDialog";
 import { useTaskController } from "@/components/tasks/useTaskController";
 import ProjectFormDialog from "@/components/projects/ProjectFormDialog";
 import WorkstreamManager from "@/components/projects/WorkstreamManager";
 import MilestoneManager from "@/components/projects/MilestoneManager";
 import WorkflowCanvas, { type Focus } from "@/components/workflow/WorkflowCanvas";
 import ProjectPulse from "@/components/projects/ProjectPulse";
-import { createProjectTaskAction } from "@/app/actions/tasks";
 import { createMilestoneAction } from "@/app/actions/milestones";
 import {
   archiveProjectAction,
@@ -74,6 +73,7 @@ export default function ProjectWorkspace({
   const [activeTab, setActiveTab] = useState<Tab>("workflow");
   const [boardFocus, setBoardFocus] = useState<Focus>("all");
   const [editOpen, setEditOpen] = useState(false);
+  const [taskCreateOpen, setTaskCreateOpen] = useState(false);
   const [projectError, setProjectError] = useState<string | null>(null);
 
   const controller = useTaskController(tasks);
@@ -103,17 +103,6 @@ export default function ProjectWorkspace({
     : undefined;
   const projectBrand = brands.find((brand) => brand.id === project.brand_id);
   const archived = project.archived_at !== null;
-
-  async function addTask(title: string) {
-    const result = await createProjectTaskAction(project.id, title);
-    if (!result.success) {
-      setProjectError(result.error ?? "업무를 추가하지 못했습니다.");
-      return false;
-    }
-    setProjectError(null);
-    router.refresh();
-    return true;
-  }
 
   async function toggleArchive() {
     const result = archived
@@ -271,12 +260,11 @@ export default function ProjectWorkspace({
               workstreams={workstreams}
               members={members}
               onSelect={controller.select}
-              onAddTask={archived ? undefined : addTask}
+              onAddTask={archived ? undefined : () => setTaskCreateOpen(true)}
               focus={boardFocus}
               onFocusChange={setBoardFocus}
               // Project header, pulse strip and tabs sit above the board here,
               // so the stage gets what is left rather than Home's allowance.
-              stageHeightClass="h-[calc(100dvh-20rem)]"
               projectId={project.id}
               dependencies={dependencies}
               onAddMilestone={async (pid, name, due) => {
@@ -298,9 +286,14 @@ export default function ProjectWorkspace({
                   흐름 보드가 만들어집니다.
                 </p>
                 {!archived && (
-                  <div className="w-full max-w-xs">
-                    <InlineAdd onAdd={addTask} label="첫 업무 추가" />
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setTaskCreateOpen(true)}
+                    className="inline-flex h-10 items-center gap-2 rounded-xl bg-accent px-4 text-sm font-semibold text-white shadow-sm transition-[background-color,transform] hover:bg-accent-hover active:scale-[0.98]"
+                  >
+                    <Plus className="size-4" aria-hidden />
+                    첫 업무 추가
+                  </button>
                 )}
               </div>
             </div>
@@ -322,7 +315,14 @@ export default function ProjectWorkspace({
             emptyDescription="아래 입력란에 제목만 적어도 업무가 만들어집니다."
             footer={
               archived ? undefined : (
-                <InlineAdd onAdd={addTask} label="업무 추가" />
+                <button
+                  type="button"
+                  onClick={() => setTaskCreateOpen(true)}
+                  className="material-thin inline-flex h-10 items-center gap-2 rounded-xl px-4 text-sm font-semibold text-text-secondary shadow-xs transition-[transform,color,box-shadow] hover:text-text hover:shadow-sm active:scale-[0.98]"
+                >
+                  <Plus className="size-4" aria-hidden />
+                  업무 추가
+                </button>
               )
             }
           />
@@ -351,6 +351,7 @@ export default function ProjectWorkspace({
         task={controller.selected}
         projects={allProjects}
         workstreams={allWorkstreams}
+        members={memberList}
         open={controller.panelOpen}
         saveState={
           controller.selected ? store.stateOf(controller.selected.id) : "idle"
@@ -364,6 +365,19 @@ export default function ProjectWorkspace({
         onPatch={controller.patch}
         onCancelTask={controller.cancel}
         onRestoreTask={controller.restore}
+      />
+
+      <TaskFormDialog
+        open={taskCreateOpen}
+        onOpenChange={setTaskCreateOpen}
+        projects={allProjects}
+        workstreams={allWorkstreams}
+        members={memberList}
+        defaultProjectId={project.id}
+        onCreated={() => {
+          setProjectError(null);
+          router.refresh();
+        }}
       />
 
       <ProjectFormDialog

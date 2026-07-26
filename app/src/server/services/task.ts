@@ -4,6 +4,7 @@ import {
   activity_log,
   project as projectTable,
   workstream as workstreamTable,
+  member as memberTable,
   type Task,
   type NewTask,
   type NewActivityLog,
@@ -38,6 +39,17 @@ export interface CreateProjectTaskParams {
   title: string;
   memberId: string;
   workstreamId?: string | null;
+  description?: string | null;
+  status?: Exclude<TaskStatus, "Inbox">;
+  importance?: TaskImportance;
+  kind?: TaskKind;
+  assigneeId?: string | null;
+  reviewerId?: string | null;
+  startDate?: string | null;
+  dueDate?: string | null;
+  dueTime?: string | null;
+  waitingPartyText?: string | null;
+  followUpAt?: string | null;
 }
 
 export interface CreateSubtaskParams {
@@ -619,8 +631,9 @@ export async function createByTitle(
 }
 
 /**
- * Create a top-level task directly inside a project. Title is the only required
- * input — the task lands in ToDo at the end of the project's list.
+ * Create a top-level task directly inside a project. Inline callers can still
+ * provide only a title; the detailed task dialog supplies the remaining fields
+ * in the same atomic insert.
  */
 export async function createProjectTask(
   db: Database,
@@ -657,6 +670,53 @@ export async function createProjectTask(
     }
   }
 
+  const status = params.status ?? "ToDo";
+  const importance = params.importance ?? "normal";
+  const kind = params.kind ?? "task";
+  const startDate = params.startDate
+    ? validateDate(params.startDate, "시작일")
+    : null;
+  const dueDate = params.dueDate
+    ? validateDate(params.dueDate, "마감일")
+    : null;
+  const dueTime = params.dueTime ? validateTime(params.dueTime) : null;
+  if (startDate && dueDate && startDate > dueDate) {
+    throw new ValidationError("시작일은 마감일보다 늦을 수 없습니다.");
+  }
+  if (dueTime && !dueDate) {
+    throw new ValidationError("시간을 지정하려면 마감일이 필요합니다.");
+  }
+
+  const waitingPartyText = params.waitingPartyText?.trim() || null;
+  const followUpAt = params.followUpAt
+    ? validateDate(params.followUpAt, "다음 확인일")
+    : null;
+  if (status === "Waiting" && !waitingPartyText) {
+    throw new ValidationError("무엇을 기다리는지 입력해 주세요.");
+  }
+  if (status === "Waiting" && !followUpAt) {
+    throw new ValidationError("다음 확인일을 선택해 주세요.");
+  }
+
+  const memberIds = [
+    params.assigneeId ?? null,
+    params.reviewerId ?? null,
+  ].filter((id): id is string => Boolean(id));
+  if (memberIds.length > 0) {
+    const scopedMembers = await db
+      .select({ id: memberTable.id })
+      .from(memberTable)
+      .where(
+        and(
+          eq(memberTable.workspace_id, params.workspaceId),
+          inArray(memberTable.id, [...new Set(memberIds)])
+        )
+      );
+    if (scopedMembers.length !== new Set(memberIds).size) {
+      throw new ValidationError("워크스페이스에 없는 담당자 또는 검토자입니다.");
+    }
+  }
+
   const now = new Date().toISOString();
   const newTask: NewTask = {
     id: crypto.randomUUID(),
@@ -664,15 +724,17 @@ export async function createProjectTask(
     project_id: params.projectId,
     workstream_id: params.workstreamId ?? null,
     title,
-    description: null,
-    status: "ToDo",
-    importance: "normal",
-    kind: "task",
-    assignee_id: null,
-    reviewer_id: null,
-    start_date: null,
-    due_date: null,
-    due_time: null,
+    description: params.description?.trim() || null,
+    status,
+    importance,
+    kind,
+    assignee_id: params.assigneeId ?? null,
+    reviewer_id: params.reviewerId ?? null,
+    start_date: startDate,
+    due_date: dueDate,
+    due_time: dueTime,
+    waiting_party_text: status === "Waiting" ? waitingPartyText : null,
+    follow_up_at: status === "Waiting" ? followUpAt : null,
     sort_order: await nextSortOrder(
       db,
       params.workspaceId,
@@ -683,7 +745,7 @@ export async function createProjectTask(
     created_by: params.memberId,
     created_at: now,
     updated_at: now,
-    completed_at: null,
+    completed_at: status === "Done" ? now : null,
     cancelled_at: null,
   };
 

@@ -24,6 +24,23 @@ export type TaskPatchInput = Omit<TaskPatch, "actor_id">;
 /** Legacy alias kept for the existing QuickAdd/WorkflowCanvas call sites. */
 export type CreateTaskResult = ActionResult<Task>;
 
+export interface CreateProjectTaskInput {
+  projectId: string;
+  title: string;
+  description?: string | null;
+  status?: Exclude<Task["status"], "Inbox">;
+  importance?: Task["importance"];
+  kind?: Task["kind"];
+  assigneeId?: string | null;
+  reviewerId?: string | null;
+  startDate?: string | null;
+  dueDate?: string | null;
+  dueTime?: string | null;
+  workstreamId?: string | null;
+  waitingPartyText?: string | null;
+  followUpAt?: string | null;
+}
+
 /** All app routes render from the same task set, so revalidate the layout. */
 function revalidateAll() {
   revalidatePath("/", "layout");
@@ -59,6 +76,35 @@ export async function createProjectTaskAction(
       title,
       memberId: member.id,
       workstreamId: workstreamId ?? null,
+    });
+  });
+  if (result.success) revalidateAll();
+  return result;
+}
+
+/** Create a project task with every field collected by the detailed dialog. */
+export async function createDetailedProjectTaskAction(
+  input: CreateProjectTaskInput
+): Promise<ActionResult<Task>> {
+  const result = await runAction("createDetailedProjectTaskAction", async () => {
+    const { member, db } = await getCurrentMember();
+    return createProjectTask(db, {
+      workspaceId: member.workspace_id,
+      memberId: member.id,
+      projectId: input.projectId,
+      title: input.title,
+      description: input.description,
+      status: input.status,
+      importance: input.importance,
+      kind: input.kind,
+      assigneeId: input.assigneeId,
+      reviewerId: input.reviewerId,
+      startDate: input.startDate,
+      dueDate: input.dueDate,
+      dueTime: input.dueTime,
+      workstreamId: input.workstreamId,
+      waitingPartyText: input.waitingPartyText,
+      followUpAt: input.followUpAt,
     });
   });
   if (result.success) revalidateAll();

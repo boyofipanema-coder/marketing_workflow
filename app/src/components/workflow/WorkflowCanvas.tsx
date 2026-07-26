@@ -1,18 +1,17 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Minus, Plus, Maximize2, ChevronRight, CornerDownRight, ArrowUpRight, FolderPlus } from "lucide-react";
+import { Plus, ChevronRight, CornerDownRight, ArrowUpRight, FolderPlus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { statusMeta, displayGroup, type TaskStatus } from "@/lib/status";
 import { createSubtaskAction } from "@/app/actions/tasks";
-import InlineAdd from "@/components/tasks/InlineAdd";
 import type { Task, Brand, Workstream, Member, Project } from "@/server/db/schema";
 import { buildBoardGraph, isKey, laneKeyFor, type ChildMap, type GroupBy } from "@/lib/board-graph";
 import { ownerColor, initials } from "@/lib/colors";
 
 /**
- * WorkflowCanvas — a pannable/zoomable swimlane Kanban.
+ * WorkflowCanvas — a fixed, document-scrolling swimlane Kanban.
  *
  * Rows = a group-by dimension (Workstream / Owner / Due), columns = the status
  * stage flow (To Do → In Progress → Review → Done). Only TOP-LEVEL tasks
@@ -541,20 +540,15 @@ export interface WorkflowCanvasProps {
   onSelect: (task: Task) => void;
   /** Opens project creation anchored to a brand section. */
   onAddProject?: (brandId: string) => void;
-  /** Creates a top-level task directly in a project row. */
-  onAddProjectTask?: (projectId: string, title: string) => Promise<boolean>;
-  /** Creates a top-level task in this project. Omit to hide the add affordance. */
-  onAddTask?: (title: string) => Promise<boolean>;
+  /** Opens detailed task creation anchored to a project row. */
+  onAddProjectTask?: (projectId: string) => void;
+  /** Opens detailed task creation in this project. Omit to hide the affordance. */
+  onAddTask?: () => void;
   /** Controls the focus filter from outside (e.g. the project summary strip). */
   focus?: Focus;
   onFocusChange?: (focus: Focus) => void;
-  /**
-   * Height of the pan/zoom stage. Defaults to "everything the viewport has left
-   * under the page chrome" — the board is the workspace, so it should claim the
-   * screen rather than sit in a fixed-height window. Callers with more chrome
-   * above them (a project header, tabs) pass a larger subtrahend.
-   */
-  stageHeightClass?: string;
+  /** Optional first row in the unified workspace toolbar. */
+  toolbarHeader?: ReactNode;
   /** Creates a milestone in the given project. Omit to hide the rail's +. */
   onAddMilestone?: (projectId: string, name: string, dueDate: string) => Promise<boolean>;
   /** Project every rail belongs to, when the board shows exactly one. */
@@ -579,9 +573,7 @@ export default function WorkflowCanvas({
   onAddTask,
   focus: focusProp,
   onFocusChange,
-  // 8.5rem = nav 3rem + page padding + the count row + this component's own
-  // toolbar. Measured, not guessed: leaves the stage ~85% of the viewport.
-  stageHeightClass = "h-[calc(100dvh-8.5rem)]",
+  toolbarHeader,
   onAddMilestone,
   projectId,
   onEditProject,
@@ -596,7 +588,6 @@ export default function WorkflowCanvas({
   };
   const [cellsOpen, setCellsOpen] = useState<Set<string>>(new Set());
   const [subsOpen, setSubsOpen] = useState<Set<string>>(new Set());
-  const [zoomPct, setZoomPct] = useState(100);
   const [addingFor, setAddingFor] = useState<string | null>(null);
   const [addValue, setAddValue] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
@@ -606,8 +597,6 @@ export default function WorkflowCanvas({
   const addInputRef = useRef<HTMLInputElement>(null);
 
   const stageRef = useRef<HTMLDivElement>(null);
-  const worldRef = useRef<HTMLDivElement>(null);
-  const view = useRef({ x: 0, y: 0, scale: 1 });
   const hierarchyView = hierarchyMode && groupBy === "brand";
   const effectiveGroupBy: GroupBy = hierarchyView ? "project" : groupBy;
   // On wide screens every status column expands into the available canvas.
@@ -637,7 +626,7 @@ export default function WorkflowCanvas({
   // what survive, plus the rails, which is the structure you zoom out to see.
   // Computed ahead of layout so card geometry (not just what's drawn on top of
   // it) can shrink to match — see cardHeight's lod parameter.
-  const lod: Lod = zoomPct >= 70 ? "full" : "compact";
+  const lod = "full" as Lod;
 
   const layout = useMemo(
     () => computeLayout(placed, roots, milestones, childMap, laneOf, parentOf, workstreams, members, brands, projects ?? [], effectiveGroupBy, hierarchyView, cellsOpen, subsOpen, addingFor, lod, projectBrand, colW, nodeW, dependencies),
@@ -695,46 +684,6 @@ export default function WorkflowCanvas({
           : overdue(t);
   };
 
-  // ── pan / zoom (imperative) ─────────────────────────────────────────────────
-  function applyView() {
-    const { x, y, scale } = view.current;
-    if (worldRef.current) worldRef.current.style.transform = `translate(${x}px,${y}px) scale(${scale})`;
-  }
-  function bounds() {
-    const st = stageRef.current;
-    if (!st) return { minX: -1e5, maxX: 40, minY: -1e5, maxY: 50 };
-    const ww = layout.worldW * view.current.scale, wh = layout.worldH * view.current.scale;
-    return { minX: Math.min(0, st.clientWidth - ww - 40), maxX: 40, minY: Math.min(0, st.clientHeight - wh - 40), maxY: 50 };
-  }
-  function fit() {
-    const st = stageRef.current;
-    if (!st) return;
-    let scale = Math.min(1, (st.clientWidth - 40) / layout.worldW);
-    if (scale < 0.5) scale = 0.5;
-    // Center the board when it's narrower than the viewport; flush left
-    // (clamped to 0, not capped at some small max) when it's wider and the
-    // user needs to pan to see the rest.
-    view.current = { x: Math.max(0, (st.clientWidth - layout.worldW * scale) / 2), y: 0, scale };
-    setZoomPct(Math.round(scale * 100));
-    applyView();
-  }
-  function zoomAt(cx: number, cy: number, f: number) {
-    const st = stageRef.current;
-    if (!st) return;
-    const r = st.getBoundingClientRect();
-    const ox = cx - r.left, oy = cy - r.top;
-    const ns = Math.max(0.5, Math.min(1.6, view.current.scale * f)), k = ns / view.current.scale;
-    view.current.x = ox - (ox - view.current.x) * k;
-    view.current.y = oy - (oy - view.current.y) * k;
-    view.current.scale = ns;
-    const b = bounds();
-    view.current.x = Math.max(b.minX, Math.min(b.maxX, view.current.x));
-    view.current.y = Math.max(b.minY, Math.min(b.maxY, view.current.y));
-    setZoomPct(Math.round(ns * 100));
-    applyView();
-  }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useLayoutEffect(() => fit(), [groupBy, tasks.length, workstreams.length]);
   useLayoutEffect(() => {
     const stage = stageRef.current;
     if (!stage) return;
@@ -744,102 +693,6 @@ export default function WorkflowCanvas({
     observer.observe(stage);
     return () => observer.disconnect();
   }, []);
-  useEffect(() => {
-    const onResize = () => fit();
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [layout.worldW]);
-  useEffect(() => {
-    const st = stageRef.current;
-    if (!st) return;
-    const onWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      if (e.ctrlKey || e.metaKey) return zoomAt(e.clientX, e.clientY, e.deltaY < 0 ? 1.08 : 0.926);
-      const b = bounds();
-      view.current.x = Math.max(b.minX, Math.min(b.maxX, view.current.x - e.deltaX));
-      view.current.y = Math.max(b.minY, Math.min(b.maxY, view.current.y - e.deltaY));
-      applyView();
-    };
-    st.addEventListener("wheel", onWheel, { passive: false });
-    return () => st.removeEventListener("wheel", onWheel);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [layout.worldW, layout.worldH]);
-
-  const drag = useRef({ on: false, px: 0, py: 0, vx: 0, vy: 0, raf: 0, hist: [] as number[][] });
-  function onPointerDown(e: React.PointerEvent) {
-    if ((e.target as HTMLElement).closest("[data-card],[data-ui]")) return;
-    const d = drag.current;
-    d.on = true; d.px = e.clientX; d.py = e.clientY; d.vx = d.vy = 0;
-    d.hist = [[e.clientX, e.clientY, performance.now()]];
-    cancelAnimationFrame(d.raf);
-    stageRef.current?.setPointerCapture(e.pointerId);
-    stageRef.current?.classList.add("cursor-grabbing");
-  }
-  function onPointerMove(e: React.PointerEvent) {
-    const d = drag.current;
-    if (!d.on) return;
-    const dx = e.clientX - d.px, dy = e.clientY - d.py;
-    d.px = e.clientX; d.py = e.clientY;
-    const b = bounds();
-    const rub = (v: number, mn: number, mx: number) => (v < mn ? mn - (mn - v) * 0.5 : v > mx ? mx + (v - mx) * 0.5 : v);
-    view.current.x = rub(view.current.x + dx, b.minX, b.maxX);
-    view.current.y = rub(view.current.y + dy, b.minY, b.maxY);
-    d.hist.push([e.clientX, e.clientY, performance.now()]);
-    if (d.hist.length > 6) d.hist.shift();
-    applyView();
-  }
-  function onPointerUp() {
-    const d = drag.current;
-    if (!d.on) return;
-    d.on = false;
-    stageRef.current?.classList.remove("cursor-grabbing");
-    if (d.hist.length > 1) {
-      const a = d.hist[0]!, z = d.hist[d.hist.length - 1]!;
-      const dt = z[2]! - a[2]! || 16;
-      d.vx = ((z[0]! - a[0]!) / dt) * 16;
-      d.vy = ((z[1]! - a[1]!) / dt) * 16;
-    }
-    const b = bounds();
-    const step = () => {
-      d.vx *= 0.93; d.vy *= 0.93;
-      view.current.x += d.vx; view.current.y += d.vy;
-      if (view.current.x < b.minX) (view.current.x += (b.minX - view.current.x) * 0.18), (d.vx *= 0.6);
-      if (view.current.x > b.maxX) (view.current.x += (b.maxX - view.current.x) * 0.18), (d.vx *= 0.6);
-      if (view.current.y < b.minY) (view.current.y += (b.minY - view.current.y) * 0.18), (d.vy *= 0.6);
-      if (view.current.y > b.maxY) (view.current.y += (b.maxY - view.current.y) * 0.18), (d.vy *= 0.6);
-      applyView();
-      if (Math.abs(d.vx) > 0.1 || Math.abs(d.vy) > 0.1) d.raf = requestAnimationFrame(step);
-    };
-    d.raf = requestAnimationFrame(step);
-  }
-
-  /**
-   * Keeps a keyboard-focused card inside the viewport. Cards are real buttons,
-   * so Tab already reaches them — but the stage is pan/zoom, so focus could
-   * land on something scrolled out of sight and the user would be typing at a
-   * card they cannot see.
-   */
-  function revealNode(x: number, y: number, h: number) {
-    const st = stageRef.current;
-    if (!st) return;
-    const s = view.current.scale;
-    const left = x * s + view.current.x;
-    const top = y * s + view.current.y;
-    const right = left + nodeW * s;
-    const bottom = top + h * s;
-    let dx = 0;
-    let dy = 0;
-    if (left < 8) dx = 8 - left;
-    else if (right > st.clientWidth - 8) dx = st.clientWidth - 8 - right;
-    if (top < 8) dy = 8 - top;
-    else if (bottom > st.clientHeight - 8) dy = st.clientHeight - 8 - bottom;
-    if (!dx && !dy) return;
-    const b = bounds();
-    view.current.x = Math.max(b.minX, Math.min(b.maxX, view.current.x + dx));
-    view.current.y = Math.max(b.minY, Math.min(b.maxY, view.current.y + dy));
-    applyView();
-  }
 
   const toggleSet = (setter: typeof setSubsOpen) => (k: string) =>
     setter((prev) => {
@@ -864,11 +717,15 @@ export default function WorkflowCanvas({
 
   return (
     <div className="relative left-1/2 -ml-[50vw] w-screen">
-      {/* toolbar */}
-      <div className="mx-auto flex max-w-[1400px] flex-wrap items-center gap-3 px-4 pb-3 sm:px-6" data-ui>
-        <div className="flex items-center gap-2">
+      {/* One workspace header: summary/actions first, board controls second.
+          Shared edges and alignment make the controls read as one system. */}
+      <div className="border-y border-separator/70 bg-surface/[0.38]">
+        <div className="mx-auto max-w-[1400px] px-4 py-3 sm:px-6" data-ui>
+          {toolbarHeader}
+          <div className={cn("flex flex-wrap items-center gap-3", toolbarHeader && "mt-3 border-t border-separator/60 pt-3")}>
+            <div className="flex items-center gap-2">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">기준</span>
-          <div className="flex gap-0.5 rounded-lg bg-surface-2 p-0.5">
+              <div className="flex gap-0.5 rounded-xl bg-surface-2/80 p-0.5">
             {GROUP_OPTS.filter((option) =>
               hierarchyMode
                 ? option.id !== "project" && (option.id !== "brand" || Boolean(projects))
@@ -876,43 +733,56 @@ export default function WorkflowCanvas({
             ).map((o) => (
               <button key={o.id} type="button" aria-pressed={groupBy === o.id}
                 onClick={() => { setGroupBy(o.id); setCellsOpen(new Set()); }}
-                className={cn("rounded-md px-2.5 py-1 text-xs font-medium transition-colors", groupBy === o.id ? "bg-surface text-text shadow-xs" : "text-text-secondary hover:text-text")}>
+                    className={cn("rounded-[10px] px-3 py-1.5 text-xs font-semibold transition-[transform,background-color,color,box-shadow] active:scale-[0.97]", groupBy === o.id ? "bg-surface text-text shadow-xs" : "text-text-secondary hover:text-text")}>
                 {o.label}
               </button>
             ))}
+              </div>
           </div>
-        </div>
-        {hierarchyView && (
-          <div className="flex items-center gap-1 text-[11px] font-semibold text-text-tertiary" aria-label="업무 구조">
-            브랜드
-            <ChevronRight className="size-3" aria-hidden />
-            프로젝트
-            <ChevronRight className="size-3" aria-hidden />
-            업무
-          </div>
-        )}
-        {onAddTask && (
-          <div className="min-w-[9rem] max-w-xs flex-1">
-            <InlineAdd onAdd={onAddTask} label="업무 추가" placeholder="업무명 입력 후 Enter" />
-          </div>
-        )}
+            {hierarchyView && (
+              <div className="flex items-center gap-1 text-[11px] font-semibold text-text-tertiary" aria-label="업무 구조">
+                브랜드
+                <ChevronRight className="size-3" aria-hidden />
+                프로젝트
+                <ChevronRight className="size-3" aria-hidden />
+                업무
+              </div>
+            )}
+            {onAddTask && (
+              <button
+                type="button"
+                onClick={onAddTask}
+                className="material-thin inline-flex h-9 items-center gap-1.5 rounded-xl px-3 text-xs font-semibold text-text-secondary shadow-xs transition-[transform,color,box-shadow] hover:text-text hover:shadow-sm active:scale-[0.97]"
+              >
+                <Plus className="size-3.5" aria-hidden />
+                업무 추가
+              </button>
+            )}
 
-        <div className="ml-auto flex gap-1.5">
+            <div className="ml-auto flex flex-wrap gap-1.5">
           {([["all", "전체", ""], ["do", "지금 할 일", "bg-status-inprogress"], ["wait", "대기", "bg-status-waiting"], ["over", "기한 초과", "bg-flag-overdue"]] as [Focus, string, string][]).map(([f, label, dot]) => (
             <button key={f} type="button" aria-pressed={focus === f} onClick={() => setFocus(f)}
-              className={cn("inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors", focus === f ? "border-text bg-text text-bg" : "border-border bg-surface text-text-secondary hover:text-text")}>
+                  className={cn("inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-[transform,background-color,color,border-color] active:scale-[0.97]", focus === f ? "border-text bg-text text-bg" : "border-border bg-surface/80 text-text-secondary hover:border-border-strong hover:text-text")}>
               {dot && <span className={cn("size-1.5 rounded-full", focus === f ? "bg-bg" : dot)} />}
               {label}
             </button>
           ))}
+            </div>
+          </div>
         </div>
       </div>
 
       {/* viewport */}
-      <div ref={stageRef} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerLeave={onPointerUp}
-        className={cn("material-panel material-edge relative min-h-[440px] w-full cursor-grab touch-none select-none overflow-hidden border-y border-separator", stageHeightClass)}
-        style={{ backgroundImage: "radial-gradient(rgb(var(--text-quaternary)/0.22) 1px, transparent 1.4px), linear-gradient(rgb(var(--surface-2)/0.16), rgb(var(--surface)/0.08))", backgroundSize: "24px 24px, 100% 100%" }}>
-        <div ref={worldRef} className="absolute left-0 top-0 origin-top-left will-change-transform">
+      <div
+        ref={stageRef}
+        className="material-panel material-edge relative w-full select-none overflow-x-auto overflow-y-hidden border-b border-separator"
+        style={{
+          height: Math.max(440, layout.worldH),
+          backgroundImage: "radial-gradient(rgb(var(--text-quaternary)/0.22) 1px, transparent 1.4px), linear-gradient(rgb(var(--surface-2)/0.16), rgb(var(--surface)/0.08))",
+          backgroundSize: "24px 24px, 100% 100%",
+        }}
+      >
+        <div className="absolute left-0 top-0" style={{ width: layout.worldW, height: layout.worldH }}>
           <div
             className="pointer-events-none absolute left-0 top-0 rounded-b-2xl border-b border-separator/60 bg-surface/[0.22] backdrop-blur-sm"
             style={{ width: boardW, height: TOP - 6 }}
@@ -1047,14 +917,15 @@ export default function WorkflowCanvas({
                 <div className="text-[10.5px] font-medium tabular-nums text-text-tertiary">완료 {l.done}/{l.total}</div>
                 <div className="h-1.5 overflow-hidden rounded-full bg-surface-3"><div className="h-full rounded-full bg-status-done transition-[width] duration-500 ease-out" style={{ width: `${l.total ? (l.done / l.total) * 100 : 0}%` }} /></div>
                 {hierarchyView && onAddProjectTask && !l.key.startsWith("_") && (
-                  <div data-ui className="mt-0.5" onPointerDown={(e) => e.stopPropagation()}>
-                    <InlineAdd
-                      onAdd={(title) => onAddProjectTask(l.key, title)}
-                      label="업무 추가"
-                      placeholder="새 업무 이름"
-                      className="min-h-7 px-1.5 py-1 text-[10.5px]"
-                    />
-                  </div>
+                  <button
+                    type="button"
+                    data-ui
+                    onClick={() => onAddProjectTask(l.key)}
+                    className="mt-0.5 inline-flex min-h-8 items-center gap-1.5 self-start rounded-lg px-2 text-[10.5px] font-semibold text-text-secondary transition-[transform,background-color,color] hover:bg-surface-2 hover:text-text active:scale-[0.97]"
+                  >
+                    <Plus className="size-3" aria-hidden />
+                    업무 추가
+                  </button>
                 )}
               </div>
             </div>
@@ -1161,7 +1032,7 @@ export default function WorkflowCanvas({
             // render the rows in the first place — matches cardHeight's guard.
             const rows = hasKids && open && lod === "full" ? subRows(task, 0) : [];
             return (
-              <div key={task.id} data-card onFocusCapture={() => revealNode(x, y, h)}
+              <div key={task.id} data-card
                 className={cn("group absolute flex flex-col overflow-hidden rounded-[14px] bg-surface transition-[opacity,box-shadow] duration-200",
                   // Importance is carried by weight and elevation only — never by
                   // colour, which belongs exclusively to status.
@@ -1306,13 +1177,6 @@ export default function WorkflowCanvas({
           ))}
         </div>
 
-        {/* zoom */}
-        <div className="absolute bottom-4 right-4 z-10 flex items-center gap-0.5 rounded-xl border border-separator bg-surface/90 p-1 shadow-md backdrop-blur" data-ui>
-          <button type="button" aria-label="축소" onClick={() => zoomAt((stageRef.current?.clientWidth ?? 0) / 2, (stageRef.current?.clientHeight ?? 0) / 2, 0.89)} className="grid size-7 place-items-center rounded-lg text-text-secondary hover:bg-surface-2"><Minus className="size-4" /></button>
-          <span className="min-w-[42px] text-center text-xs font-semibold tabular-nums text-text-secondary">{zoomPct}%</span>
-          <button type="button" aria-label="확대" onClick={() => zoomAt((stageRef.current?.clientWidth ?? 0) / 2, (stageRef.current?.clientHeight ?? 0) / 2, 1.12)} className="grid size-7 place-items-center rounded-lg text-text-secondary hover:bg-surface-2"><Plus className="size-4" /></button>
-          <button type="button" aria-label="화면 맞춤" onClick={() => fit()} className="grid size-7 place-items-center rounded-lg text-text-secondary hover:bg-surface-2"><Maximize2 className="size-4" /></button>
-        </div>
       </div>
     </div>
   );

@@ -5,13 +5,13 @@ import { useRouter } from "next/navigation";
 import { Briefcase, FolderPlus, Plus, Tags, ChevronDown } from "lucide-react";
 import TaskSection from "@/components/tasks/TaskSection";
 import TaskDetailPanel from "@/components/tasks/TaskDetailPanel";
+import TaskFormDialog from "@/components/tasks/TaskFormDialog";
 import WorkflowCanvas, { type Focus } from "@/components/workflow/WorkflowCanvas";
 import EmptyState from "@/components/EmptyState";
 import { useTaskController } from "@/components/tasks/useTaskController";
 import BrandFormDialog from "@/components/projects/BrandFormDialog";
 import ProjectFormDialog from "@/components/projects/ProjectFormDialog";
 import { Button } from "@/components/ui";
-import { createProjectTaskAction } from "@/app/actions/tasks";
 import {
   myFocus,
   needsAttention,
@@ -59,6 +59,7 @@ export default function HomeContent({
   const [projectBrandId, setProjectBrandId] = useState<string | undefined>();
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [brandFilterId, setBrandFilterId] = useState("all");
+  const [taskProjectId, setTaskProjectId] = useState<string | null>(null);
 
   useEffect(() => {
     if (window.matchMedia("(max-width: 640px)").matches) setShowBoard(false);
@@ -142,68 +143,9 @@ export default function HomeContent({
     setProjectDialogOpen(true);
   }
 
-  async function addProjectTask(projectId: string, title: string) {
-    const result = await createProjectTaskAction(projectId, title);
-    if (!result.success) return false;
-    router.refresh();
-    return true;
-  }
-
   return (
     <>
-      {/* No page title. "홈" is already the selected item in the nav, and a
-          2rem serif heading plus a greeting cost ~150px of the workspace to
-          repeat something the user just clicked. The board starts here. */}
-      <div className="mx-auto max-w-5xl px-4 py-3 sm:px-6 sm:py-4">
-        {/* Workspace counts only. Adding a task is a global action and already
-            lives in the top bar — a second identical button here was the same
-            command twice, 40px apart. */}
-        {showBoard && (
-          <div className="mb-3 flex flex-wrap items-center gap-2">
-            <div className="mr-auto text-xs text-text-tertiary">
-              브랜드 {visibleBrands.length}개 · 프로젝트 {visibleProjects.length}개 · 업무{" "}
-              {visibleBoardTasks.length}건
-            </div>
-            <label className="material-thin press relative inline-flex h-8 items-center gap-2 rounded-xl pl-3 pr-8 text-xs font-semibold text-text-secondary shadow-xs">
-              <Tags className="size-3.5 text-text-tertiary" aria-hidden />
-              <span className="sr-only">브랜드별 업무 필터</span>
-              <select
-                aria-label="브랜드별 업무 필터"
-                value={brandFilterId}
-                onChange={(event) => setBrandFilterId(event.target.value)}
-                className="absolute inset-0 cursor-pointer appearance-none rounded-xl bg-transparent pl-8 pr-8 text-xs font-semibold text-text-secondary outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <option value="all">전체 브랜드</option>
-                {brands.map((brand) => (
-                  <option key={brand.id} value={brand.id}>
-                    {brand.name}
-                  </option>
-                ))}
-              </select>
-              <span className="invisible">
-                {brandFilterId === "all"
-                  ? "전체 브랜드"
-                  : brands.find((brand) => brand.id === brandFilterId)?.name ??
-                    "전체 브랜드"}
-              </span>
-              <ChevronDown className="pointer-events-none absolute right-2.5 size-3.5 text-text-tertiary" aria-hidden />
-            </label>
-            <Button variant="ghost" size="sm" onClick={() => setBrandDialogOpen(true)}>
-              <Plus aria-hidden />
-              브랜드
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => startProject()}
-              disabled={brands.length === 0}
-              title={brands.length === 0 ? "브랜드를 먼저 만들어 주세요" : undefined}
-            >
-              <FolderPlus aria-hidden />
-              프로젝트
-            </Button>
-          </div>
-        )}
+      <div className="mx-auto max-w-5xl px-4 pb-4 sm:px-6">
         {store.error && (
           <p
             role="alert"
@@ -246,11 +188,70 @@ export default function HomeContent({
               hierarchyMode
               onSelect={controller.select}
               onAddProject={(brandId) => startProject(brandId)}
-              onAddProjectTask={addProjectTask}
+              onAddProjectTask={setTaskProjectId}
               onEditProject={setEditingProject}
               focus={boardFocus}
               onFocusChange={setBoardFocus}
               dependencies={dependencies}
+              toolbarHeader={
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="mr-auto min-w-0">
+                    <h1 className="text-[15px] font-semibold tracking-tight text-text">
+                      업무 보드
+                    </h1>
+                    <p className="mt-0.5 truncate text-[11px] font-medium tabular-nums text-text-tertiary">
+                      브랜드 {visibleBrands.length} · 프로젝트 {visibleProjects.length} · 업무{" "}
+                      {visibleBoardTasks.length}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label className="material-thin relative inline-flex h-9 items-center gap-2 rounded-xl pl-3 pr-8 text-xs font-semibold text-text-secondary shadow-xs">
+                      <Tags className="size-3.5 text-text-tertiary" aria-hidden />
+                      <span className="sr-only">브랜드별 업무 필터</span>
+                      <select
+                        aria-label="브랜드별 업무 필터"
+                        value={brandFilterId}
+                        onChange={(event) => setBrandFilterId(event.target.value)}
+                        className="absolute inset-0 cursor-pointer appearance-none rounded-xl bg-transparent pl-8 pr-8 text-xs font-semibold text-text-secondary outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        <option value="all">전체 브랜드</option>
+                        {brands.map((brand) => (
+                          <option key={brand.id} value={brand.id}>
+                            {brand.name}
+                          </option>
+                        ))}
+                      </select>
+                      <span className="invisible">
+                        {brandFilterId === "all"
+                          ? "전체 브랜드"
+                          : brands.find((brand) => brand.id === brandFilterId)?.name ??
+                            "전체 브랜드"}
+                      </span>
+                      <ChevronDown className="pointer-events-none absolute right-2.5 size-3.5 text-text-tertiary" aria-hidden />
+                    </label>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setBrandDialogOpen(true)}
+                      className="h-9 rounded-xl"
+                    >
+                      <Plus aria-hidden />
+                      브랜드
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => startProject()}
+                      disabled={brands.length === 0}
+                      title={brands.length === 0 ? "브랜드를 먼저 만들어 주세요" : undefined}
+                      className="h-9 rounded-xl"
+                    >
+                      <FolderPlus aria-hidden />
+                      프로젝트
+                    </Button>
+                  </div>
+                </div>
+              }
             />
           </section>
         )}
@@ -308,6 +309,7 @@ export default function HomeContent({
         task={controller.selected}
         projects={projects}
         workstreams={workstreams}
+        members={members}
         open={controller.panelOpen}
         saveState={
           controller.selected ? store.stateOf(controller.selected.id) : "idle"
@@ -321,6 +323,18 @@ export default function HomeContent({
         onPatch={controller.patch}
         onCancelTask={controller.cancel}
         onRestoreTask={controller.restore}
+      />
+
+      <TaskFormDialog
+        open={taskProjectId !== null}
+        onOpenChange={(open) => {
+          if (!open) setTaskProjectId(null);
+        }}
+        projects={projects}
+        workstreams={workstreams}
+        members={members}
+        defaultProjectId={taskProjectId}
+        onCreated={() => router.refresh()}
       />
 
       <BrandFormDialog
