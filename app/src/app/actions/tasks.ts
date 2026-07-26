@@ -32,7 +32,6 @@ export interface CreateProjectTaskInput {
   importance?: Task["importance"];
   kind?: Task["kind"];
   assigneeId?: string | null;
-  reviewerId?: string | null;
   startDate?: string | null;
   dueDate?: string | null;
   dueTime?: string | null;
@@ -98,7 +97,6 @@ export async function createDetailedProjectTaskAction(
       importance: input.importance,
       kind: input.kind,
       assigneeId: input.assigneeId,
-      reviewerId: input.reviewerId,
       startDate: input.startDate,
       dueDate: input.dueDate,
       dueTime: input.dueTime,

@@ -66,7 +66,6 @@ export default function TaskFormDialog({
   const [projectId, setProjectId] = useState("");
   const [workstreamId, setWorkstreamId] = useState("");
   const [assigneeId, setAssigneeId] = useState("");
-  const [reviewerId, setReviewerId] = useState("");
   const [startDate, setStartDate] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [dueTime, setDueTime] = useState("");
@@ -85,7 +84,6 @@ export default function TaskFormDialog({
     setProjectId(defaultProjectId ?? projects.find((project) => !project.archived_at)?.id ?? "");
     setWorkstreamId("");
     setAssigneeId("");
-    setReviewerId("");
     setStartDate("");
     setDueDate("");
     setDueTime("");
@@ -126,7 +124,6 @@ export default function TaskFormDialog({
       importance,
       kind,
       assigneeId: assigneeId || null,
-      reviewerId: reviewerId || null,
       startDate: startDate || null,
       dueDate: dueDate || null,
       dueTime: dueTime || null,
@@ -277,13 +274,6 @@ export default function TaskFormDialog({
                   <Field label="담당자" htmlFor="create-task-assignee">
                     <select id="create-task-assignee" value={assigneeId} onChange={(event) => setAssigneeId(event.target.value)} className={inputClass}>
                       <option value="">담당자 없음</option>
-                      {members.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}
-                    </select>
-                  </Field>
-
-                  <Field label="검토자" htmlFor="create-task-reviewer">
-                    <select id="create-task-reviewer" value={reviewerId} onChange={(event) => setReviewerId(event.target.value)} className={inputClass}>
-                      <option value="">검토자 없음</option>
                       {members.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}
                     </select>
                   </Field>

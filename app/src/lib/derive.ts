@@ -206,13 +206,11 @@ export function waiting(tasks: Task[], viewerId: string): Task[] {
   );
 }
 
-/** status=Review AND (reviewer=viewer OR assignee=viewer) */
+/** status=Review AND assignee=viewer */
 export function review(tasks: Task[], viewerId: string): Task[] {
   return applyFilter(
     tasks,
-    (t) =>
-      t.status === "Review" &&
-      (t.reviewer_id === viewerId || t.assignee_id === viewerId),
+    (t) => t.status === "Review" && t.assignee_id === viewerId,
   );
 }
 

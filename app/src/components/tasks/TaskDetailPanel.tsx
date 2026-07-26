@@ -78,7 +78,6 @@ const CHANGE_LABEL: Record<string, string> = {
   importance: "중요도",
   kind: "종류",
   assignee: "담당자",
-  reviewer: "검토자",
   project: "프로젝트",
   workstream: "업무 영역",
   start_date: "시작일",
@@ -142,7 +141,9 @@ export default function TaskDetailPanel({
       // A slower fetch for a task we've since navigated away from must not
       // overwrite whatever the current task's own fetch already set.
       if (!activityGuard.isCurrent(token)) return;
-      if (r.success && r.data) setActivity(r.data);
+      if (r.success && r.data) {
+        setActivity(r.data.filter((entry) => entry.change_type !== "reviewer"));
+      }
     });
   }, [task?.id, task?.version]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -542,25 +543,6 @@ export default function TaskDetailPanel({
                   className={selectClass}
                 >
                   <option value="">담당자 없음</option>
-                  {members.map((member) => (
-                    <option key={member.id} value={member.id}>
-                      {member.name}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-
-              <Field label="검토자" htmlFor="task-reviewer">
-                <select
-                  id="task-reviewer"
-                  value={task.reviewer_id ?? ""}
-                  disabled={readOnly}
-                  onChange={(e) =>
-                    void patch({ reviewer_id: e.target.value || null })
-                  }
-                  className={selectClass}
-                >
-                  <option value="">검토자 없음</option>
                   {members.map((member) => (
                     <option key={member.id} value={member.id}>
                       {member.name}

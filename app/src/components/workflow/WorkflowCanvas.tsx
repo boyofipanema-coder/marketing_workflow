@@ -2,13 +2,36 @@
 
 import { useLayoutEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, ChevronRight, CornerDownRight, ArrowUpRight, FolderPlus } from "lucide-react";
+import * as Dialog from "@radix-ui/react-dialog";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import {
+  ArrowUpRight,
+  Check,
+  ChevronRight,
+  Circle,
+  CircleCheck,
+  Clock3,
+  CornerDownRight,
+  FolderPlus,
+  Loader2,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  Trash2,
+  X,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { statusMeta, displayGroup, type TaskStatus } from "@/lib/status";
-import { createSubtaskAction } from "@/app/actions/tasks";
+import {
+  cancelTaskAction,
+  completeTaskAction,
+  createSubtaskAction,
+  editTaskAction,
+  reopenTaskAction,
+} from "@/app/actions/tasks";
 import type { Task, Brand, Workstream, Member, Project } from "@/server/db/schema";
 import { buildBoardGraph, isKey, laneKeyFor, type ChildMap, type GroupBy } from "@/lib/board-graph";
-import { ownerColor, initials } from "@/lib/colors";
+import { ownerColor } from "@/lib/colors";
 
 /**
  * WorkflowCanvas — a fixed, document-scrolling swimlane Kanban.
@@ -57,6 +80,227 @@ function fmtDue(iso: string): string {
   if (diff < 0) return `${Math.abs(diff)}일 전`;
   if (diff <= 7) return `${diff}일 후`;
   return x.toLocaleDateString("ko-KR", { month: "long", day: "numeric" });
+}
+
+function TaskCompleteButton({
+  task,
+  compact = false,
+  onChanged,
+}: {
+  task: Task;
+  compact?: boolean;
+  onChanged: () => void;
+}) {
+  const [pending, setPending] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const done = task.status === "Done";
+
+  async function toggle() {
+    if (pending || task.cancelled_at) return;
+    setPending(true);
+    setFailed(false);
+    const result = done
+      ? await reopenTaskAction(task.id, task.version)
+      : await completeTaskAction(task.id, task.version);
+    setPending(false);
+    if (!result.success) {
+      setFailed(true);
+      return;
+    }
+    onChanged();
+  }
+
+  return (
+    <button
+      type="button"
+      data-ui
+      onClick={toggle}
+      disabled={pending || Boolean(task.cancelled_at)}
+      aria-label={done ? `${task.title} 완료 해제` : `${task.title} 완료`}
+      aria-pressed={done}
+      title={failed ? "상태를 변경하지 못했습니다." : undefined}
+      className={cn(
+        "grid shrink-0 place-items-center rounded-full transition-[transform,color,background-color] active:scale-[0.9] disabled:opacity-45",
+        compact ? "size-6" : "size-8",
+        failed && "text-flag-blocked"
+      )}
+    >
+      {pending ? (
+        <Loader2 className={cn("animate-spin", compact ? "size-4" : "size-5")} aria-hidden />
+      ) : done ? (
+        <span className={cn("grid place-items-center rounded-full bg-status-done text-white", compact ? "size-4" : "size-5")}>
+          <Check className={compact ? "size-2.5" : "size-3"} strokeWidth={3} aria-hidden />
+        </span>
+      ) : (
+        <Circle className={cn("text-text-tertiary", compact ? "size-4" : "size-5")} strokeWidth={1.8} aria-hidden />
+      )}
+    </button>
+  );
+}
+
+function TaskActionMenu({
+  task,
+  compact = false,
+  onEdit,
+  onChanged,
+}: {
+  task: Task;
+  compact?: boolean;
+  onEdit: () => void;
+  onChanged: () => void;
+}) {
+  const [pending, setPending] = useState(false);
+  const [waitOpen, setWaitOpen] = useState(false);
+  const [waitingParty, setWaitingParty] = useState("");
+  const [followUpAt, setFollowUpAt] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const done = task.status === "Done";
+
+  async function finish() {
+    setPending(true);
+    const result = done
+      ? await reopenTaskAction(task.id, task.version)
+      : await completeTaskAction(task.id, task.version);
+    setPending(false);
+    if (result.success) onChanged();
+  }
+
+  async function remove() {
+    setPending(true);
+    const result = await cancelTaskAction(task.id, task.version);
+    setPending(false);
+    if (result.success) onChanged();
+  }
+
+  async function moveToWaiting(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!waitingParty.trim() || !followUpAt) return;
+    setPending(true);
+    setError(null);
+    const result = await editTaskAction(task.id, task.version, {
+      status: "Waiting",
+      waiting_party_text: waitingParty.trim(),
+      follow_up_at: followUpAt,
+    });
+    setPending(false);
+    if (!result.success) {
+      setError(result.error ?? "대기 상태로 이동하지 못했습니다.");
+      return;
+    }
+    setWaitOpen(false);
+    onChanged();
+  }
+
+  return (
+    <>
+      <DropdownMenu.Root>
+        <DropdownMenu.Trigger asChild>
+          <button
+            type="button"
+            data-ui
+            aria-label={`${task.title} 빠른 작업`}
+            disabled={pending}
+            className={cn(
+              "grid shrink-0 place-items-center rounded-full text-text-tertiary transition-[opacity,background-color,color,transform] hover:bg-surface-2 hover:text-text active:scale-[0.92] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              compact ? "size-6" : "size-8"
+            )}
+          >
+            {pending ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <MoreHorizontal className="size-4" aria-hidden />}
+          </button>
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Portal>
+          <DropdownMenu.Content
+            align="end"
+            sideOffset={5}
+            className="z-[70] min-w-44 origin-[var(--radix-dropdown-menu-content-transform-origin)] rounded-xl border border-separator bg-elevated/95 p-1.5 shadow-xl backdrop-blur-xl data-[state=open]:animate-scale-in"
+          >
+            <DropdownMenu.Item onSelect={onEdit} className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-medium text-text outline-none data-[highlighted]:bg-surface-2">
+              <Pencil className="size-3.5" aria-hidden />
+              수정
+            </DropdownMenu.Item>
+            <DropdownMenu.Item onSelect={() => void finish()} className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-medium text-text outline-none data-[highlighted]:bg-surface-2">
+              <CircleCheck className="size-3.5" aria-hidden />
+              {done ? "완료 해제" : "완료로 이동"}
+            </DropdownMenu.Item>
+            {!done && task.status !== "Waiting" && (
+              <DropdownMenu.Item
+                onSelect={() => {
+                  setWaitingParty("");
+                  setFollowUpAt("");
+                  setError(null);
+                  setWaitOpen(true);
+                }}
+                className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-medium text-text outline-none data-[highlighted]:bg-surface-2"
+              >
+                <Clock3 className="size-3.5" aria-hidden />
+                대기로 이동
+              </DropdownMenu.Item>
+            )}
+            <DropdownMenu.Separator className="my-1 h-px bg-separator" />
+            <DropdownMenu.Item onSelect={() => void remove()} className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-medium text-flag-blocked outline-none data-[highlighted]:bg-flag-blocked/10">
+              <Trash2 className="size-3.5" aria-hidden />
+              삭제
+            </DropdownMenu.Item>
+          </DropdownMenu.Content>
+        </DropdownMenu.Portal>
+      </DropdownMenu.Root>
+
+      <Dialog.Root open={waitOpen} onOpenChange={(open) => !pending && setWaitOpen(open)}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-[80] bg-[rgb(var(--material-scrim))] backdrop-blur-[2px] data-[state=open]:animate-fade-in" />
+          <Dialog.Content
+            aria-describedby={undefined}
+            className="material-panel material-edge fixed left-1/2 top-1/2 z-[90] w-[calc(100vw-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-[22px] border border-separator p-5 shadow-xl focus:outline-none"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <Dialog.Title className="text-base font-semibold tracking-tight text-text">
+                  대기로 이동
+                </Dialog.Title>
+                <p className="mt-1 line-clamp-1 text-xs text-text-tertiary">{task.title}</p>
+              </div>
+              <Dialog.Close asChild>
+                <button type="button" aria-label="닫기" className="grid size-9 place-items-center rounded-full text-text-secondary hover:bg-surface-2">
+                  <X className="size-4" aria-hidden />
+                </button>
+              </Dialog.Close>
+            </div>
+            <form onSubmit={moveToWaiting} className="mt-5 flex flex-col gap-4">
+              {error && <p role="alert" className="rounded-xl bg-flag-blocked/10 px-3 py-2 text-xs text-flag-blocked">{error}</p>}
+              <label className="flex flex-col gap-1.5 text-xs font-semibold text-text-secondary">
+                무엇을 기다리나요
+                <input
+                  autoFocus
+                  value={waitingParty}
+                  onChange={(event) => setWaitingParty(event.target.value)}
+                  placeholder="예: 본사 승인 회신"
+                  className="h-11 rounded-xl border border-border bg-surface px-3 text-sm font-normal text-text outline-none focus:border-accent focus:ring-2 focus:ring-accent/20"
+                />
+              </label>
+              <label className="flex flex-col gap-1.5 text-xs font-semibold text-text-secondary">
+                다음 확인일
+                <input
+                  type="date"
+                  value={followUpAt}
+                  onChange={(event) => setFollowUpAt(event.target.value)}
+                  className="h-11 rounded-xl border border-border bg-surface px-3 text-sm font-normal text-text outline-none focus:border-accent focus:ring-2 focus:ring-accent/20"
+                />
+              </label>
+              <div className="flex justify-end gap-2">
+                <Dialog.Close asChild>
+                  <button type="button" className="h-10 rounded-xl px-4 text-sm font-semibold text-text-secondary hover:bg-surface-2">취소</button>
+                </Dialog.Close>
+                <button type="submit" disabled={pending || !waitingParty.trim() || !followUpAt} className="inline-flex h-10 items-center gap-2 rounded-xl bg-accent px-4 text-sm font-semibold text-white disabled:opacity-40">
+                  {pending && <Loader2 className="size-4 animate-spin" aria-hidden />}
+                  이동
+                </button>
+              </div>
+            </form>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+    </>
+  );
 }
 
 // ── hierarchy helpers (operate over a parent→children map) ──────────────────────
@@ -293,7 +537,7 @@ function computeLayout(
         key: person.id,
         name: person.name,
         color: ownerColor(person.id),
-        avatar: initials(person.name),
+        avatar: person.name,
       }));
     if (roots.some((task) => !task.assignee_id)) {
       lanes.push({
@@ -821,29 +1065,27 @@ export default function WorkflowCanvas({
                   </div>
                 </div>
                 {onAddProject && !brand.key.startsWith("_") && (
-                  <button
-                    type="button"
-                    data-ui
-                    onClick={() => onAddProject(brand.key)}
-                    className="material-thin ml-auto inline-flex h-8 items-center gap-1.5 rounded-xl px-3 text-xs font-semibold text-text-secondary shadow-xs transition-[transform,background-color,color,box-shadow] hover:text-text hover:shadow-sm active:scale-[0.97]"
-                  >
-                    <FolderPlus className="size-3.5" aria-hidden />
-                    프로젝트 추가
-                  </button>
+                  <div className="group/project-add relative ml-3 shrink-0">
+                    <button
+                      type="button"
+                      data-ui
+                      onClick={() => onAddProject(brand.key)}
+                      aria-describedby={`project-add-help-${brand.key}`}
+                      className="material-thin inline-flex h-8 items-center gap-1.5 rounded-xl px-3 text-xs font-semibold text-text-secondary shadow-xs transition-[transform,color,box-shadow] hover:text-text hover:shadow-sm active:scale-[0.97]"
+                    >
+                      <FolderPlus className="size-3.5" aria-hidden />
+                      프로젝트 추가
+                    </button>
+                    <span
+                      id={`project-add-help-${brand.key}`}
+                      role="tooltip"
+                      className="pointer-events-none absolute left-0 top-full z-40 mt-2 w-56 translate-y-1 origin-top-left rounded-xl border border-separator bg-elevated/95 px-3 py-2 text-[11px] font-medium leading-relaxed text-text-secondary opacity-0 shadow-lg backdrop-blur-xl transition-[opacity,transform] group-hover/project-add:translate-y-0 group-hover/project-add:opacity-100 group-focus-within/project-add:translate-y-0 group-focus-within/project-add:opacity-100"
+                    >
+                      프로젝트를 추가하면 이 아래에 업무 흐름이 만들어집니다.
+                    </span>
+                  </div>
                 )}
               </div>
-              {brand.projectCount === 0 && (
-                <div
-                  className="absolute text-xs text-text-tertiary"
-                  style={{
-                    top: brand.y + BRAND_HEAD_H + 12,
-                    left: 44,
-                    width: LANEPAD - 64,
-                  }}
-                >
-                  프로젝트를 추가하면 이 아래에 업무 흐름이 만들어집니다.
-                </div>
-              )}
             </div>
           ))}
 
@@ -889,7 +1131,7 @@ export default function WorkflowCanvas({
                   </div>
                 )}
                 <div className="flex items-center gap-2 text-[13px] font-semibold text-text">
-                  {l.avatar ? <span className="grid size-5 place-items-center rounded-full text-[9px] font-bold text-white" style={{ background: l.color }}>{l.avatar}</span> : <span className="size-2.5 rounded" style={{ background: l.color }} />}
+                  {l.avatar ? <span className="grid h-5 min-w-5 place-items-center rounded-full px-1.5 text-[8px] font-bold tracking-tight text-white" style={{ background: l.color }}>{l.avatar}</span> : <span className="size-2.5 rounded" style={{ background: l.color }} />}
                   {/* The band label opens the project's own edit/archive
                       dialog now, not a page — same lightweight window a task
                       opens. */}
@@ -1041,11 +1283,21 @@ export default function WorkflowCanvas({
                   dim && "opacity-30 saturate-50")}
                 style={{ left: x, top: y, width: nodeW, height: h }}>
                 <div className={cn("shrink-0", meta.dot, key_ ? "h-1.5" : "h-1")} />
+                <div className="absolute left-2 top-3 z-20">
+                  <TaskCompleteButton task={task} onChanged={() => router.refresh()} />
+                </div>
+                <div className="absolute right-2 top-3 z-30">
+                  <TaskActionMenu
+                    task={task}
+                    onEdit={() => onSelect(task)}
+                    onChanged={() => router.refresh()}
+                  />
+                </div>
                 <div className="flex flex-1 flex-col gap-2 overflow-hidden p-3">
                   {/* clickable header opens the detail panel */}
                   <button type="button" onClick={() => onSelect(task)}
-                    className="text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg rounded">
-                    {over && <span className="absolute right-2 top-2 size-2.5 rounded-full border-2 border-surface bg-flag-overdue" />}
+                    className="rounded pl-7 pr-7 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg">
+                    {over && <span className="absolute right-11 top-3 size-2.5 rounded-full border-2 border-surface bg-flag-overdue" />}
                     <div className="mb-1.5 flex flex-wrap items-center gap-1">
                       {key_ && (
                         <span className="inline-flex items-center gap-1 rounded-full border border-text/20 px-1.5 py-px text-[9px] font-bold uppercase tracking-wide text-text-secondary">
@@ -1075,7 +1327,7 @@ export default function WorkflowCanvas({
                         </span>
                       )}
                       <span className={cn("ml-auto inline-flex items-center gap-1.5 text-[11px] font-medium text-text-secondary", lod === "compact" && "hidden")}>
-                        {assignee ? <><span className="grid size-[18px] place-items-center rounded-full text-[9px] font-bold text-white" style={{ background: ownerColor(assignee.id) }}>{initials(assignee.name)}</span>{assignee.name.split(" ")[0]}</> : "미지정"}
+                        {assignee ? <span className="grid h-5 min-w-5 place-items-center rounded-full px-1.5 text-[9px] font-bold tracking-tight text-white" style={{ background: ownerColor(assignee.id) }}>{assignee.name}</span> : "미지정"}
                       </span>
                     </div>
                     {/* No progress bar. A leaf task has no measurable percentage
@@ -1098,7 +1350,6 @@ export default function WorkflowCanvas({
                   {rows.length > 0 && (
                     <div className="flex flex-col overflow-hidden border-t border-separator pt-1">
                       {rows.map(({ task: c, depth, hasKids: ck, open: co }) => {
-                        const cm2 = statusMeta(c.status);
                         const [cd, cn2] = subCount(c, childMap);
                         const cav = c.assignee_id ? members[c.assignee_id] : undefined;
                         return (
@@ -1108,12 +1359,13 @@ export default function WorkflowCanvas({
                                 <ChevronRight className={cn("size-3 transition-transform", co && "rotate-90")} />
                               </button>
                             ) : <span className="size-4 shrink-0" />}
-                            <span className={cn("size-2 shrink-0 rounded-full", cm2.dot)} />
+                            <TaskCompleteButton task={c} compact onChanged={() => router.refresh()} />
                             <button type="button" onClick={() => onSelect(c)} className={cn("flex-1 truncate text-left text-[12px] font-medium hover:underline", isKey(c) && "font-semibold", c.status === "Done" && "text-text-tertiary line-through")}>{c.title}</button>
                             {/* still counted here, but it also has its own card */}
                             {isKey(c) && <ArrowUpRight className="size-3 shrink-0 text-text-tertiary" aria-label="핵심 업무 — 보드에 별도 카드로 표시됨" />}
                             {ck && <span className="shrink-0 font-mono text-[9.5px] tabular-nums text-text-tertiary">{cd}/{cn2}</span>}
-                            {cav && <span className="grid size-4 shrink-0 place-items-center rounded-full text-[8px] font-bold text-white" style={{ background: ownerColor(cav.id) }}>{initials(cav.name)}</span>}
+                            {cav && <span className="grid h-4 min-w-4 shrink-0 place-items-center rounded-full px-1 text-[7px] font-bold tracking-tight text-white" style={{ background: ownerColor(cav.id) }}>{cav.name}</span>}
+                            <TaskActionMenu task={c} compact onEdit={() => onSelect(c)} onChanged={() => router.refresh()} />
                           </div>
                         );
                       })}

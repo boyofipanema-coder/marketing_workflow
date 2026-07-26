@@ -293,9 +293,9 @@ describe("waiting", () => {
 // ---------------------------------------------------------------------------
 
 describe("review", () => {
-  it("includes tasks where viewer is reviewer", () => {
+  it("does not use the retired reviewer field", () => {
     const t = makeTask({ status: "Review", reviewer_id: "v", assignee_id: "other" });
-    expect(review([t], "v")).toContain(t);
+    expect(review([t], "v")).not.toContain(t);
   });
 
   it("includes tasks where viewer is assignee", () => {

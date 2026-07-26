@@ -10,7 +10,7 @@ import ProjectFormDialog from "./projects/ProjectFormDialog";
 import { Button } from "@/components/ui";
 import { createTaskAction } from "@/app/actions/tasks";
 import { switchMemberAction } from "@/app/actions/identity";
-import { ownerColor, initials } from "@/lib/colors";
+import { ownerColor } from "@/lib/colors";
 import { cn } from "@/lib/utils";
 import type { Brand, Member } from "@/server/db/schema";
 
@@ -165,10 +165,10 @@ export default function NavBar({ members, brands, viewerId }: NavBarProps) {
                   type="submit"
                   title="다른 사람으로 전환"
                   aria-label={`${viewer.name}님 — 다른 사람으로 전환`}
-                  className="grid size-8 flex-shrink-0 place-items-center rounded-full text-xs font-bold text-white transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+                  className="grid h-8 min-w-8 flex-shrink-0 place-items-center rounded-full px-2 text-[11px] font-bold tracking-tight text-white transition-[transform,opacity] hover:opacity-85 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
                   style={{ background: ownerColor(viewer.id) }}
                 >
-                  {initials(viewer.name)}
+                  {viewer.name}
                 </button>
               </form>
             )}

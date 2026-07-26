@@ -44,7 +44,6 @@ export interface CreateProjectTaskParams {
   importance?: TaskImportance;
   kind?: TaskKind;
   assigneeId?: string | null;
-  reviewerId?: string | null;
   startDate?: string | null;
   dueDate?: string | null;
   dueTime?: string | null;
@@ -698,10 +697,9 @@ export async function createProjectTask(
     throw new ValidationError("다음 확인일을 선택해 주세요.");
   }
 
-  const memberIds = [
-    params.assigneeId ?? null,
-    params.reviewerId ?? null,
-  ].filter((id): id is string => Boolean(id));
+  const memberIds = [params.assigneeId ?? null].filter(
+    (id): id is string => Boolean(id)
+  );
   if (memberIds.length > 0) {
     const scopedMembers = await db
       .select({ id: memberTable.id })
@@ -713,7 +711,7 @@ export async function createProjectTask(
         )
       );
     if (scopedMembers.length !== new Set(memberIds).size) {
-      throw new ValidationError("워크스페이스에 없는 담당자 또는 검토자입니다.");
+      throw new ValidationError("워크스페이스에 없는 담당자입니다.");
     }
   }
 
@@ -729,7 +727,7 @@ export async function createProjectTask(
     importance,
     kind,
     assignee_id: params.assigneeId ?? null,
-    reviewer_id: params.reviewerId ?? null,
+    reviewer_id: null,
     start_date: startDate,
     due_date: dueDate,
     due_time: dueTime,
