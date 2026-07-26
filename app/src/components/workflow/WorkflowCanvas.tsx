@@ -114,6 +114,7 @@ const LANE_PAD = 12;
 const LANE_GAP = 18;
 const CAP = 4;
 const ADD_H = 42; // inline "add subtask" input row
+const PROJ_HEADER_H = 22; // project sub-header inside a brand lane's column
 // A key task earns its extra height from importance alone — never from how many
 // subtasks it happens to carry (see cardHeight).
 const KEY_EXTRA = 14;
@@ -175,6 +176,9 @@ interface Layout {
   nodes: Positioned[];
   rails: Rail[];
   overflow: { cellKey: string; x: number; y: number; count: number; open: boolean }[];
+  /** Project sub-headers inside a brand lane's column — the middle tier of
+   * 브랜드-프로젝트-업무 that a flattened brand lane would otherwise lose. */
+  projectHeaders: { key: string; name: string; x: number; y: number }[];
   /** A dashed tether from a promoted (key) descendant back to its real parent. */
   edges: { d: string; laneKey: string; kind: "parent" }[];
   worldW: number;
@@ -322,6 +326,8 @@ function computeLayout(
   const nodes: Positioned[] = [];
   const rails: Rail[] = [];
   const overflow: Layout["overflow"] = [];
+  const projectHeaders: Layout["projectHeaders"] = [];
+  const projectNameOf = new Map(projects.map((p) => [p.id, p.name]));
   const laneOut: Layout["lanes"] = [];
   let y = TOP;
   if (boardMs.length) {
@@ -340,10 +346,28 @@ function computeLayout(
     let laneMaxBottom = laneTop + railH + CARD_BASE;
     for (let s = 0; s < STAGE_COUNT; s++) {
       const arr = cell.get(`${lane.key}|${s}`) ?? [];
+      // A brand lane flattens every project's tasks together, so without this
+      // grouping the middle tier of 브랜드-프로젝트-업무 is lost entirely —
+      // group (stably, so the existing key/due ordering holds within a group)
+      // before the cap/overflow slicing below.
+      const ordered = groupBy === "brand"
+        ? [...arr].sort((a, b) => (projectNameOf.get(a.project_id ?? "") ?? "").localeCompare(projectNameOf.get(b.project_id ?? "") ?? ""))
+        : arr;
       const isOpen = cellsOpen.has(`${lane.key}|${s}`);
-      const shown = isOpen ? arr : arr.slice(0, CAP);
+      const shown = isOpen ? ordered : ordered.slice(0, CAP);
       let cy = laneTop + 10 + railH;
+      let lastProject: string | null | undefined;
       for (const t of shown) {
+        if (groupBy === "brand" && t.project_id !== lastProject) {
+          lastProject = t.project_id;
+          projectHeaders.push({
+            key: `${lane.key}|${s}|${t.project_id ?? "_none"}`,
+            name: t.project_id ? (projectNameOf.get(t.project_id) ?? "") : "미분류",
+            x: LANEPAD + s * COLW,
+            y: cy,
+          });
+          cy += PROJ_HEADER_H;
+        }
         const h = cardHeight(t, cm, subsOpen, addingId, lod);
         nodes.push({ task: t, x: LANEPAD + s * COLW, y: cy, h });
         cy += h + VGAP;
@@ -390,7 +414,7 @@ function computeLayout(
     });
   }
 
-  return { lanes: laneOut, columns, nodes, rails, overflow, edges, worldW: LANEPAD + STAGE_COUNT * COLW + 40, worldH: contentBottom + 40 };
+  return { lanes: laneOut, columns, nodes, rails, overflow, projectHeaders, edges, worldW: LANEPAD + STAGE_COUNT * COLW + 40, worldH: contentBottom + 40 };
 }
 
 // ── component ─────────────────────────────────────────────────────────────────
@@ -886,11 +910,6 @@ export default function WorkflowCanvas({
             const key_ = isKey(task);
             const parentId = parentOf.get(task.id);
             const parentTitle = parentId ? tasks.find((x) => x.id === parentId)?.title : undefined;
-            // Brand lanes flatten every project's tasks together, so without
-            // this the middle tier of 브랜드-프로젝트-업무 is invisible per card.
-            const projectName = groupBy === "brand" && task.project_id
-              ? projects?.find((p) => p.id === task.project_id)?.name
-              : undefined;
             // Compact has no toggle to collapse an already-expanded subtree
             // (the meter button below is itself lod-gated), so it must not
             // render the rows in the first place — matches cardHeight's guard.
@@ -914,11 +933,6 @@ export default function WorkflowCanvas({
                       {key_ && (
                         <span className="inline-flex items-center gap-1 rounded-full border border-text/20 px-1.5 py-px text-[9px] font-bold uppercase tracking-wide text-text-secondary">
                           핵심
-                        </span>
-                      )}
-                      {projectName && (
-                        <span className="inline-flex min-w-0 items-center truncate rounded-full bg-surface-2 px-1.5 py-px text-[9.5px] font-medium text-text-tertiary">
-                          {projectName}
                         </span>
                       )}
                       {/* Pulled out of a parent card — say what it sits under,
@@ -1024,6 +1038,17 @@ export default function WorkflowCanvas({
               </div>
             );
           })}
+
+          {/* project sub-headers — the middle tier of 브랜드-프로젝트-업무,
+              shown only in brand groupBy since that's the one axis that
+              otherwise flattens every project's tasks into one lane. */}
+          {layout.projectHeaders.map((h) => (
+            <div key={h.key} className="absolute flex items-center gap-1 truncate text-[10.5px] font-semibold uppercase tracking-wide text-text-tertiary"
+              style={{ left: h.x, top: h.y, width: NODEW }}>
+              <span className="size-1 shrink-0 rounded-full bg-text-tertiary" />
+              {h.name}
+            </div>
+          ))}
 
           {/* "+N more" expanders */}
           {layout.overflow.map((o) => (
