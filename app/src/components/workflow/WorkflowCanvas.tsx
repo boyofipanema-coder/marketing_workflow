@@ -358,8 +358,11 @@ const VGAP = 12;
 const CHIP_H = 34;
 const LANE_PAD = 12;
 const LANE_GAP = 18;
-const BRAND_HEAD_H = 96;
-const BRAND_EMPTY_H = 58;
+// Brand chrome stays deliberately compact: every pixel reserved here becomes
+// an empty strip across all three task columns. Empty brands need no separate
+// body below the header; the add-project control already supplies their action.
+const BRAND_HEAD_H = 70;
+const BRAND_EMPTY_H = 10;
 const BRAND_GAP = 28;
 const CAP = 4;
 const ADD_H = 42; // inline "add subtask" input row
@@ -1050,27 +1053,24 @@ export default function WorkflowCanvas({
               />
               <div
                 className="absolute z-20 flex items-start"
-                style={{ top: brand.y + 10, left: 28, width: boardW - 48 }}
+                style={{ top: brand.y + 7, left: 28, width: boardW - 48 }}
               >
-                <span className="mr-2.5 mt-5 size-3 shrink-0 rounded-[4px]" style={{ background: brand.color }} aria-hidden />
+                <span className="mr-2.5 mt-1 size-3 shrink-0 rounded-[4px]" style={{ background: brand.color }} aria-hidden />
                 <div className="min-w-0" style={{ width: LANEPAD - 76 }}>
-                  <div className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">
-                    브랜드
-                  </div>
-                  <div className="truncate text-[16px] font-semibold tracking-tight text-text">
+                  <div className="truncate text-[15px] font-semibold leading-5 tracking-tight text-text">
                     {brand.name}
                   </div>
-                  <div className="truncate text-[10px] font-medium tabular-nums text-text-tertiary">
+                  <div className="truncate text-[10px] font-medium leading-3.5 tabular-nums text-text-tertiary">
                     프로젝트 {brand.projectCount} · 업무 {brand.total} · 완료 {brand.done}
                   </div>
                   {onAddProject && !brand.key.startsWith("_") && (
-                    <div className="group/project-add relative mt-1.5 w-max">
+                    <div className="group/project-add relative mt-0.5 w-max">
                       <button
                         type="button"
                         data-ui
                         onClick={() => onAddProject(brand.key)}
                         aria-describedby={`project-add-help-${brand.key}`}
-                        className="material-thin inline-flex h-7 items-center gap-1.5 rounded-xl px-2.5 text-[10.5px] font-semibold text-text-secondary shadow-xs transition-[transform,color,box-shadow] hover:text-text hover:shadow-sm active:scale-[0.97]"
+                        className="material-thin inline-flex h-6 items-center gap-1.5 rounded-lg px-2 text-[10px] font-semibold text-text-secondary shadow-xs transition-[transform,color,box-shadow] hover:text-text hover:shadow-sm active:scale-[0.97]"
                       >
                         <FolderPlus className="size-3" aria-hidden />
                         프로젝트 추가
