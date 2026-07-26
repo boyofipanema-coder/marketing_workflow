@@ -135,7 +135,7 @@ export default function HomeContent({
               workstreams={workstreams}
               members={membersRecord}
               projects={projects}
-              defaultGroupBy="project"
+              defaultGroupBy="brand"
               onSelect={controller.select}
               onEditProject={setEditingProject}
               focus={boardFocus}

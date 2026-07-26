@@ -886,6 +886,11 @@ export default function WorkflowCanvas({
             const key_ = isKey(task);
             const parentId = parentOf.get(task.id);
             const parentTitle = parentId ? tasks.find((x) => x.id === parentId)?.title : undefined;
+            // Brand lanes flatten every project's tasks together, so without
+            // this the middle tier of 브랜드-프로젝트-업무 is invisible per card.
+            const projectName = groupBy === "brand" && task.project_id
+              ? projects?.find((p) => p.id === task.project_id)?.name
+              : undefined;
             // Compact has no toggle to collapse an already-expanded subtree
             // (the meter button below is itself lod-gated), so it must not
             // render the rows in the first place — matches cardHeight's guard.
@@ -909,6 +914,11 @@ export default function WorkflowCanvas({
                       {key_ && (
                         <span className="inline-flex items-center gap-1 rounded-full border border-text/20 px-1.5 py-px text-[9px] font-bold uppercase tracking-wide text-text-secondary">
                           핵심
+                        </span>
+                      )}
+                      {projectName && (
+                        <span className="inline-flex min-w-0 items-center truncate rounded-full bg-surface-2 px-1.5 py-px text-[9.5px] font-medium text-text-tertiary">
+                          {projectName}
                         </span>
                       )}
                       {/* Pulled out of a parent card — say what it sits under,
