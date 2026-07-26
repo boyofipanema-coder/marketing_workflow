@@ -347,11 +347,13 @@ interface Lane {
 // ── geometry ──────────────────────────────────────────────────────────────────
 const TOP = 42;
 // Regular boards keep their established label gutter. The hierarchy board
-// replaces it with two real, equal-width Brand and Project columns.
+// replaces it with real Brand and Project columns.
 const LANEPAD = 220;
 const COLW = 340;
 const HIERARCHY_COLW = 240;
 const COLGAP = 18;
+const HIERARCHY_INSET = 24;
+const BRAND_SLOT_RATIO = 0.6;
 const CARD_BASE = 96; // header block: title + meta (no progress bar — see card render)
 const METER_H = 34; // the "⤷ n/m subtasks" row (present when a card has children)
 const SUB_PAD = 8;
@@ -375,6 +377,44 @@ const RAIL_LABEL_W = 76; // left inset holding the "마일스톤" caption
 const RAIL_GAP = 8;
 
 export type Lod = "full" | "compact";
+
+export interface HierarchyGeometry {
+  inset: number;
+  brandW: number;
+  colW: number;
+  brandX: number;
+  projectX: number;
+  stageX: number;
+  boardW: number;
+  worldW: number;
+}
+
+export function computeHierarchyGeometry(stageWidth: number): HierarchyGeometry {
+  // Preserve the old five-column minimum as one coordinated constraint: the
+  // brand remains exactly 60% of its former equal slot even while scrolling.
+  const slotsW = Math.max(
+    HIERARCHY_COLW * (STAGE_COUNT + 2),
+    stageWidth ? stageWidth - HIERARCHY_INSET * 2 + COLGAP : 0,
+  );
+  const equalW = slotsW / (STAGE_COUNT + 2);
+  const brandW = equalW * BRAND_SLOT_RATIO;
+  const colW = (slotsW - brandW) / (STAGE_COUNT + 1);
+  const boardW = slotsW - COLGAP;
+  const brandX = HIERARCHY_INSET;
+  const projectX = brandX + brandW;
+  const stageX = projectX + colW;
+
+  return {
+    inset: HIERARCHY_INSET,
+    brandW,
+    colW,
+    brandX,
+    projectX,
+    stageX,
+    boardW,
+    worldW: HIERARCHY_INSET + boardW + HIERARCHY_INSET,
+  };
+}
 
 export function cardHeight(
   t: Task,
@@ -482,6 +522,7 @@ function computeLayout(
   projects: Project[],
   groupBy: GroupBy,
   hierarchyMode: boolean,
+  hierarchyGeometry: HierarchyGeometry | null,
   cellsOpen: Set<string>,
   subsOpen: Set<string>,
   addingId: string | null,
@@ -491,7 +532,7 @@ function computeLayout(
   nodeW: number,
   dependencies?: Record<string, string[]>,
 ): Layout {
-  const lanePad = hierarchyMode ? colW * 2 : LANEPAD;
+  const lanePad = hierarchyGeometry?.stageX ?? LANEPAD;
   const stageLabels = hierarchyMode ? HIERARCHY_STAGE_LABELS : STATUS_STAGE_LABELS;
   const stageTokens = hierarchyMode ? HIERARCHY_STAGE_TOKENS : STATUS_STAGE_TOKENS;
   const columnIndexOf = (task: Task) =>
@@ -775,7 +816,7 @@ function computeLayout(
     overflow,
     projectHeaders,
     edges,
-    worldW: lanePad + STAGE_COUNT * colW - COLGAP + 16,
+    worldW: hierarchyGeometry?.worldW ?? lanePad + STAGE_COUNT * colW - COLGAP + 16,
     worldH: contentBottom + 40,
   };
 }
@@ -855,15 +896,17 @@ export default function WorkflowCanvas({
   const stageRef = useRef<HTMLDivElement>(null);
   const hierarchyView = hierarchyMode && groupBy === "brand";
   const effectiveGroupBy: GroupBy = hierarchyView ? "project" : groupBy;
-  const visibleColumnCount = hierarchyView ? STAGE_COUNT + 2 : STAGE_COUNT;
-  const minimumColumnWidth = hierarchyView ? HIERARCHY_COLW : COLW;
-  const colW = Math.max(
-    minimumColumnWidth,
-    stageWidth ? (stageWidth + COLGAP - 32) / visibleColumnCount : minimumColumnWidth,
+  const hierarchyGeometry = useMemo(
+    () => hierarchyView ? computeHierarchyGeometry(stageWidth) : null,
+    [hierarchyView, stageWidth],
   );
-  const lanePad = hierarchyView ? colW * 2 : LANEPAD;
+  const colW = hierarchyGeometry?.colW ?? Math.max(
+    COLW,
+    stageWidth ? (stageWidth + COLGAP - 32) / STAGE_COUNT : COLW,
+  );
+  const lanePad = hierarchyGeometry?.stageX ?? LANEPAD;
   const nodeW = colW - COLGAP - 6;
-  const boardW = lanePad + STAGE_COUNT * colW - COLGAP;
+  const boardW = hierarchyGeometry?.boardW ?? lanePad + STAGE_COUNT * colW - COLGAP;
 
   // project_id → brand id, used by the optional Brand axis.
   const projectBrand = useMemo(
@@ -903,8 +946,8 @@ export default function WorkflowCanvas({
   const lod = "full" as Lod;
 
   const layout = useMemo(
-    () => computeLayout(canvasPlaced, roots, milestones, childMap, laneOf, canvasParentOf, workstreams, members, brands, projects ?? [], effectiveGroupBy, hierarchyView, cellsOpen, subsOpen, addingFor, lod, projectBrand, colW, nodeW, dependencies),
-    [canvasPlaced, roots, milestones, childMap, laneOf, canvasParentOf, workstreams, members, brands, projects, effectiveGroupBy, hierarchyView, cellsOpen, subsOpen, addingFor, lod, projectBrand, colW, nodeW, dependencies],
+    () => computeLayout(canvasPlaced, roots, milestones, childMap, laneOf, canvasParentOf, workstreams, members, brands, projects ?? [], effectiveGroupBy, hierarchyView, hierarchyGeometry, cellsOpen, subsOpen, addingFor, lod, projectBrand, colW, nodeW, dependencies),
+    [canvasPlaced, roots, milestones, childMap, laneOf, canvasParentOf, workstreams, members, brands, projects, effectiveGroupBy, hierarchyView, hierarchyGeometry, cellsOpen, subsOpen, addingFor, lod, projectBrand, colW, nodeW, dependencies],
   );
 
   // open the inline subtask composer under a card
@@ -1060,27 +1103,30 @@ export default function WorkflowCanvas({
       >
         <div className="absolute left-0 top-0" style={{ width: layout.worldW, height: layout.worldH }}>
           <div
-            className="pointer-events-none absolute left-0 top-0 rounded-b-2xl border-b border-separator/60 bg-surface/[0.22] backdrop-blur-sm"
-            style={{ width: boardW, height: TOP - 6 }}
+            className="pointer-events-none absolute top-0 rounded-b-2xl border-b border-separator/60 bg-surface/[0.22] backdrop-blur-sm"
+            style={{ left: hierarchyGeometry?.inset ?? 0, width: boardW, height: TOP - 6 }}
           />
-          {hierarchyView && (
+          {hierarchyView && hierarchyGeometry && (
             <>
-              {["브랜드", "프로젝트"].map((label, index) => (
-                <div key={label}>
+              {[
+                { label: "브랜드", x: hierarchyGeometry.brandX, width: hierarchyGeometry.brandW },
+                { label: "프로젝트", x: hierarchyGeometry.projectX, width: hierarchyGeometry.colW },
+              ].map((column) => (
+                <div key={column.label}>
                   <div
                     className="pointer-events-none absolute rounded-2xl border border-white/20 bg-surface/[0.18] backdrop-blur-[2px]"
                     style={{
-                      left: index * colW,
+                      left: column.x,
                       top: TOP,
-                      width: colW - COLGAP,
+                      width: column.width - COLGAP,
                       height: layout.worldH - TOP - 8,
                     }}
                   />
                   <div
                     className="absolute inline-flex h-7 w-max items-center rounded-full bg-surface-2 px-3 text-xs font-semibold text-text-secondary"
-                    style={{ left: index * colW, top: TOP - 40 }}
+                    style={{ left: column.x, top: TOP - 40 }}
                   >
-                    {label}
+                    {column.label}
                   </div>
                 </div>
               ))}
@@ -1091,21 +1137,23 @@ export default function WorkflowCanvas({
           {layout.brands.map((brand) => (
             <div key={`brand-${brand.key}`}>
               <div
-                className="pointer-events-none absolute rounded-[22px] border border-separator/80 bg-surface/30 shadow-xs backdrop-blur-sm"
+                className="pointer-events-none absolute overflow-hidden rounded-xl border border-separator/80 bg-surface/30 shadow-xs backdrop-blur-sm"
                 style={{
                   top: brand.y,
-                  left: 10,
-                  width: boardW - 10,
+                  left: hierarchyGeometry?.brandX ?? 10,
+                  width: boardW,
                   height: brand.h,
                 }}
-              />
+              >
+                <div className="absolute inset-y-0 -left-px w-2" style={{ background: brand.color }} />
+              </div>
               <div
-                className="pointer-events-none absolute rounded-full shadow-sm"
-                style={{ top: brand.y + 12, left: 10, width: 4, height: Math.max(20, brand.h - 24), background: brand.color }}
-              />
-              <div
-                className="material-panel material-edge absolute z-20 flex flex-col gap-1 rounded-[16px] border border-separator p-2.5 shadow-sm"
-                style={{ top: brand.y + 10, left: 12, width: colW - 24 }}
+                className="material-panel material-edge absolute z-20 flex min-w-0 flex-col gap-1 rounded-lg border border-separator p-2.5 shadow-sm"
+                style={{
+                  top: brand.y + 10,
+                  left: (hierarchyGeometry?.brandX ?? 0) + 16,
+                  width: (hierarchyGeometry?.brandW ?? colW) - 24,
+                }}
               >
                 <div className="flex min-w-0 items-center gap-2">
                   <span className="size-3 shrink-0 rounded-[4px]" style={{ background: brand.color }} aria-hidden />
@@ -1163,8 +1211,8 @@ export default function WorkflowCanvas({
                 className="pointer-events-none absolute rounded-2xl border border-separator/70 bg-surface/[0.32] backdrop-blur-[2px]"
                 style={{
                   top: l.y,
-                  left: hierarchyView ? colW : 0,
-                  width: boardW - (hierarchyView ? colW : 0),
+                  left: hierarchyGeometry?.projectX ?? 0,
+                  width: boardW - (hierarchyGeometry?.brandW ?? 0),
                   height: l.h,
                 }}
               />
@@ -1176,7 +1224,7 @@ export default function WorkflowCanvas({
                   style={{ top: l.y + 10, left: 0, width: 3, height: Math.max(18, l.h - 20), background: l.color }}
                 />
               )}
-              <div className="material-panel material-edge absolute z-10 flex flex-col gap-1.5 rounded-[16px] border border-separator p-3 shadow-sm" style={{ top: l.y + 10, left: hierarchyView ? colW + 12 : 10, width: hierarchyView ? colW - 24 : LANEPAD - 28 }}>
+              <div className="material-panel material-edge absolute z-10 flex flex-col gap-1.5 rounded-[16px] border border-separator p-3 shadow-sm" style={{ top: l.y + 10, left: hierarchyGeometry ? hierarchyGeometry.projectX + 12 : 10, width: hierarchyView ? colW - 24 : LANEPAD - 28 }}>
                 {hierarchyView && (
                   <div className="text-[9px] font-semibold uppercase tracking-wider text-text-tertiary">
                     프로젝트

@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { cardHeight, hierarchyStageIndex } from "../WorkflowCanvas";
+import {
+  cardHeight,
+  computeHierarchyGeometry,
+  hierarchyStageIndex,
+} from "../WorkflowCanvas";
 import { makeTaskFixture } from "@/server/db/fixtures";
 import type { ChildMap } from "@/lib/board-graph";
 
@@ -62,5 +66,41 @@ describe("hierarchyStageIndex", () => {
         makeTaskFixture({ status: "Done", parent_task_id: "parent" })
       )
     ).toBe(2);
+  });
+});
+
+describe("computeHierarchyGeometry", () => {
+  it("makes the brand slot 60% of the former equal slot", () => {
+    const geometry = computeHierarchyGeometry(1600);
+    const formerEqualSlot = (geometry.boardW + 18) / 5;
+
+    expect(geometry.brandW).toBeCloseTo(formerEqualSlot * 0.6, 8);
+  });
+
+  it("redistributes the remaining width equally across the other four slots", () => {
+    const geometry = computeHierarchyGeometry(1600);
+    const slotsW = geometry.boardW + 18;
+
+    expect(geometry.colW).toBeCloseTo((slotsW - geometry.brandW) / 4, 8);
+    expect(geometry.brandW + geometry.colW * 4).toBeCloseTo(slotsW, 8);
+  });
+
+  it("keeps 24px outer insets and aligned non-overlapping origins", () => {
+    const geometry = computeHierarchyGeometry(1600);
+
+    expect(geometry.brandX).toBe(24);
+    expect(geometry.projectX).toBeCloseTo(geometry.brandX + geometry.brandW, 8);
+    expect(geometry.stageX).toBeCloseTo(geometry.projectX + geometry.colW, 8);
+    expect(geometry.worldW).toBe(1600);
+    expect(geometry.worldW - (geometry.brandX + geometry.boardW)).toBe(24);
+  });
+
+  it("applies the five-column minimum as one coordinated constraint", () => {
+    const geometry = computeHierarchyGeometry(800);
+
+    expect(geometry.brandW).toBe(144);
+    expect(geometry.colW).toBe(264);
+    expect(geometry.boardW).toBe(1182);
+    expect(geometry.worldW).toBe(1230);
   });
 });
