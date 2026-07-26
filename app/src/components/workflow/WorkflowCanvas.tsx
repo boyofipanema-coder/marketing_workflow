@@ -99,14 +99,13 @@ interface Lane {
 }
 
 // ── geometry ──────────────────────────────────────────────────────────────────
-const TOP = 50;
+const TOP = 42;
 // A real hierarchy column, not a caption gutter: project needs enough width
 // to carry its name, objective, progress and direct task creation.
 const LANEPAD = 220;
 // 5 columns → 3 frees up real width; cards use it instead of leaving it empty.
 const COLW = 340;
 const COLGAP = 18;
-const NODEW = COLW - COLGAP - 6;
 const CARD_BASE = 96; // header block: title + meta (no progress bar — see card render)
 const METER_H = 34; // the "⤷ n/m subtasks" row (present when a card has children)
 const SUB_PAD = 8;
@@ -241,6 +240,8 @@ function computeLayout(
   addingId: string | null,
   lod: Lod,
   projectBrand: Map<string, string>,
+  colW: number,
+  nodeW: number,
   dependencies?: Record<string, string[]>,
 ): Layout {
   // Lane membership is decided by the root of a task's tree, so a promoted
@@ -343,7 +344,7 @@ function computeLayout(
   }
 
   const railX = LANEPAD;
-  const railW = STAGE_COUNT * COLW - COLGAP;
+  const railW = STAGE_COUNT * colW - COLGAP;
   const buildRail = (key: string, list: Task[], y: number): Rail => {
     // Position carries due-date ORDER only; the exact date is on every label,
     // so a crowded rail degrades into a readable list rather than a lie about
@@ -395,11 +396,11 @@ function computeLayout(
       let cy = laneTop + 10 + railH;
       for (const t of shown) {
         const h = cardHeight(t, cm, subsOpen, addingId, lod);
-        nodes.push({ task: t, x: LANEPAD + s * COLW, y: cy, h });
+        nodes.push({ task: t, x: LANEPAD + s * colW, y: cy, h });
         cy += h + VGAP;
       }
       if (arr.length > CAP) {
-        overflow.push({ cellKey: `${lane.key}|${s}`, x: LANEPAD + s * COLW, y: cy, count: isOpen ? arr.length : arr.length - CAP, open: isOpen });
+        overflow.push({ cellKey: `${lane.key}|${s}`, x: LANEPAD + s * colW, y: cy, count: isOpen ? arr.length : arr.length - CAP, open: isOpen });
         cy += CHIP_H;
       }
       laneMaxBottom = Math.max(laneMaxBottom, cy);
@@ -463,7 +464,7 @@ function computeLayout(
 
   const columns = STAGE_LABELS.map((_, i) => ({
     i,
-    x: LANEPAD + i * COLW,
+    x: LANEPAD + i * colW,
     count: placed.filter((t) => stageIndex(t.status) === i).length,
   }));
 
@@ -482,8 +483,8 @@ function computeLayout(
     if (!parentId) continue;
     const p = posOf.get(parentId);
     if (!p) continue;
-    const ax = p.x + NODEW / 2, ay = p.y + p.h;
-    const bx = n.x + NODEW / 2, by = n.y;
+    const ax = p.x + nodeW / 2, ay = p.y + p.h;
+    const bx = n.x + nodeW / 2, by = n.y;
     const my = (ay + by) / 2;
     edges.push({
       d: `M ${ax} ${ay} C ${ax} ${my}, ${bx} ${my}, ${bx} ${by}`,
@@ -500,7 +501,7 @@ function computeLayout(
     for (const predId of preds) {
       const a = posOf.get(predId);
       if (!a) continue;
-      const ax = a.x + NODEW, ay = a.y + 30, bx = b.x, by = b.y + 30;
+      const ax = a.x + nodeW, ay = a.y + 30, bx = b.x, by = b.y + 30;
       const mx = (ax + bx) / 2;
       edges.push({
         d: `M ${ax} ${ay} C ${mx} ${ay}, ${mx} ${by}, ${bx} ${by}`,
@@ -519,7 +520,7 @@ function computeLayout(
     overflow,
     projectHeaders,
     edges,
-    worldW: LANEPAD + STAGE_COUNT * COLW + 40,
+    worldW: LANEPAD + STAGE_COUNT * colW - COLGAP + 16,
     worldH: contentBottom + 40,
   };
 }
@@ -599,19 +600,25 @@ export default function WorkflowCanvas({
   const [addingFor, setAddingFor] = useState<string | null>(null);
   const [addValue, setAddValue] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
-  const [addingProjectId, setAddingProjectId] = useState<string | null>(null);
-  const [projectAddValue, setProjectAddValue] = useState("");
-  const [projectAddError, setProjectAddError] = useState<string | null>(null);
+  const [stageWidth, setStageWidth] = useState(0);
   const [pending, startTransition] = useTransition();
   const router = useRouter();
   const addInputRef = useRef<HTMLInputElement>(null);
-  const projectInputRef = useRef<HTMLInputElement>(null);
 
   const stageRef = useRef<HTMLDivElement>(null);
   const worldRef = useRef<HTMLDivElement>(null);
-  const view = useRef({ x: 0, y: 8, scale: 1 });
+  const view = useRef({ x: 0, y: 0, scale: 1 });
   const hierarchyView = hierarchyMode && groupBy === "brand";
   const effectiveGroupBy: GroupBy = hierarchyView ? "project" : groupBy;
+  // On wide screens every status column expands into the available canvas.
+  // On narrower screens the established card width remains the lower bound,
+  // preserving legibility and falling back to pan/fit rather than squeezing.
+  const colW = Math.max(
+    COLW,
+    stageWidth ? (stageWidth - LANEPAD + COLGAP - 32) / STAGE_COUNT : COLW,
+  );
+  const nodeW = colW - COLGAP - 6;
+  const boardW = LANEPAD + STAGE_COUNT * colW - COLGAP;
 
   // project_id → brand id, used by the optional Brand axis.
   const projectBrand = useMemo(
@@ -633,8 +640,8 @@ export default function WorkflowCanvas({
   const lod: Lod = zoomPct >= 70 ? "full" : "compact";
 
   const layout = useMemo(
-    () => computeLayout(placed, roots, milestones, childMap, laneOf, parentOf, workstreams, members, brands, projects ?? [], effectiveGroupBy, hierarchyView, cellsOpen, subsOpen, addingFor, lod, projectBrand, dependencies),
-    [placed, roots, milestones, childMap, laneOf, parentOf, workstreams, members, brands, projects, effectiveGroupBy, hierarchyView, cellsOpen, subsOpen, addingFor, lod, projectBrand, dependencies],
+    () => computeLayout(placed, roots, milestones, childMap, laneOf, parentOf, workstreams, members, brands, projects ?? [], effectiveGroupBy, hierarchyView, cellsOpen, subsOpen, addingFor, lod, projectBrand, colW, nodeW, dependencies),
+    [placed, roots, milestones, childMap, laneOf, parentOf, workstreams, members, brands, projects, effectiveGroupBy, hierarchyView, cellsOpen, subsOpen, addingFor, lod, projectBrand, colW, nodeW, dependencies],
   );
 
   // open the inline subtask composer under a card
@@ -663,29 +670,6 @@ export default function WorkflowCanvas({
         router.refresh();
       } else {
         setAddError(res.error ?? "세부 업무를 추가하지 못했습니다");
-      }
-    });
-  }
-
-  function startProjectTask(projectId: string) {
-    setAddingProjectId(projectId);
-    setProjectAddValue("");
-    setProjectAddError(null);
-    requestAnimationFrame(() => projectInputRef.current?.focus());
-  }
-
-  function submitProjectTask(projectId: string) {
-    const title = projectAddValue.trim();
-    if (!title || !onAddProjectTask) return;
-    setProjectAddError(null);
-    startTransition(async () => {
-      const ok = await onAddProjectTask(projectId, title);
-      if (ok) {
-        setProjectAddValue("");
-        setAddingProjectId(null);
-        router.refresh();
-      } else {
-        setProjectAddError("업무를 추가하지 못했습니다.");
       }
     });
   }
@@ -730,7 +714,7 @@ export default function WorkflowCanvas({
     // Center the board when it's narrower than the viewport; flush left
     // (clamped to 0, not capped at some small max) when it's wider and the
     // user needs to pan to see the rest.
-    view.current = { x: Math.max(0, (st.clientWidth - layout.worldW * scale) / 2), y: 8, scale };
+    view.current = { x: Math.max(0, (st.clientWidth - layout.worldW * scale) / 2), y: 0, scale };
     setZoomPct(Math.round(scale * 100));
     applyView();
   }
@@ -751,6 +735,15 @@ export default function WorkflowCanvas({
   }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useLayoutEffect(() => fit(), [groupBy, tasks.length, workstreams.length]);
+  useLayoutEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const measure = () => setStageWidth(Math.round(stage.clientWidth));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(stage);
+    return () => observer.disconnect();
+  }, []);
   useEffect(() => {
     const onResize = () => fit();
     window.addEventListener("resize", onResize);
@@ -833,7 +826,7 @@ export default function WorkflowCanvas({
     const s = view.current.scale;
     const left = x * s + view.current.x;
     const top = y * s + view.current.y;
-    const right = left + NODEW * s;
+    const right = left + nodeW * s;
     const bottom = top + h * s;
     let dx = 0;
     let dy = 0;
@@ -917,48 +910,52 @@ export default function WorkflowCanvas({
 
       {/* viewport */}
       <div ref={stageRef} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerLeave={onPointerUp}
-        className={cn("relative min-h-[440px] w-full cursor-grab touch-none select-none overflow-hidden border-y border-separator bg-surface-2/40", stageHeightClass)}
-        style={{ backgroundImage: "radial-gradient(rgb(var(--text-quaternary)/0.28) 1px, transparent 1.4px)", backgroundSize: "24px 24px" }}>
+        className={cn("material-panel material-edge relative min-h-[440px] w-full cursor-grab touch-none select-none overflow-hidden border-y border-separator", stageHeightClass)}
+        style={{ backgroundImage: "radial-gradient(rgb(var(--text-quaternary)/0.22) 1px, transparent 1.4px), linear-gradient(rgb(var(--surface-2)/0.16), rgb(var(--surface)/0.08))", backgroundSize: "24px 24px, 100% 100%" }}>
         <div ref={worldRef} className="absolute left-0 top-0 origin-top-left will-change-transform">
+          <div
+            className="pointer-events-none absolute left-0 top-0 rounded-b-2xl border-b border-separator/60 bg-surface/[0.22] backdrop-blur-sm"
+            style={{ width: boardW, height: TOP - 6 }}
+          />
           {/* Brand containers sit behind their project rows. The dedicated
               header means project never collapses into a card caption. */}
           {layout.brands.map((brand) => (
             <div key={`brand-${brand.key}`}>
               <div
-                className="absolute rounded-[22px] border border-separator bg-surface/25 shadow-xs"
+                className="pointer-events-none absolute rounded-[22px] border border-separator/80 bg-surface/30 shadow-xs backdrop-blur-sm"
                 style={{
                   top: brand.y,
-                  left: 0,
-                  width: LANEPAD + STAGE_COUNT * COLW - COLGAP,
+                  left: 10,
+                  width: boardW - 10,
                   height: brand.h,
                 }}
               />
               <div
-                className="absolute rounded-l-[22px]"
-                style={{ top: brand.y, left: 0, width: 5, height: brand.h, background: brand.color }}
+                className="pointer-events-none absolute rounded-full shadow-sm"
+                style={{ top: brand.y + 12, left: 10, width: 4, height: Math.max(20, brand.h - 24), background: brand.color }}
               />
               <div
-                className="absolute flex items-center gap-3"
-                style={{ top: brand.y + 13, left: 18, width: LANEPAD + STAGE_COUNT * COLW - COLGAP - 36 }}
+                className="absolute z-20 flex items-center"
+                style={{ top: brand.y + 10, left: 28, width: boardW - 48 }}
               >
-                <span className="size-3 rounded-[4px]" style={{ background: brand.color }} aria-hidden />
-                <div className="min-w-0">
+                <span className="mr-2.5 size-3 shrink-0 rounded-[4px]" style={{ background: brand.color }} aria-hidden />
+                <div className="min-w-0" style={{ width: LANEPAD - 76 }}>
                   <div className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">
                     브랜드
                   </div>
                   <div className="truncate text-[16px] font-semibold tracking-tight text-text">
                     {brand.name}
                   </div>
-                </div>
-                <div className="text-[11px] font-medium tabular-nums text-text-tertiary">
-                  프로젝트 {brand.projectCount} · 업무 {brand.total} · 완료 {brand.done}
+                  <div className="truncate text-[10px] font-medium tabular-nums text-text-tertiary">
+                    프로젝트 {brand.projectCount} · 업무 {brand.total} · 완료 {brand.done}
+                  </div>
                 </div>
                 {onAddProject && !brand.key.startsWith("_") && (
                   <button
                     type="button"
                     data-ui
                     onClick={() => onAddProject(brand.key)}
-                    className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-lg bg-surface-2 px-3 text-xs font-semibold text-text-secondary transition-[transform,background-color,color] hover:bg-surface-3 hover:text-text active:scale-[0.97]"
+                    className="material-thin ml-auto inline-flex h-8 items-center gap-1.5 rounded-xl px-3 text-xs font-semibold text-text-secondary shadow-xs transition-[transform,background-color,color,box-shadow] hover:text-text hover:shadow-sm active:scale-[0.97]"
                   >
                     <FolderPlus className="size-3.5" aria-hidden />
                     프로젝트 추가
@@ -970,8 +967,8 @@ export default function WorkflowCanvas({
                   className="absolute text-xs text-text-tertiary"
                   style={{
                     top: brand.y + BRAND_HEAD_H + 12,
-                    left: 28,
-                    width: LANEPAD + STAGE_COUNT * COLW - COLGAP - 56,
+                    left: 44,
+                    width: LANEPAD - 64,
                   }}
                 >
                   프로젝트를 추가하면 이 아래에 업무 흐름이 만들어집니다.
@@ -982,8 +979,8 @@ export default function WorkflowCanvas({
 
           {/* columns */}
           {layout.columns.map((c) => (
-            <div key={c.i} className="absolute top-0" style={{ left: c.x, top: TOP - 40 }}>
-              <div className="absolute rounded-2xl" style={{ top: 40, width: COLW - COLGAP, height: layout.worldH - TOP - 8, background: `color-mix(in srgb, rgb(var(--${STAGE_TOKENS[c.i]})) 5%, transparent)` }} />
+            <div key={c.i} className="pointer-events-none absolute top-0" style={{ left: c.x, top: TOP - 40 }}>
+              <div className="absolute rounded-2xl border border-white/20 backdrop-blur-[2px]" style={{ top: 40, width: colW - COLGAP, height: layout.worldH - TOP - 8, background: `color-mix(in srgb, rgb(var(--${STAGE_TOKENS[c.i]})) 5%, rgb(var(--material-thin)))` }} />
               {/* nowrap: the wrapper is a zero-width absolute box, so without it
                   the label collapses to one character per line. */}
               <div className="absolute inline-flex h-7 w-max items-center gap-2 whitespace-nowrap rounded-full px-3 text-xs font-semibold"
@@ -999,21 +996,23 @@ export default function WorkflowCanvas({
           {layout.lanes.map((l) => (
             <div key={l.key}>
               <div
-                className="absolute rounded-2xl border border-separator/70 bg-surface/40"
+                className="pointer-events-none absolute rounded-2xl border border-separator/70 bg-surface/[0.32] backdrop-blur-[2px]"
                 style={{
                   top: l.y,
-                  left: hierarchyView ? 18 : 0,
-                  width: LANEPAD + STAGE_COUNT * COLW - COLGAP - (hierarchyView ? 18 : 0),
+                  left: hierarchyView ? 24 : 0,
+                  width: boardW - (hierarchyView ? 24 : 0),
                   height: l.h,
                 }}
               />
               {/* the band's colour rail — the only place the lane colour lives,
                   so it never competes with the status colours on the cards */}
-              <div
-                className="absolute rounded-l-2xl"
-                style={{ top: l.y, left: hierarchyView ? 18 : 0, width: 3, height: l.h, background: l.color }}
-              />
-              <div className="absolute flex flex-col gap-1.5 rounded-xl border border-separator bg-surface/95 p-3 shadow-xs backdrop-blur" style={{ top: l.y + 10, left: hierarchyView ? 28 : 10, width: hierarchyView ? LANEPAD - 38 : LANEPAD - 28 }}>
+              {!hierarchyView && (
+                <div
+                  className="pointer-events-none absolute rounded-full"
+                  style={{ top: l.y + 10, left: 0, width: 3, height: Math.max(18, l.h - 20), background: l.color }}
+                />
+              )}
+              <div className="material-panel material-edge absolute z-10 flex flex-col gap-1.5 rounded-[16px] border border-separator p-3 shadow-sm" style={{ top: l.y + 10, left: hierarchyView ? 36 : 10, width: hierarchyView ? LANEPAD - 48 : LANEPAD - 28 }}>
                 {hierarchyView && (
                   <div className="text-[9px] font-semibold uppercase tracking-wider text-text-tertiary">
                     프로젝트
@@ -1048,57 +1047,14 @@ export default function WorkflowCanvas({
                 <div className="text-[10.5px] font-medium tabular-nums text-text-tertiary">완료 {l.done}/{l.total}</div>
                 <div className="h-1.5 overflow-hidden rounded-full bg-surface-3"><div className="h-full rounded-full bg-status-done transition-[width] duration-500 ease-out" style={{ width: `${l.total ? (l.done / l.total) * 100 : 0}%` }} /></div>
                 {hierarchyView && onAddProjectTask && !l.key.startsWith("_") && (
-                  addingProjectId === l.key ? (
-                    <div data-ui className="mt-1" onPointerDown={(e) => e.stopPropagation()}>
-                      <div className="flex items-center gap-1">
-                        <input
-                          ref={projectInputRef}
-                          value={projectAddValue}
-                          disabled={pending}
-                          onChange={(e) => setProjectAddValue(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                              e.preventDefault();
-                              submitProjectTask(l.key);
-                            } else if (e.key === "Escape") {
-                              setAddingProjectId(null);
-                              setProjectAddValue("");
-                            }
-                          }}
-                          onBlur={() => {
-                            if (!projectAddValue.trim() && !pending) setAddingProjectId(null);
-                          }}
-                          placeholder="업무명"
-                          aria-label={`${l.name}에 업무 추가`}
-                          className="h-7 min-w-0 flex-1 rounded-md border border-accent bg-surface px-2 text-[11px] text-text placeholder:text-text-quaternary focus:outline-none focus:ring-2 focus:ring-accent/30"
-                        />
-                        <button
-                          type="button"
-                          disabled={pending || !projectAddValue.trim()}
-                          onClick={() => submitProjectTask(l.key)}
-                          className="grid size-7 shrink-0 place-items-center rounded-md bg-accent text-white active:scale-95 disabled:opacity-40"
-                          aria-label="업무 저장"
-                        >
-                          <Plus className="size-3.5" />
-                        </button>
-                      </div>
-                      {projectAddError && (
-                        <div role="alert" className="mt-1 text-[9.5px] text-flag-blocked">
-                          {projectAddError}
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      data-ui
-                      onClick={() => startProjectTask(l.key)}
-                      className="mt-0.5 flex h-7 items-center gap-1 rounded-md px-1 text-[10.5px] font-semibold text-text-tertiary transition-colors hover:bg-surface-2 hover:text-accent active:scale-[0.98]"
-                    >
-                      <Plus className="size-3" aria-hidden />
-                      업무 추가
-                    </button>
-                  )
+                  <div data-ui className="mt-0.5" onPointerDown={(e) => e.stopPropagation()}>
+                    <InlineAdd
+                      onAdd={(title) => onAddProjectTask(l.key, title)}
+                      label="업무 추가"
+                      placeholder="새 업무 이름"
+                      className="min-h-7 px-1.5 py-1 text-[10.5px]"
+                    />
+                  </div>
                 )}
               </div>
             </div>
@@ -1212,7 +1168,7 @@ export default function WorkflowCanvas({
                   key_ ? "border-2 border-text/25 shadow-md" : "border shadow-sm",
                   !key_ && (task.status === "Waiting" && !hasKids ? "border-dashed border-status-waiting/50" : "border-separator"),
                   dim && "opacity-30 saturate-50")}
-                style={{ left: x, top: y, width: NODEW, height: h }}>
+                style={{ left: x, top: y, width: nodeW, height: h }}>
                 <div className={cn("shrink-0", meta.dot, key_ ? "h-1.5" : "h-1")} />
                 <div className="flex flex-1 flex-col gap-2 overflow-hidden p-3">
                   {/* clickable header opens the detail panel */}
@@ -1334,7 +1290,7 @@ export default function WorkflowCanvas({
               otherwise flattens every project's tasks into one lane. */}
           {layout.projectHeaders.map((h) => (
             <div key={h.key} className="absolute flex items-center gap-1 truncate text-[10.5px] font-semibold uppercase tracking-wide text-text-tertiary"
-              style={{ left: h.x, top: h.y, width: NODEW }}>
+              style={{ left: h.x, top: h.y, width: nodeW }}>
               <span className="size-1 shrink-0 rounded-full bg-text-tertiary" />
               {h.name}
             </div>
@@ -1344,7 +1300,7 @@ export default function WorkflowCanvas({
           {layout.overflow.map((o) => (
             <button key={o.cellKey} type="button" data-ui onClick={() => toggleCell(o.cellKey)}
               className="absolute inline-flex items-center justify-center rounded-lg border border-separator bg-surface px-3 text-xs font-medium text-text-secondary shadow-xs transition-colors hover:bg-surface-2 active:scale-[0.98]"
-              style={{ left: o.x, top: o.y, width: NODEW, height: CHIP_H - 6 }}>
+              style={{ left: o.x, top: o.y, width: nodeW, height: CHIP_H - 6 }}>
               {o.open ? "간략히" : `+${o.count}개 더보기`}
             </button>
           ))}

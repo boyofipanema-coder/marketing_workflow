@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Plus, Loader2 } from "lucide-react";
+import { Plus, Loader2, ArrowUp, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface InlineAddProps {
@@ -46,13 +46,15 @@ export default function InlineAdd({
         type="button"
         onClick={() => setOpen(true)}
         className={cn(
-          "flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-text-tertiary",
-          "transition-colors hover:bg-surface-2/60 hover:text-text-secondary",
+          "group flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-text-tertiary",
+          "transition-[transform,background-color,color] duration-fast ease-out hover:bg-surface-2/70 hover:text-text-secondary active:scale-[0.985]",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
           className
         )}
       >
-        <Plus className="h-4 w-4" aria-hidden />
+        <span className="material-thin grid size-6 shrink-0 place-items-center rounded-lg transition-colors group-hover:text-accent">
+          <Plus className="h-3.5 w-3.5" aria-hidden />
+        </span>
         {label}
       </button>
     );
@@ -65,14 +67,14 @@ export default function InlineAdd({
         void submit();
       }}
       className={cn(
-        "flex items-center gap-2.5 rounded-lg border border-accent/40 bg-surface px-3 py-1.5",
+        "material-panel material-edge flex items-center gap-1.5 rounded-xl border border-accent/35 p-1.5 pl-2 shadow-sm",
         className
       )}
     >
       {busy ? (
-        <Loader2 className="h-4 w-4 flex-shrink-0 animate-spin text-text-tertiary" aria-hidden />
+        <Loader2 className="h-3.5 w-3.5 flex-shrink-0 animate-spin text-accent" aria-hidden />
       ) : (
-        <Plus className="h-4 w-4 flex-shrink-0 text-text-tertiary" aria-hidden />
+        <Plus className="h-3.5 w-3.5 flex-shrink-0 text-text-tertiary" aria-hidden />
       )}
       <input
         ref={inputRef}
@@ -91,8 +93,28 @@ export default function InlineAdd({
         }}
         placeholder={placeholder}
         aria-label={label}
-        className="h-9 flex-1 bg-transparent text-base text-text placeholder:text-text-quaternary focus:outline-none"
+        className="h-8 min-w-0 flex-1 bg-transparent px-1 text-base text-text placeholder:text-text-quaternary focus:outline-none"
       />
+      <button
+        type="button"
+        aria-label="입력 취소"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => {
+          setTitle("");
+          setOpen(false);
+        }}
+        className="grid size-8 shrink-0 place-items-center rounded-lg text-text-tertiary transition-colors hover:bg-surface-2 hover:text-text active:scale-95"
+      >
+        <X className="size-3.5" aria-hidden />
+      </button>
+      <button
+        type="submit"
+        aria-label="업무 저장"
+        disabled={busy || !title.trim()}
+        className="grid size-8 shrink-0 place-items-center rounded-lg bg-accent text-text-on-accent shadow-xs transition-[transform,opacity,background-color] hover:bg-accent-hover active:scale-95 disabled:opacity-35"
+      >
+        <ArrowUp className="size-3.5" aria-hidden />
+      </button>
     </form>
   );
 }

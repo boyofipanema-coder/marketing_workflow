@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Briefcase, FolderPlus, Plus } from "lucide-react";
+import { Briefcase, FolderPlus, Plus, Tags, ChevronDown } from "lucide-react";
 import TaskSection from "@/components/tasks/TaskSection";
 import TaskDetailPanel from "@/components/tasks/TaskDetailPanel";
 import WorkflowCanvas, { type Focus } from "@/components/workflow/WorkflowCanvas";
@@ -58,6 +58,7 @@ export default function HomeContent({
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [projectBrandId, setProjectBrandId] = useState<string | undefined>();
   const [editingProject, setEditingProject] = useState<Project | null>(null);
+  const [brandFilterId, setBrandFilterId] = useState("all");
 
   useEffect(() => {
     if (window.matchMedia("(max-width: 640px)").matches) setShowBoard(false);
@@ -94,6 +95,33 @@ export default function HomeContent({
     () => controller.tasks.filter((t) => !t.cancelled_at),
     [controller.tasks]
   );
+  const visibleProjects = useMemo(
+    () =>
+      brandFilterId === "all"
+        ? projects
+        : projects.filter((project) => project.brand_id === brandFilterId),
+    [brandFilterId, projects]
+  );
+  const visibleBrands = useMemo(
+    () =>
+      brandFilterId === "all"
+        ? brands
+        : brands.filter((brand) => brand.id === brandFilterId),
+    [brandFilterId, brands]
+  );
+  const visibleProjectIds = useMemo(
+    () => new Set(visibleProjects.map((project) => project.id)),
+    [visibleProjects]
+  );
+  const visibleBoardTasks = useMemo(
+    () =>
+      brandFilterId === "all"
+        ? boardTasks
+        : boardTasks.filter(
+            (task) => task.project_id && visibleProjectIds.has(task.project_id)
+          ),
+    [boardTasks, brandFilterId, visibleProjectIds]
+  );
 
   const shared = {
     members: membersRecord,
@@ -108,7 +136,9 @@ export default function HomeContent({
 
   function startProject(brandId?: string) {
     setEditingProject(null);
-    setProjectBrandId(brandId ?? brands[0]?.id);
+    setProjectBrandId(
+      brandId ?? (brandFilterId !== "all" ? brandFilterId : brands[0]?.id)
+    );
     setProjectDialogOpen(true);
   }
 
@@ -131,8 +161,33 @@ export default function HomeContent({
         {showBoard && (
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <div className="mr-auto text-xs text-text-tertiary">
-              브랜드 {brands.length}개 · 프로젝트 {projects.length}개 · 업무 {boardTasks.length}건
+              브랜드 {visibleBrands.length}개 · 프로젝트 {visibleProjects.length}개 · 업무{" "}
+              {visibleBoardTasks.length}건
             </div>
+            <label className="material-thin press relative inline-flex h-8 items-center gap-2 rounded-xl pl-3 pr-8 text-xs font-semibold text-text-secondary shadow-xs">
+              <Tags className="size-3.5 text-text-tertiary" aria-hidden />
+              <span className="sr-only">브랜드별 업무 필터</span>
+              <select
+                aria-label="브랜드별 업무 필터"
+                value={brandFilterId}
+                onChange={(event) => setBrandFilterId(event.target.value)}
+                className="absolute inset-0 cursor-pointer appearance-none rounded-xl bg-transparent pl-8 pr-8 text-xs font-semibold text-text-secondary outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <option value="all">전체 브랜드</option>
+                {brands.map((brand) => (
+                  <option key={brand.id} value={brand.id}>
+                    {brand.name}
+                  </option>
+                ))}
+              </select>
+              <span className="invisible">
+                {brandFilterId === "all"
+                  ? "전체 브랜드"
+                  : brands.find((brand) => brand.id === brandFilterId)?.name ??
+                    "전체 브랜드"}
+              </span>
+              <ChevronDown className="pointer-events-none absolute right-2.5 size-3.5 text-text-tertiary" aria-hidden />
+            </label>
             <Button variant="ghost" size="sm" onClick={() => setBrandDialogOpen(true)}>
               <Plus aria-hidden />
               브랜드
@@ -182,11 +237,11 @@ export default function HomeContent({
         {showBoard && (brands.length > 0 || projects.length > 0 || boardTasks.length > 0) && (
           <section className="mb-10" aria-label="전체 업무 흐름">
             <WorkflowCanvas
-              tasks={boardTasks}
-              brands={brands}
+              tasks={visibleBoardTasks}
+              brands={visibleBrands}
               workstreams={workstreams}
               members={membersRecord}
-              projects={projects}
+              projects={visibleProjects}
               defaultGroupBy="brand"
               hierarchyMode
               onSelect={controller.select}
