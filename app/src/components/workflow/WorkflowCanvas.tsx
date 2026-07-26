@@ -36,11 +36,10 @@ import { ownerColor } from "@/lib/colors";
 /**
  * WorkflowCanvas — a fixed, document-scrolling swimlane Kanban.
  *
- * Rows = a group-by dimension (Workstream / Owner / Due), columns = the status
- * stage flow (To Do → In Progress → Review → Done). Only TOP-LEVEL tasks
- * (parent_task_id === null) are placed on the board; a task's subtasks expand
- * INLINE inside its card (arbitrary depth) and roll their progress up into the
- * parent. Dense cells cap at CAP cards with a "+N more" expander (decision B).
+ * Rows = a group-by dimension (Workstream / Owner / Due). Regular boards use
+ * status columns; the integrated Home hierarchy maps columns directly to
+ * Brand → Project → Task → Subtask → Done. Dense cells cap at CAP cards with
+ * a "+N more" expander (decision B).
  *
  * Two orthogonal axes, kept strictly separate: hierarchy expands *down* (inside
  * a card), grouping pivots *sideways* (the lane axis). Card heights are computed
@@ -48,16 +47,13 @@ import { ownerColor } from "@/lib/colors";
  */
 
 // ── stage flow ────────────────────────────────────────────────────────────────
-// Three columns, matching the three statuses the product shows everywhere else
-// (lib/status.ts's displayGroup) — Waiting is its own column rather than being
-// folded into "in progress": the board's main job on entry is to show what is
-// moving and what is stuck, and a blocked task hidden inside the in-progress
-// column reads as healthy work.
-const STAGE_LABELS = ["진행 중", "대기", "완료"] as const;
-const STAGE_TOKENS = ["status-inprogress", "status-waiting", "status-done"] as const;
-const STAGE_COUNT = STAGE_LABELS.length;
+const STATUS_STAGE_LABELS = ["진행 중", "대기", "완료"] as const;
+const STATUS_STAGE_TOKENS = ["status-inprogress", "status-waiting", "status-done"] as const;
+const HIERARCHY_STAGE_LABELS = ["업무", "하위업무", "완료"] as const;
+const HIERARCHY_STAGE_TOKENS = ["status-todo", "status-review", "status-done"] as const;
+const STAGE_COUNT = 3;
 
-function stageIndex(s: TaskStatus): number {
+function statusStageIndex(s: TaskStatus): number {
   switch (displayGroup(s)) {
     case "Waiting":
       return 1;
@@ -66,6 +62,13 @@ function stageIndex(s: TaskStatus): number {
     default:
       return 0;
   }
+}
+
+export function hierarchyStageIndex(
+  task: Pick<Task, "status" | "parent_task_id">
+): number {
+  if (task.status === "Done") return 2;
+  return task.parent_task_id ? 1 : 0;
 }
 const todayStr = () => new Date().toISOString().slice(0, 10);
 function overdue(t: Task): boolean {
@@ -343,11 +346,11 @@ interface Lane {
 
 // ── geometry ──────────────────────────────────────────────────────────────────
 const TOP = 42;
-// A real hierarchy column, not a caption gutter: project needs enough width
-// to carry its name, objective, progress and direct task creation.
+// Regular boards keep their established label gutter. The hierarchy board
+// replaces it with two real, equal-width Brand and Project columns.
 const LANEPAD = 220;
-// 5 columns → 3 frees up real width; cards use it instead of leaving it empty.
 const COLW = 340;
+const HIERARCHY_COLW = 240;
 const COLGAP = 18;
 const CARD_BASE = 96; // header block: title + meta (no progress bar — see card render)
 const METER_H = 34; // the "⤷ n/m subtasks" row (present when a card has children)
@@ -358,11 +361,8 @@ const VGAP = 12;
 const CHIP_H = 34;
 const LANE_PAD = 12;
 const LANE_GAP = 18;
-// Brand chrome stays deliberately compact: every pixel reserved here becomes
-// an empty strip across all three task columns. Empty brands need no separate
-// body below the header; the add-project control already supplies their action.
-const BRAND_HEAD_H = 70;
-const BRAND_EMPTY_H = 10;
+const BRAND_HEAD_H = 0;
+const BRAND_EMPTY_H = 100;
 const BRAND_GAP = 28;
 const CAP = 4;
 const ADD_H = 42; // inline "add subtask" input row
@@ -381,11 +381,12 @@ export function cardHeight(
   cm: ChildMap,
   open: Set<string>,
   addingId: string | null,
-  lod: Lod = "full"
+  lod: Lod = "full",
+  showInlineSubtasks = true
 ): number {
   const hasKids = kids(cm, t.id).length > 0;
   let h = CARD_BASE + (isKey(t) ? KEY_EXTRA : 0);
-  if (hasKids) {
+  if (hasKids && showInlineSubtasks) {
     h += METER_H;
     // Subtree size only affects height while the user has it expanded, so a
     // card's resting size reads as importance rather than as child count.
@@ -433,7 +434,7 @@ interface Layout {
     done: number;
     total: number;
   }[];
-  columns: { i: number; x: number; count: number }[];
+  columns: { i: number; x: number; count: number; label: string; token: string }[];
   nodes: Positioned[];
   rails: Rail[];
   overflow: { cellKey: string; x: number; y: number; count: number; open: boolean }[];
@@ -490,6 +491,11 @@ function computeLayout(
   nodeW: number,
   dependencies?: Record<string, string[]>,
 ): Layout {
+  const lanePad = hierarchyMode ? colW * 2 : LANEPAD;
+  const stageLabels = hierarchyMode ? HIERARCHY_STAGE_LABELS : STATUS_STAGE_LABELS;
+  const stageTokens = hierarchyMode ? HIERARCHY_STAGE_TOKENS : STATUS_STAGE_TOKENS;
+  const columnIndexOf = (task: Task) =>
+    hierarchyMode ? hierarchyStageIndex(task) : statusStageIndex(task.status);
   // Lane membership is decided by the root of a task's tree, so a promoted
   // descendant always appears in the same band as the work it belongs to.
   const laneKeyOf = (t: Task): string => laneOf.get(t.id) ?? laneKeyFor(t, groupBy, undefined, projectBrand);
@@ -558,10 +564,11 @@ function computeLayout(
     lanes = [...seen.values()].sort((a, b) => a.order - b.order);
   }
 
-  // bucket every placed node into (lane × stage) by its own status
+  // Bucket every placed node into (lane × column). The hierarchy board uses
+  // task depth instead of spending a column on the rarely-used Waiting state.
   const cell = new Map<string, Task[]>();
   for (const t of placed) {
-    const k = `${laneKeyOf(t)}|${stageIndex(t.status)}`;
+    const k = `${laneKeyOf(t)}|${columnIndexOf(t)}`;
     (cell.get(k) ?? cell.set(k, []).get(k)!).push(t);
   }
   // Key work sits at the top of its cell so scanning a column top-to-bottom is
@@ -589,7 +596,7 @@ function computeLayout(
     }
   }
 
-  const railX = LANEPAD;
+  const railX = lanePad;
   const railW = STAGE_COUNT * colW - COLGAP;
   const buildRail = (key: string, list: Task[], y: number): Rail => {
     // Position carries due-date ORDER only; the exact date is on every label,
@@ -641,12 +648,12 @@ function computeLayout(
       const shown = isOpen ? ordered : ordered.slice(0, CAP);
       let cy = laneTop + 10 + railH;
       for (const t of shown) {
-        const h = cardHeight(t, cm, subsOpen, addingId, lod);
-        nodes.push({ task: t, x: LANEPAD + s * colW, y: cy, h });
+        const h = cardHeight(t, cm, subsOpen, addingId, lod, !hierarchyMode);
+        nodes.push({ task: t, x: lanePad + s * colW, y: cy, h });
         cy += h + VGAP;
       }
       if (arr.length > CAP) {
-        overflow.push({ cellKey: `${lane.key}|${s}`, x: LANEPAD + s * colW, y: cy, count: isOpen ? arr.length : arr.length - CAP, open: isOpen });
+        overflow.push({ cellKey: `${lane.key}|${s}`, x: lanePad + s * colW, y: cy, count: isOpen ? arr.length : arr.length - CAP, open: isOpen });
         cy += CHIP_H;
       }
       laneMaxBottom = Math.max(laneMaxBottom, cy);
@@ -708,10 +715,12 @@ function computeLayout(
   }
   const contentBottom = y - LANE_GAP;
 
-  const columns = STAGE_LABELS.map((_, i) => ({
+  const columns = stageLabels.map((label, i) => ({
     i,
-    x: LANEPAD + i * colW,
-    count: placed.filter((t) => stageIndex(t.status) === i).length,
+    x: lanePad + i * colW,
+    count: placed.filter((t) => columnIndexOf(t) === i).length,
+    label,
+    token: stageTokens[i],
   }));
 
   // Only relationships that exist in the data get a line. There is deliberately
@@ -766,7 +775,7 @@ function computeLayout(
     overflow,
     projectHeaders,
     edges,
-    worldW: LANEPAD + STAGE_COUNT * colW - COLGAP + 16,
+    worldW: lanePad + STAGE_COUNT * colW - COLGAP + 16,
     worldH: contentBottom + 40,
   };
 }
@@ -846,15 +855,15 @@ export default function WorkflowCanvas({
   const stageRef = useRef<HTMLDivElement>(null);
   const hierarchyView = hierarchyMode && groupBy === "brand";
   const effectiveGroupBy: GroupBy = hierarchyView ? "project" : groupBy;
-  // On wide screens every status column expands into the available canvas.
-  // On narrower screens the established card width remains the lower bound,
-  // preserving legibility and falling back to pan/fit rather than squeezing.
+  const visibleColumnCount = hierarchyView ? STAGE_COUNT + 2 : STAGE_COUNT;
+  const minimumColumnWidth = hierarchyView ? HIERARCHY_COLW : COLW;
   const colW = Math.max(
-    COLW,
-    stageWidth ? (stageWidth - LANEPAD + COLGAP - 32) / STAGE_COUNT : COLW,
+    minimumColumnWidth,
+    stageWidth ? (stageWidth + COLGAP - 32) / visibleColumnCount : minimumColumnWidth,
   );
+  const lanePad = hierarchyView ? colW * 2 : LANEPAD;
   const nodeW = colW - COLGAP - 6;
-  const boardW = LANEPAD + STAGE_COUNT * colW - COLGAP;
+  const boardW = lanePad + STAGE_COUNT * colW - COLGAP;
 
   // project_id → brand id, used by the optional Brand axis.
   const projectBrand = useMemo(
@@ -867,6 +876,24 @@ export default function WorkflowCanvas({
     () => buildBoardGraph(tasks, effectiveGroupBy, undefined, projectBrand),
     [tasks, effectiveGroupBy, projectBrand],
   );
+  const canvasPlaced = useMemo(
+    () =>
+      hierarchyView
+        ? tasks.filter((task) => !task.cancelled_at && task.kind !== "milestone")
+        : placed,
+    [hierarchyView, tasks, placed]
+  );
+  const canvasParentOf = useMemo(
+    () =>
+      hierarchyView
+        ? new Map(
+            canvasPlaced.flatMap((task) =>
+              task.parent_task_id ? [[task.id, task.parent_task_id] as const] : []
+            )
+          )
+        : parentOf,
+    [hierarchyView, canvasPlaced, parentOf]
+  );
 
   // Level of detail. Below 70% the small type is unreadable anyway, so it is
   // dropped rather than rendered as noise — title, status and the key badge are
@@ -876,8 +903,8 @@ export default function WorkflowCanvas({
   const lod = "full" as Lod;
 
   const layout = useMemo(
-    () => computeLayout(placed, roots, milestones, childMap, laneOf, parentOf, workstreams, members, brands, projects ?? [], effectiveGroupBy, hierarchyView, cellsOpen, subsOpen, addingFor, lod, projectBrand, colW, nodeW, dependencies),
-    [placed, roots, milestones, childMap, laneOf, parentOf, workstreams, members, brands, projects, effectiveGroupBy, hierarchyView, cellsOpen, subsOpen, addingFor, lod, projectBrand, colW, nodeW, dependencies],
+    () => computeLayout(canvasPlaced, roots, milestones, childMap, laneOf, canvasParentOf, workstreams, members, brands, projects ?? [], effectiveGroupBy, hierarchyView, cellsOpen, subsOpen, addingFor, lod, projectBrand, colW, nodeW, dependencies),
+    [canvasPlaced, roots, milestones, childMap, laneOf, canvasParentOf, workstreams, members, brands, projects, effectiveGroupBy, hierarchyView, cellsOpen, subsOpen, addingFor, lod, projectBrand, colW, nodeW, dependencies],
   );
 
   // open the inline subtask composer under a card
@@ -993,6 +1020,8 @@ export default function WorkflowCanvas({
                 프로젝트
                 <ChevronRight className="size-3" aria-hidden />
                 업무
+                <ChevronRight className="size-3" aria-hidden />
+                하위업무
               </div>
             )}
             {onAddTask && (
@@ -1034,8 +1063,31 @@ export default function WorkflowCanvas({
             className="pointer-events-none absolute left-0 top-0 rounded-b-2xl border-b border-separator/60 bg-surface/[0.22] backdrop-blur-sm"
             style={{ width: boardW, height: TOP - 6 }}
           />
+          {hierarchyView && (
+            <>
+              {["브랜드", "프로젝트"].map((label, index) => (
+                <div key={label}>
+                  <div
+                    className="pointer-events-none absolute rounded-2xl border border-white/20 bg-surface/[0.18] backdrop-blur-[2px]"
+                    style={{
+                      left: index * colW,
+                      top: TOP,
+                      width: colW - COLGAP,
+                      height: layout.worldH - TOP - 8,
+                    }}
+                  />
+                  <div
+                    className="absolute inline-flex h-7 w-max items-center rounded-full bg-surface-2 px-3 text-xs font-semibold text-text-secondary"
+                    style={{ left: index * colW, top: TOP - 40 }}
+                  >
+                    {label}
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
           {/* Brand containers sit behind their project rows. The dedicated
-              header means project never collapses into a card caption. */}
+              column keeps the hierarchy visible without reserving a header row. */}
           {layout.brands.map((brand) => (
             <div key={`brand-${brand.key}`}>
               <div
@@ -1052,39 +1104,39 @@ export default function WorkflowCanvas({
                 style={{ top: brand.y + 12, left: 10, width: 4, height: Math.max(20, brand.h - 24), background: brand.color }}
               />
               <div
-                className="absolute z-20 flex items-start"
-                style={{ top: brand.y + 7, left: 28, width: boardW - 48 }}
+                className="material-panel material-edge absolute z-20 flex flex-col gap-1 rounded-[16px] border border-separator p-2.5 shadow-sm"
+                style={{ top: brand.y + 10, left: 12, width: colW - 24 }}
               >
-                <span className="mr-2.5 mt-1 size-3 shrink-0 rounded-[4px]" style={{ background: brand.color }} aria-hidden />
-                <div className="min-w-0" style={{ width: LANEPAD - 76 }}>
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="size-3 shrink-0 rounded-[4px]" style={{ background: brand.color }} aria-hidden />
                   <div className="truncate text-[15px] font-semibold leading-5 tracking-tight text-text">
                     {brand.name}
                   </div>
-                  <div className="truncate text-[10px] font-medium leading-3.5 tabular-nums text-text-tertiary">
-                    프로젝트 {brand.projectCount} · 업무 {brand.total} · 완료 {brand.done}
-                  </div>
-                  {onAddProject && !brand.key.startsWith("_") && (
-                    <div className="group/project-add relative mt-0.5 w-max">
-                      <button
-                        type="button"
-                        data-ui
-                        onClick={() => onAddProject(brand.key)}
-                        aria-describedby={`project-add-help-${brand.key}`}
-                        className="material-thin inline-flex h-6 items-center gap-1.5 rounded-lg px-2 text-[10px] font-semibold text-text-secondary shadow-xs transition-[transform,color,box-shadow] hover:text-text hover:shadow-sm active:scale-[0.97]"
-                      >
-                        <FolderPlus className="size-3" aria-hidden />
-                        프로젝트 추가
-                      </button>
-                      <span
-                        id={`project-add-help-${brand.key}`}
-                        role="tooltip"
-                        className="pointer-events-none absolute left-0 top-full z-40 mt-2 w-56 translate-y-1 origin-top-left rounded-xl border border-separator bg-elevated/95 px-3 py-2 text-[11px] font-medium leading-relaxed text-text-secondary opacity-0 shadow-lg backdrop-blur-xl transition-[opacity,transform] group-hover/project-add:translate-y-0 group-hover/project-add:opacity-100 group-focus-within/project-add:translate-y-0 group-focus-within/project-add:opacity-100"
-                      >
-                        프로젝트를 추가하면 이 아래에 업무 흐름이 만들어집니다.
-                      </span>
-                    </div>
-                  )}
                 </div>
+                <div className="truncate text-[10px] font-medium leading-3.5 tabular-nums text-text-tertiary">
+                  프로젝트 {brand.projectCount} · 업무 {brand.total} · 완료 {brand.done}
+                </div>
+                {onAddProject && !brand.key.startsWith("_") && (
+                  <div className="group/project-add relative mt-0.5 w-max">
+                    <button
+                      type="button"
+                      data-ui
+                      onClick={() => onAddProject(brand.key)}
+                      aria-describedby={`project-add-help-${brand.key}`}
+                      className="inline-flex h-6 items-center gap-1.5 rounded-lg px-2 text-[10px] font-semibold text-text-secondary transition-[transform,background-color,color] hover:bg-surface-2 hover:text-text active:scale-[0.97]"
+                    >
+                      <FolderPlus className="size-3" aria-hidden />
+                      프로젝트 추가
+                    </button>
+                    <span
+                      id={`project-add-help-${brand.key}`}
+                      role="tooltip"
+                      className="pointer-events-none absolute left-0 top-full z-40 mt-2 w-56 translate-y-1 origin-top-left rounded-xl border border-separator bg-elevated/95 px-3 py-2 text-[11px] font-medium leading-relaxed text-text-secondary opacity-0 shadow-lg backdrop-blur-xl transition-[opacity,transform] group-hover/project-add:translate-y-0 group-hover/project-add:opacity-100 group-focus-within/project-add:translate-y-0 group-focus-within/project-add:opacity-100"
+                    >
+                      프로젝트를 추가하면 이 아래에 업무 흐름이 만들어집니다.
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
           ))}
@@ -1092,13 +1144,13 @@ export default function WorkflowCanvas({
           {/* columns */}
           {layout.columns.map((c) => (
             <div key={c.i} className="pointer-events-none absolute top-0" style={{ left: c.x, top: TOP - 40 }}>
-              <div className="absolute rounded-2xl border border-white/20 backdrop-blur-[2px]" style={{ top: 40, width: colW - COLGAP, height: layout.worldH - TOP - 8, background: `color-mix(in srgb, rgb(var(--${STAGE_TOKENS[c.i]})) 5%, rgb(var(--material-thin)))` }} />
+              <div className="absolute rounded-2xl border border-white/20 backdrop-blur-[2px]" style={{ top: 40, width: colW - COLGAP, height: layout.worldH - TOP - 8, background: `color-mix(in srgb, rgb(var(--${c.token})) 5%, rgb(var(--material-thin)))` }} />
               {/* nowrap: the wrapper is a zero-width absolute box, so without it
                   the label collapses to one character per line. */}
               <div className="absolute inline-flex h-7 w-max items-center gap-2 whitespace-nowrap rounded-full px-3 text-xs font-semibold"
-                style={{ color: `rgb(var(--${STAGE_TOKENS[c.i]}))`, background: `color-mix(in srgb, rgb(var(--${STAGE_TOKENS[c.i]})) 13%, rgb(var(--surface)))` }}>
-                <span className="size-2 rounded-full" style={{ background: `rgb(var(--${STAGE_TOKENS[c.i]}))` }} />
-                {STAGE_LABELS[c.i]}<span className="font-mono tabular-nums text-text-tertiary">{c.count}</span>
+                style={{ color: `rgb(var(--${c.token}))`, background: `color-mix(in srgb, rgb(var(--${c.token})) 13%, rgb(var(--surface)))` }}>
+                <span className="size-2 rounded-full" style={{ background: `rgb(var(--${c.token}))` }} />
+                {c.label}<span className="font-mono tabular-nums text-text-tertiary">{c.count}</span>
               </div>
             </div>
           ))}
@@ -1111,8 +1163,8 @@ export default function WorkflowCanvas({
                 className="pointer-events-none absolute rounded-2xl border border-separator/70 bg-surface/[0.32] backdrop-blur-[2px]"
                 style={{
                   top: l.y,
-                  left: hierarchyView ? 24 : 0,
-                  width: boardW - (hierarchyView ? 24 : 0),
+                  left: hierarchyView ? colW : 0,
+                  width: boardW - (hierarchyView ? colW : 0),
                   height: l.h,
                 }}
               />
@@ -1124,7 +1176,7 @@ export default function WorkflowCanvas({
                   style={{ top: l.y + 10, left: 0, width: 3, height: Math.max(18, l.h - 20), background: l.color }}
                 />
               )}
-              <div className="material-panel material-edge absolute z-10 flex flex-col gap-1.5 rounded-[16px] border border-separator p-3 shadow-sm" style={{ top: l.y + 10, left: hierarchyView ? 36 : 10, width: hierarchyView ? LANEPAD - 48 : LANEPAD - 28 }}>
+              <div className="material-panel material-edge absolute z-10 flex flex-col gap-1.5 rounded-[16px] border border-separator p-3 shadow-sm" style={{ top: l.y + 10, left: hierarchyView ? colW + 12 : 10, width: hierarchyView ? colW - 24 : LANEPAD - 28 }}>
                 {hierarchyView && (
                   <div className="text-[9px] font-semibold uppercase tracking-wider text-text-tertiary">
                     프로젝트
@@ -1267,12 +1319,12 @@ export default function WorkflowCanvas({
             const hasKids = sn > 0;
             const open = subsOpen.has(task.id);
             const key_ = isKey(task);
-            const parentId = parentOf.get(task.id);
+            const parentId = canvasParentOf.get(task.id);
             const parentTitle = parentId ? tasks.find((x) => x.id === parentId)?.title : undefined;
             // Compact has no toggle to collapse an already-expanded subtree
             // (the meter button below is itself lod-gated), so it must not
             // render the rows in the first place — matches cardHeight's guard.
-            const rows = hasKids && open && lod === "full" ? subRows(task, 0) : [];
+            const rows = !hierarchyView && hasKids && open && lod === "full" ? subRows(task, 0) : [];
             return (
               <div key={task.id} data-card
                 className={cn("group absolute flex flex-col overflow-hidden rounded-[14px] bg-surface transition-[opacity,box-shadow] duration-200",
@@ -1337,7 +1389,7 @@ export default function WorkflowCanvas({
                   </button>
 
                   {/* subtask meter — the inline-expand toggle */}
-                  {hasKids && lod === "full" && (
+                  {!hierarchyView && hasKids && lod === "full" && (
                     <button type="button" data-ui onClick={() => toggleSub(task.id)}
                       className="flex shrink-0 items-center gap-2 rounded-lg bg-surface-2 px-2.5 py-1.5 transition-colors hover:bg-surface-3">
                       <span className="whitespace-nowrap text-[10.5px] font-semibold tabular-nums text-text-secondary">⤷ 세부 업무 {sd}/{sn}</span>

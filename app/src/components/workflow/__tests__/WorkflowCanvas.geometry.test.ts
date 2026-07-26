@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { cardHeight } from "../WorkflowCanvas";
+import { cardHeight, hierarchyStageIndex } from "../WorkflowCanvas";
 import { makeTaskFixture } from "@/server/db/fixtures";
 import type { ChildMap } from "@/lib/board-graph";
 
@@ -40,5 +40,27 @@ describe("cardHeight — LOD", () => {
     expect(cardHeight(parent, cm, open, null)).toBe(
       cardHeight(parent, cm, open, null, "full")
     );
+  });
+
+  it("does not reserve inline subtree height when subtasks have their own column", () => {
+    expect(cardHeight(parent, cm, open, null, "full", false)).toBe(
+      cardHeight(parent, cm, closed, null, "full", false)
+    );
+  });
+});
+
+describe("hierarchyStageIndex", () => {
+  it("maps active roots, active children and completed work to their columns", () => {
+    expect(hierarchyStageIndex(makeTaskFixture({ status: "InProgress" }))).toBe(0);
+    expect(
+      hierarchyStageIndex(
+        makeTaskFixture({ status: "Waiting", parent_task_id: "parent" })
+      )
+    ).toBe(1);
+    expect(
+      hierarchyStageIndex(
+        makeTaskFixture({ status: "Done", parent_task_id: "parent" })
+      )
+    ).toBe(2);
   });
 });
