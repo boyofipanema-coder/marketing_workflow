@@ -20,22 +20,37 @@ export interface NotificationView extends Notification {
   comment_body: string | null;
 }
 
+function isMissingCollaborationTable(error: unknown): boolean {
+  const message =
+    error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  return (
+    message.includes("no such table: notification") ||
+    message.includes("no such table: task_comment")
+  );
+}
+
 export async function getTaskComments(
   db: Database,
   taskId: string,
   workspaceId: string,
 ): Promise<CommentView[]> {
-  const rows = await db
-    .select({ comment: task_comment, author_name: member.name })
-    .from(task_comment)
-    .innerJoin(member, eq(member.id, task_comment.author_id))
-    .where(
-      and(
-        eq(task_comment.task_id, taskId),
-        eq(task_comment.workspace_id, workspaceId),
-      ),
-    )
-    .orderBy(task_comment.created_at);
+  let rows;
+  try {
+    rows = await db
+      .select({ comment: task_comment, author_name: member.name })
+      .from(task_comment)
+      .innerJoin(member, eq(member.id, task_comment.author_id))
+      .where(
+        and(
+          eq(task_comment.task_id, taskId),
+          eq(task_comment.workspace_id, workspaceId),
+        ),
+      )
+      .orderBy(task_comment.created_at);
+  } catch (error) {
+    if (isMissingCollaborationTable(error)) return [];
+    throw error;
+  }
   return rows.map(({ comment, author_name }) => ({ ...comment, author_name }));
 }
 
@@ -98,17 +113,26 @@ export async function getMemberNotifications(
   workspaceId: string,
   recipientId: string,
 ): Promise<NotificationView[]> {
-  const rows = await db
-    .select()
-    .from(notification)
-    .where(
-      and(
-        eq(notification.workspace_id, workspaceId),
-        eq(notification.recipient_id, recipientId),
-      ),
-    )
-    .orderBy(desc(notification.created_at))
-    .limit(40);
+  let rows;
+  try {
+    rows = await db
+      .select()
+      .from(notification)
+      .where(
+        and(
+          eq(notification.workspace_id, workspaceId),
+          eq(notification.recipient_id, recipientId),
+        ),
+      )
+      .orderBy(desc(notification.created_at))
+      .limit(40);
+  } catch (error) {
+    // Deployments can update the Worker before the independently managed D1
+    // migration finishes. Keep the entire app usable during that short window;
+    // comments and notifications become available as soon as 0007 is applied.
+    if (isMissingCollaborationTable(error)) return [];
+    throw error;
+  }
   if (!rows.length) return [];
 
   const [members, tasks, comments] = await Promise.all([
