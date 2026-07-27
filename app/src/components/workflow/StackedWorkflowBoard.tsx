@@ -137,18 +137,18 @@ function FlowTask({
   return (
     <div className="relative grid grid-cols-[minmax(17rem,1fr)_minmax(15rem,.85fr)] items-start gap-5">
       <div
-        aria-hidden
-        className="pointer-events-none absolute left-0 right-0 top-7 h-px"
-        style={{
-          background: `color-mix(in srgb, ${brandColor} 42%, rgb(var(--border)))`,
-        }}
-      />
-      <div
         className="group relative z-10 flex min-h-14 items-center gap-2 rounded-xl border bg-surface px-3 py-2 shadow-xs transition-[border-color,box-shadow,transform] duration-150 ease-out hover:-translate-y-px hover:shadow-sm active:scale-[0.995]"
         style={{
           borderColor: `color-mix(in srgb, ${brandColor} 28%, rgb(var(--border)))`,
         }}
       >
+        <span
+          aria-hidden
+          className="pointer-events-none absolute left-full top-1/2 h-px w-5"
+          style={{
+            background: `color-mix(in srgb, ${brandColor} 42%, rgb(var(--border)))`,
+          }}
+        />
         <span
           className="h-7 w-1 shrink-0 rounded-full"
           style={{ backgroundColor: brandColor }}
@@ -445,18 +445,18 @@ export default function StackedWorkflowBoard({
                           className="relative grid grid-cols-[12rem_minmax(0,1fr)] items-start gap-5 border-b border-border/70 py-3 last:border-b-0"
                         >
                           <div
-                            aria-hidden
-                            className="pointer-events-none absolute left-8 right-5 top-10 h-px"
-                            style={{
-                              background: `color-mix(in srgb, ${brand.color} 38%, rgb(var(--border)))`,
-                            }}
-                          />
-                          <div
                             className="relative z-10 flex min-h-14 items-center gap-2 border-l-[3px] px-3 py-2"
                             style={{
                               borderLeftColor: brand.color,
                             }}
                           >
+                            <span
+                              aria-hidden
+                              className="pointer-events-none absolute left-full top-1/2 h-px w-5"
+                              style={{
+                                background: `color-mix(in srgb, ${brand.color} 38%, rgb(var(--border)))`,
+                              }}
+                            />
                             <span
                               className="size-2 shrink-0 rounded-[3px]"
                               style={{ backgroundColor: brand.color }}
