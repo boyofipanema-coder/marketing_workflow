@@ -18,6 +18,7 @@ export interface TaskListProps {
   onToggleComplete: (task: Task) => void;
   onCancel: (task: Task) => void;
   onRestore: (task: Task) => void;
+  unreadComments?: Record<string, number>;
   onToggleKey?: (task: Task) => void;
   /** Enables drag-to-reorder. Omit for lists whose order is derived, not manual. */
   onReorder?: (orderedIds: string[]) => void;
@@ -40,6 +41,7 @@ export default function TaskList({
   onToggleComplete,
   onCancel,
   onRestore,
+  unreadComments,
   onToggleKey,
   onReorder,
   emptyTitle = "등록된 업무가 없습니다",
@@ -80,6 +82,7 @@ export default function TaskList({
     onToggleComplete,
     onCancel,
     onRestore,
+    unreadCommentCount: unreadComments?.[`task:${task.id}`] ?? 0,
     onToggleKey,
   });
 

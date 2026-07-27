@@ -15,14 +15,8 @@ import { useTaskController } from "@/components/tasks/useTaskController";
 import BrandFormDialog from "@/components/projects/BrandFormDialog";
 import ProjectFormDialog from "@/components/projects/ProjectFormDialog";
 import { Button } from "@/components/ui";
-import {
-  myFocus,
-  needsAttention,
-  comingNext,
-  teamInMotion,
-  teamWaiting,
-} from "@/lib/derive";
 import type { Task, Brand, Project, Workstream, Member } from "@/server/db/schema";
+import type { NotificationView } from "@/server/services/collaboration";
 
 export interface HomeContentProps {
   viewerId: string;
@@ -31,6 +25,7 @@ export interface HomeContentProps {
   projects: Project[];
   workstreams: Workstream[];
   members: Member[];
+  notifications: NotificationView[];
   dependencies?: Record<string, string[]>;
 }
 
@@ -48,6 +43,7 @@ export default function HomeContent({
   projects,
   workstreams,
   members,
+  notifications,
   dependencies,
 }: HomeContentProps) {
   const router = useRouter();
@@ -91,20 +87,33 @@ export default function HomeContent({
     () => Object.fromEntries(members.map((m) => [m.id, m])),
     [members]
   );
+  const unreadComments = useMemo(
+    () =>
+      notifications.reduce<Record<string, number>>((counts, item) => {
+        if (item.read_at) return counts;
+        const key = `${item.target_type}:${item.target_id}`;
+        counts[key] = (counts[key] ?? 0) + 1;
+        return counts;
+      }, {}),
+    [notifications],
+  );
 
-  const sections = useMemo(() => {
-    const now = new Date();
-    const active = controller.tasks;
-    return {
-      focus: myFocus(active, viewerId),
-      // "Team in motion" is what other people are on — my own in-progress work
-      // is already the section above it.
-      motion: teamInMotion(active).filter((t) => t.assignee_id !== viewerId),
-      waiting: teamWaiting(active),
-      attention: needsAttention(active, now),
-      next: comingNext(active, now),
-    };
-  }, [controller.tasks, viewerId]);
+  const personalTasks = useMemo(
+    () =>
+      controller.tasks
+        .filter(
+          (task) =>
+            task.assignee_id === viewerId &&
+            task.kind !== "milestone" &&
+            !task.cancelled_at,
+        )
+        .sort((a, b) => {
+          if (!a.due_date) return 1;
+          if (!b.due_date) return -1;
+          return a.due_date.localeCompare(b.due_date);
+        }),
+    [controller.tasks, viewerId],
+  );
 
   const boardTasks = useMemo(
     () => controller.tasks.filter((t) => !t.cancelled_at),
@@ -156,6 +165,7 @@ export default function HomeContent({
     onCancel: controller.cancel,
     onRestore: controller.restore,
     onToggleKey: controller.toggleKey,
+    unreadComments,
   };
 
   function startProject(brandId?: string) {
@@ -214,7 +224,7 @@ export default function HomeContent({
             className="relative left-1/2 mb-10 w-[min(1400px,calc(100vw-2rem))] -translate-x-1/2"
             aria-label="전체 업무 흐름"
           >
-            <div className="mb-3 flex flex-wrap items-center gap-3">
+            <div className="mb-[18px] flex flex-wrap items-center gap-3 px-6">
               <div className="mr-auto min-w-0">
                 <h1 className="text-[15px] font-semibold tracking-tight text-text">
                   업무 보드
@@ -334,6 +344,7 @@ export default function HomeContent({
               brands={visibleBrands}
               members={membersRecord}
               projects={visibleProjects}
+              unreadComments={unreadComments}
               onSelect={controller.select}
               onAddProject={(brandId) => startProject(brandId)}
               onAddProjectTask={(projectId) => {
@@ -352,50 +363,12 @@ export default function HomeContent({
         )}
 
         <div className="flex flex-col gap-8">
-          {/* Only the first section shows an empty state — the rest disappear
-              when empty so the page stays a short, scannable list. */}
           <TaskSection
             {...shared}
-            title="내 우선 업무"
-            tasks={sections.focus}
-            emptyTitle="지금 진행 중인 내 업무가 없습니다"
-            emptyDescription="진행 중이거나 검토 중인 내 업무가 여기에 표시됩니다."
-          />
-
-          <TaskSection
-            {...shared}
-            title="확인 필요"
-            tasks={sections.attention}
-            hideWhenEmpty
-            emptyTitle=""
-            emptyDescription=""
-          />
-
-          <TaskSection
-            {...shared}
-            title="대기 중"
-            tasks={sections.waiting}
-            hideWhenEmpty
-            emptyTitle=""
-            emptyDescription=""
-          />
-
-          <TaskSection
-            {...shared}
-            title="팀 진행 중"
-            tasks={sections.motion}
-            hideWhenEmpty
-            emptyTitle=""
-            emptyDescription=""
-          />
-
-          <TaskSection
-            {...shared}
-            title="다음 업무"
-            tasks={sections.next}
-            hideWhenEmpty
-            emptyTitle=""
-            emptyDescription=""
+            title="내 업무"
+            tasks={personalTasks}
+            emptyTitle="담당 업무가 없습니다"
+            emptyDescription="나에게 배정된 업무가 여기에 표시됩니다."
           />
         </div>
       </div>

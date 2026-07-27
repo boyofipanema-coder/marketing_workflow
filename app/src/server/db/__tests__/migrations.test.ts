@@ -528,3 +528,50 @@ describe("0007 — comments and notifications", () => {
     });
   });
 });
+
+describe("0008 — project comments", () => {
+  it("stores project comments and recipient-scoped unread notifications", () => {
+    const sqlite = legacyDb();
+    apply(sqlite, "0002_recovery_fields");
+    apply(sqlite, "0003_task_hierarchy");
+    apply(sqlite, "0004_milestone_as_task");
+    sqlite.exec(`
+      INSERT INTO workspace (id, name, timezone, created_at)
+      VALUES ('ws1', 'Workspace One', 'Asia/Seoul', '2024-01-01T00:00:00Z');
+      INSERT INTO member (id, workspace_id, name, email, role)
+      VALUES
+        ('m1', 'ws1', '작성자', 'author@example.com', 'member'),
+        ('m2', 'ws1', '수신자', 'recipient@example.com', 'member');
+      INSERT INTO project
+        (id, workspace_id, name, project_lead_id, created_at, updated_at)
+      VALUES
+        ('p1', 'ws1', '프로젝트', 'm1', '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z');
+    `);
+    apply(sqlite, "0005_brand_project_hierarchy");
+    apply(sqlite, "0006_restore_default_brands");
+    apply(sqlite, "0007_comments_notifications");
+    apply(sqlite, "0008_project_comments");
+
+    sqlite.exec(`
+      INSERT INTO project_comment
+        (id, workspace_id, project_id, author_id, body, created_at, updated_at)
+      VALUES
+        ('c1', 'ws1', 'p1', 'm1', '확인 부탁드립니다.', '2024-01-02T00:00:00Z', '2024-01-02T00:00:00Z');
+      INSERT INTO project_notification
+        (id, workspace_id, recipient_id, actor_id, project_id, comment_id, created_at)
+      VALUES
+        ('n1', 'ws1', 'm2', 'm1', 'p1', 'c1', '2024-01-02T00:00:00Z');
+    `);
+
+    expect(
+      sqlite
+        .prepare("SELECT recipient_id, project_id, comment_id, read_at FROM project_notification")
+        .get(),
+    ).toEqual({
+      recipient_id: "m2",
+      project_id: "p1",
+      comment_id: "c1",
+      read_at: null,
+    });
+  });
+});

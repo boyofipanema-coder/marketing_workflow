@@ -3,24 +3,18 @@
 import { useMemo, useState } from "react";
 import {
   CircleAlert,
-  Clock3,
   FolderPlus,
   Network,
   Plus,
 } from "lucide-react";
-import { Button, StatusBadge } from "@/components/ui";
+import { Button } from "@/components/ui";
+import { CommentSidecarButton } from "@/components/tasks/CommentThread";
 import { ownerColor } from "@/lib/colors";
 import { isOverdue, todayKST } from "@/lib/derive";
-import {
-  FLOW_COLUMNS,
-  flowColumn,
-  isActiveWork,
-  memberWorkload,
-} from "@/lib/workload";
+import { isActiveWork } from "@/lib/workload";
 import type { Brand, Member, Project, Task } from "@/server/db/schema";
 
-export type BoardFocus = "all" | "today" | "waiting" | "overdue";
-type BoardView = "workflow" | "flow";
+export type BoardFocus = "all" | "today" | "overdue";
 type Scope = "active" | "done";
 
 interface StackedWorkflowBoardProps {
@@ -28,6 +22,7 @@ interface StackedWorkflowBoardProps {
   brands: Brand[];
   projects: Project[];
   members: Record<string, Member>;
+  unreadComments: Record<string, number>;
   focus: BoardFocus;
   onFocusChange: (focus: BoardFocus) => void;
   onSelect: (task: Task) => void;
@@ -39,7 +34,6 @@ interface StackedWorkflowBoardProps {
 
 function taskMatchesFocus(task: Task, focus: BoardFocus, now: Date) {
   if (focus === "today") return task.due_date === todayKST(now);
-  if (focus === "waiting") return task.status === "Waiting";
   if (focus === "overdue") return isOverdue(task, now);
   return true;
 }
@@ -74,12 +68,16 @@ function ChildTaskRow({
   task,
   depth,
   owner,
+  members,
+  unreadComments,
   onSelect,
   onAddSubtask,
 }: {
   task: Task;
   depth: number;
   owner: Member | null;
+  members: Member[];
+  unreadComments: Record<string, number>;
   onSelect: (task: Task) => void;
   onAddSubtask: (parent: Task) => void;
 }) {
@@ -92,7 +90,6 @@ function ChildTaskRow({
         ["--indent" as string]: `${depth * 8}px`,
       }}
     >
-      <StatusBadge status={task.status} variant="pip" className="shrink-0" />
       <button
         type="button"
         onClick={() => onSelect(task)}
@@ -101,6 +98,12 @@ function ChildTaskRow({
         {task.title}
       </button>
       <OwnerBadge owner={owner} />
+      <CommentSidecarButton
+        target={{ type: "task", id: task.id }}
+        title={task.title}
+        members={members}
+        unreadCount={unreadComments[`task:${task.id}`]}
+      />
       <Button
         type="button"
         variant="ghost"
@@ -120,12 +123,16 @@ function FlowTask({
   task,
   childrenByParent,
   members,
+  memberList,
+  unreadComments,
   onSelect,
   onAddSubtask,
 }: {
   task: Task;
   childrenByParent: Map<string, Task[]>;
   members: Record<string, Member>;
+  memberList: Member[];
+  unreadComments: Record<string, number>;
   onSelect: (task: Task) => void;
   onAddSubtask: (parent: Task) => void;
 }) {
@@ -156,7 +163,6 @@ function FlowTask({
           {task.title}
         </button>
         <span className="flex shrink-0 items-center gap-2">
-          <StatusBadge status={task.status} variant="dot" />
           <OwnerBadge owner={owner} />
           {task.due_date && (
             <span className="text-xs tabular-nums text-text-tertiary">
@@ -164,6 +170,12 @@ function FlowTask({
             </span>
           )}
         </span>
+        <CommentSidecarButton
+          target={{ type: "task", id: task.id }}
+          title={task.title}
+          members={memberList}
+          unreadCount={unreadComments[`task:${task.id}`]}
+        />
         <Button
           type="button"
           variant="ghost"
@@ -184,6 +196,8 @@ function FlowTask({
               task={child}
               depth={depth}
               owner={childOwner}
+              members={memberList}
+              unreadComments={unreadComments}
               onSelect={onSelect}
               onAddSubtask={onAddSubtask}
             />
@@ -200,6 +214,8 @@ function FlowTask({
                 task={child}
                 depth={depth}
                 owner={child.assignee_id ? members[child.assignee_id] : null}
+                members={memberList}
+                unreadComments={unreadComments}
                 onSelect={onSelect}
                 onAddSubtask={onAddSubtask}
               />
@@ -228,6 +244,7 @@ export default function StackedWorkflowBoard({
   brands,
   projects,
   members,
+  unreadComments,
   focus,
   onFocusChange,
   onSelect,
@@ -236,7 +253,6 @@ export default function StackedWorkflowBoard({
   onAddSubtask,
   onEditProject,
 }: StackedWorkflowBoardProps) {
-  const [view, setView] = useState<BoardView>("workflow");
   const [scope, setScope] = useState<Scope>("active");
   const now = useMemo(() => new Date(), []);
   const scopedTasks = useMemo(
@@ -257,39 +273,16 @@ export default function StackedWorkflowBoard({
     }
     return map;
   }, [scopedTasks, taskIds]);
-  const projectById = useMemo(
-    () => new Map(projects.map((project) => [project.id, project])),
-    [projects],
-  );
-  const brandById = useMemo(
-    () => new Map(brands.map((brand) => [brand.id, brand])),
-    [brands],
-  );
+  const memberList = useMemo(() => Object.values(members), [members]);
 
   return (
     <div className="overflow-hidden rounded-2xl border border-border bg-surface-2/35 shadow-xs">
       <div className="flex flex-wrap items-center gap-2 border-b border-border bg-surface px-3 py-2.5 sm:px-4">
-        <div className="flex rounded-xl bg-surface-2 p-1">
-          <button
-            type="button"
-            onClick={() => setView("workflow")}
-            className={`h-8 rounded-lg px-3 text-xs font-semibold transition-transform duration-fast ease-out active:scale-[0.97] ${view === "workflow" ? "bg-surface text-text shadow-xs" : "text-text-secondary"}`}
-          >
-            워크플로우
-          </button>
-          <button
-            type="button"
-            onClick={() => setView("flow")}
-            className={`h-8 rounded-lg px-3 text-xs font-semibold transition-transform duration-fast ease-out active:scale-[0.97] ${view === "flow" ? "bg-surface text-text shadow-xs" : "text-text-secondary"}`}
-          >
-            진행 흐름
-          </button>
-        </div>
+        <p className="px-1 text-xs font-semibold text-text-secondary">워크플로우</p>
         <div className="ml-auto flex flex-wrap items-center gap-1.5">
           {([
             ["all", "전체"],
             ["today", "지금 할 일"],
-            ["waiting", "대기"],
             ["overdue", "기한 초과"],
           ] as const).map(([id, label]) => (
             <button
@@ -314,59 +307,7 @@ export default function StackedWorkflowBoard({
         </div>
       </div>
 
-      {view === "flow" ? (
-        <div className="overflow-x-auto p-3 sm:p-4">
-          <div className="min-w-[820px] space-y-3">
-            <div className="grid grid-cols-[9rem_repeat(4,minmax(9rem,1fr))] gap-2 px-2 text-xs font-semibold text-text-tertiary">
-              <span>담당자 · 현재 업무량</span>
-              {FLOW_COLUMNS.map((column) => <span key={column.id}>{column.label}</span>)}
-            </div>
-            {Object.values(members).map((member) => {
-              const workload = memberWorkload(tasks, member.id, now);
-              return (
-                <div key={member.id} className="grid grid-cols-[9rem_repeat(4,minmax(9rem,1fr))] gap-2 rounded-xl border border-border bg-surface p-2">
-                  <div className="px-2 py-1">
-                    <p className="truncate text-xs font-semibold text-text">{member.name}</p>
-                    <p className="mt-1 text-[11px] tabular-nums text-text-tertiary">
-                      활성 {workload.activeCount} · 이번 주 {workload.dueThisWeekCount}
-                    </p>
-                  </div>
-                  {FLOW_COLUMNS.map((column) => (
-                    <div key={column.id} className="min-h-14 rounded-lg bg-surface-2/70 p-1.5">
-                      {workload.active
-                        .filter((task) => flowColumn(task) === column.id)
-                        .map((task) => {
-                          const project = task.project_id
-                            ? projectById.get(task.project_id)
-                            : null;
-                          const brand = project?.brand_id
-                            ? brandById.get(project.brand_id)
-                            : null;
-                          return (
-                            <button
-                              key={task.id}
-                              type="button"
-                              onClick={() => onSelect(task)}
-                              title={[brand?.name, project?.name, task.title].filter(Boolean).join(" · ")}
-                              className="mb-1 flex w-full items-center gap-1.5 truncate rounded-md border border-border bg-surface px-2 py-1.5 text-left text-xs font-medium text-text shadow-xs transition-[color,transform] duration-fast ease-out hover:text-accent active:scale-[0.99]"
-                              style={{
-                                borderLeftWidth: 3,
-                                borderLeftColor: brand?.color ?? "rgb(var(--border))",
-                              }}
-                            >
-                              <span className="min-w-0 flex-1 truncate">{task.title}</span>
-                            </button>
-                          );
-                        })}
-                    </div>
-                  ))}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      ) : (
-        <div
+      <div
           className="overflow-x-auto bg-bg p-3 sm:p-4"
           style={{
             backgroundImage:
@@ -460,6 +401,12 @@ export default function StackedWorkflowBoard({
                             >
                               {project.name}
                             </button>
+                            <CommentSidecarButton
+                              target={{ type: "project", id: project.id }}
+                              title={project.name}
+                              members={memberList}
+                              unreadCount={unreadComments[`project:${project.id}`]}
+                            />
                             <span className="flex h-5 shrink-0 items-center gap-0.5">
                               <span className="px-1 text-xs tabular-nums text-text-tertiary">
                                 {projectTasks.length}
@@ -484,6 +431,8 @@ export default function StackedWorkflowBoard({
                                 task={task}
                                 childrenByParent={childrenByParent}
                                 members={members}
+                                memberList={memberList}
+                                unreadComments={unreadComments}
                                 onSelect={onSelect}
                                 onAddSubtask={onAddSubtask}
                               />
@@ -509,7 +458,7 @@ export default function StackedWorkflowBoard({
             {scopedTasks.length === 0 && (
               <div className="grid min-h-36 place-items-center rounded-xl border border-dashed border-border bg-surface text-center">
                 <div>
-                  {focus === "overdue" ? <CircleAlert className="mx-auto mb-2 size-5 text-text-tertiary" /> : focus === "waiting" ? <Clock3 className="mx-auto mb-2 size-5 text-text-tertiary" /> : <Network className="mx-auto mb-2 size-5 text-text-tertiary" />}
+                  {focus === "overdue" ? <CircleAlert className="mx-auto mb-2 size-5 text-text-tertiary" /> : <Network className="mx-auto mb-2 size-5 text-text-tertiary" />}
                   <p className="text-xs font-semibold text-text-secondary">
                     {scope === "done" ? "완료된 업무가 없습니다" : "조건에 맞는 업무가 없습니다"}
                   </p>
@@ -518,7 +467,6 @@ export default function StackedWorkflowBoard({
             )}
           </div>
         </div>
-      )}
     </div>
   );
 }

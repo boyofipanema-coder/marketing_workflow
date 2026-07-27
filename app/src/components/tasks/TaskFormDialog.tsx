@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Check, ChevronDown, Loader2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { todayKST } from "@/lib/derive";
 import { createDetailedProjectTaskAction } from "@/app/actions/tasks";
 import type { Member, Project, Task, Workstream } from "@/server/db/schema";
 
@@ -19,8 +18,6 @@ interface TaskFormDialogProps {
   defaultParentTask?: Task | null;
   onCreated?: (task: Task) => void;
 }
-
-type CreateStatus = "ToDo" | "Waiting" | "Done";
 
 const inputClass =
   "h-10 w-full rounded-xl border border-border bg-surface px-3 text-sm text-text shadow-xs outline-none transition-[border-color,box-shadow] hover:border-border-strong focus:border-accent focus:ring-2 focus:ring-accent/20 disabled:opacity-45";
@@ -55,11 +52,8 @@ export default function TaskFormDialog({
   defaultParentTask = null,
   onCreated,
 }: TaskFormDialogProps) {
-  const today = useMemo(() => todayKST(new Date()), []);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [status, setStatus] = useState<CreateStatus>("ToDo");
-  const [importance, setImportance] = useState<Task["importance"]>("normal");
   const [kind, setKind] = useState<Task["kind"]>("task");
   const [projectId, setProjectId] = useState("");
   const [workstreamId, setWorkstreamId] = useState("");
@@ -67,8 +61,6 @@ export default function TaskFormDialog({
   const [startDate, setStartDate] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [dueTime, setDueTime] = useState("");
-  const [waitingParty, setWaitingParty] = useState("");
-  const [followUpAt, setFollowUpAt] = useState("");
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -77,8 +69,6 @@ export default function TaskFormDialog({
     if (!open) return;
     setTitle("");
     setDescription("");
-    setStatus("ToDo");
-    setImportance("normal");
     setKind("task");
     setProjectId(
       defaultParentTask?.project_id ??
@@ -91,8 +81,6 @@ export default function TaskFormDialog({
     setStartDate("");
     setDueDate("");
     setDueTime("");
-    setWaitingParty("");
-    setFollowUpAt("");
     setAdvancedOpen(false);
     setPending(false);
     setError(null);
@@ -108,11 +96,6 @@ export default function TaskFormDialog({
     event.preventDefault();
     if (!title.trim()) return setError("업무명을 입력해 주세요.");
     if (!projectId) return setError("프로젝트를 선택해 주세요.");
-    if (status === "Waiting" && (!waitingParty.trim() || !followUpAt)) {
-      setAdvancedOpen(true);
-      return setError("대기 상태에는 기다리는 대상과 다음 확인일이 필요합니다.");
-    }
-
     setPending(true);
     setError(null);
     const result = await createDetailedProjectTaskAction({
@@ -120,16 +103,16 @@ export default function TaskFormDialog({
       parentTaskId: defaultParentTask?.id ?? null,
       title: title.trim(),
       description: description.trim() || null,
-      status,
-      importance,
+      status: "ToDo",
+      importance: "normal",
       kind,
       assigneeId: assigneeId || null,
       startDate: startDate || null,
       dueDate: dueDate || null,
       dueTime: dueTime || null,
       workstreamId: workstreamId || null,
-      waitingPartyText: status === "Waiting" ? waitingParty.trim() : null,
-      followUpAt: status === "Waiting" ? followUpAt : null,
+      waitingPartyText: null,
+      followUpAt: null,
     });
     setPending(false);
     if (!result.success || !result.data) {
@@ -232,7 +215,7 @@ export default function TaskFormDialog({
                 className="flex h-9 items-center gap-2 text-xs font-semibold text-text-secondary hover:text-text"
               >
                 <ChevronDown className={cn("size-4 transition-transform", advancedOpen && "rotate-180")} />
-                {advancedOpen ? "추가 입력 접기" : "담당자·상태 등 추가 입력"}
+                {advancedOpen ? "추가 입력 접기" : "담당자·일정 등 추가 입력"}
               </button>
 
               {advancedOpen && (
@@ -241,13 +224,6 @@ export default function TaskFormDialog({
                     <select id="create-task-assignee" value={assigneeId} onChange={(event) => setAssigneeId(event.target.value)} className={inputClass}>
                       <option value="">담당자 없음</option>
                       {members.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}
-                    </select>
-                  </Field>
-                  <Field label="진행 상태" htmlFor="create-task-status">
-                    <select id="create-task-status" value={status} onChange={(event) => setStatus(event.target.value as CreateStatus)} className={inputClass}>
-                      <option value="ToDo">예정</option>
-                      <option value="Waiting">대기</option>
-                      <option value="Done">완료</option>
                     </select>
                   </Field>
                   <Field label="업무 영역" htmlFor="create-task-workstream">
@@ -268,16 +244,6 @@ export default function TaskFormDialog({
                       <option value="milestone">마일스톤</option>
                     </select>
                   </Field>
-                  {status === "Waiting" && (
-                    <>
-                      <Field label="무엇을 기다리나요" htmlFor="create-task-waiting">
-                        <input id="create-task-waiting" value={waitingParty} onChange={(event) => setWaitingParty(event.target.value)} placeholder="예: 본사 승인 회신" className={inputClass} />
-                      </Field>
-                      <Field label="다음 확인일" htmlFor="create-task-follow-up">
-                        <input id="create-task-follow-up" type="date" min={today} value={followUpAt} onChange={(event) => setFollowUpAt(event.target.value)} className={inputClass} />
-                      </Field>
-                    </>
-                  )}
                 </section>
               )}
             </div>

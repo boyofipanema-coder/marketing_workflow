@@ -248,6 +248,16 @@ export const task_comment = sqliteTable("task_comment", {
   updated_at: text("updated_at").notNull(),
 });
 
+export const project_comment = sqliteTable("project_comment", {
+  id: text("id").primaryKey(),
+  workspace_id: text("workspace_id").notNull().references(() => workspace.id),
+  project_id: text("project_id").notNull().references(() => project.id),
+  author_id: text("author_id").notNull().references(() => member.id),
+  body: text("body").notNull(),
+  created_at: text("created_at").notNull(),
+  updated_at: text("updated_at").notNull(),
+});
+
 export const notification = sqliteTable("notification", {
   id: text("id").primaryKey(),
   workspace_id: text("workspace_id").notNull().references(() => workspace.id),
@@ -255,7 +265,18 @@ export const notification = sqliteTable("notification", {
   actor_id: text("actor_id").notNull().references(() => member.id),
   task_id: text("task_id").notNull().references(() => task.id),
   comment_id: text("comment_id").references(() => task_comment.id),
-  kind: text("kind", { enum: ["mention"] }).notNull().default("mention"),
+  kind: text("kind", { enum: ["mention", "comment"] }).notNull().default("comment"),
+  read_at: text("read_at"),
+  created_at: text("created_at").notNull(),
+});
+
+export const project_notification = sqliteTable("project_notification", {
+  id: text("id").primaryKey(),
+  workspace_id: text("workspace_id").notNull().references(() => workspace.id),
+  recipient_id: text("recipient_id").notNull().references(() => member.id),
+  actor_id: text("actor_id").notNull().references(() => member.id),
+  project_id: text("project_id").notNull().references(() => project.id),
+  comment_id: text("comment_id").references(() => project_comment.id),
   read_at: text("read_at"),
   created_at: text("created_at").notNull(),
 });
@@ -427,8 +448,14 @@ export type NewActivityLog = typeof activity_log.$inferInsert;
 export type TaskComment = typeof task_comment.$inferSelect;
 export type NewTaskComment = typeof task_comment.$inferInsert;
 
+export type ProjectComment = typeof project_comment.$inferSelect;
+export type NewProjectComment = typeof project_comment.$inferInsert;
+
 export type Notification = typeof notification.$inferSelect;
 export type NewNotification = typeof notification.$inferInsert;
+
+export type ProjectNotification = typeof project_notification.$inferSelect;
+export type NewProjectNotification = typeof project_notification.$inferInsert;
 
 export type TaskDependency = typeof task_dependency.$inferSelect;
 export type NewTaskDependency = typeof task_dependency.$inferInsert;

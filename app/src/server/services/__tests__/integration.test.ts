@@ -38,6 +38,12 @@ import {
 } from "@/server/services/errors";
 import { searchTasks } from "@/lib/search";
 import { myFocus, needsAttention } from "@/lib/derive";
+import {
+  createComment,
+  getComments,
+  getMemberNotifications,
+  markTargetNotificationsRead,
+} from "@/server/services/collaboration";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -101,6 +107,62 @@ function freshDb(): TestDb {
   seedFixtures(db);
   return db;
 }
+
+describe("Shared comments and unread notifications", () => {
+  it("notifies every other member for task and project comments", async () => {
+    const db = freshDb();
+    const recipientId = "m_recipient";
+    await db.insert(schema.member).values({
+      id: recipientId,
+      workspace_id: WS_ID,
+      name: "Recipient",
+      email: "recipient@example.com",
+      role: "member",
+    });
+    const task = await createProjectTask(db as never, {
+      workspaceId: WS_ID,
+      projectId: PROJECT_ID,
+      title: "Comment target",
+      memberId: MEMBER_ID,
+    });
+
+    await createComment(db as never, {
+      target: { type: "task", id: task.id },
+      workspaceId: WS_ID,
+      authorId: MEMBER_ID,
+      body: "업무 댓글",
+    });
+    await createComment(db as never, {
+      target: { type: "project", id: PROJECT_ID },
+      workspaceId: WS_ID,
+      authorId: MEMBER_ID,
+      body: "프로젝트 댓글",
+    });
+
+    expect(
+      await getComments(
+        db as never,
+        { type: "project", id: PROJECT_ID },
+        WS_ID,
+      ),
+    ).toHaveLength(1);
+    const unread = await getMemberNotifications(db as never, WS_ID, recipientId);
+    expect(unread.map((item) => item.target_type).sort()).toEqual([
+      "project",
+      "task",
+    ]);
+
+    await markTargetNotificationsRead(
+      db as never,
+      { type: "project", id: PROJECT_ID },
+      WS_ID,
+      recipientId,
+    );
+    const updated = await getMemberNotifications(db as never, WS_ID, recipientId);
+    expect(updated.find((item) => item.target_type === "project")?.read_at).toBeTruthy();
+    expect(updated.find((item) => item.target_type === "task")?.read_at).toBeNull();
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Core lifecycle: create → edit → Done → cancel → restore

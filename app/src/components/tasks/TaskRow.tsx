@@ -9,11 +9,10 @@ import {
   MoreHorizontal,
   Loader2,
   RotateCcw,
-  Star,
   XCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { STATUS_META, CANCELLED_META } from "@/lib/status";
+import { CommentSidecarButton } from "./CommentThread";
 import type { Task, Member } from "@/server/db/schema";
 import type { SaveState } from "./useTaskStore";
 
@@ -28,6 +27,7 @@ export interface TaskRowProps {
   onToggleComplete: (task: Task) => void;
   onCancel: (task: Task) => void;
   onRestore: (task: Task) => void;
+  unreadCommentCount?: number;
   /** Promote/demote a key task. Omit to hide the control. */
   onToggleKey?: (task: Task) => void;
   /** Omitted when the list is not reorderable (e.g. search results). */
@@ -61,7 +61,7 @@ export default function TaskRow({
   onToggleComplete,
   onCancel,
   onRestore,
-  onToggleKey,
+  unreadCommentCount,
   dragHandleProps,
 }: TaskRowProps) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -71,8 +71,6 @@ export default function TaskRow({
   const assignee = task.assignee_id ? members[task.assignee_id] : undefined;
   const overdue =
     !done && !cancelled && task.due_date !== null && task.due_date < today;
-  const meta = cancelled ? CANCELLED_META : STATUS_META[task.status];
-
   return (
     <div
       className={cn(
@@ -138,29 +136,13 @@ export default function TaskRow({
         <span
           className={cn(
             "line-clamp-2 text-sm leading-snug text-text",
-            task.importance === "key" && "font-semibold",
             (done || cancelled) && "text-text-tertiary line-through"
           )}
         >
-          {task.importance === "key" && (
-            <Star
-              className="mr-1 inline-block h-3 w-3 -translate-y-px fill-current text-text-secondary"
-              aria-label="핵심 업무"
-            />
-          )}
           {task.title}
         </span>
 
         <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs">
-          {/* Status is conveyed by dot + text, never colour alone. */}
-          <span className="inline-flex items-center gap-1.5 text-text-tertiary">
-            <span
-              className={cn("h-1.5 w-1.5 rounded-full", meta.dot)}
-              aria-hidden
-            />
-            {meta.label}
-          </span>
-
           {task.due_date && (
             <span
               className={cn(
@@ -192,6 +174,13 @@ export default function TaskRow({
         <span className="flex-shrink-0 text-xs text-flag-blocked">저장 실패</span>
       )}
 
+      <CommentSidecarButton
+        target={{ type: "task", id: task.id }}
+        title={task.title}
+        members={Object.values(members)}
+        unreadCount={unreadCommentCount}
+      />
+
       {/* Overflow menu — cancel and restore live here, deliberately apart from
           the completion control (plan §2.3). */}
       <DropdownMenu.Root open={menuOpen} onOpenChange={setMenuOpen}>
@@ -216,22 +205,6 @@ export default function TaskRow({
             sideOffset={4}
             className="z-50 min-w-[10rem] rounded-lg border border-separator bg-elevated p-1 shadow-xl"
           >
-            {!cancelled && onToggleKey && (
-              <>
-                <DropdownMenu.Item
-                  onSelect={() => onToggleKey(task)}
-                  className="flex cursor-pointer items-center gap-2 rounded px-2 py-2 text-sm text-text outline-none data-[highlighted]:bg-surface-2"
-                >
-                  <Star
-                    className={cn("h-3.5 w-3.5", task.importance === "key" && "fill-current")}
-                    aria-hidden
-                  />
-                  {task.importance === "key" ? "핵심 업무 해제" : "핵심 업무로 표시"}
-                </DropdownMenu.Item>
-                <DropdownMenu.Separator className="my-1 h-px bg-separator" />
-              </>
-            )}
-
             {cancelled ? (
               <DropdownMenu.Item
                 onSelect={() => onRestore(task)}

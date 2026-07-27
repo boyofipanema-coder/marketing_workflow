@@ -14,12 +14,8 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
-  DISPLAY_STATUS_GROUPS,
-  DISPLAY_GROUP_META,
-  displayGroup,
-} from "@/lib/status";
-import { todayKST } from "@/lib/derive";
-import { createRequestGuard } from "@/lib/request-guard";
+  createRequestGuard,
+} from "@/lib/request-guard";
 import type { Task, Project, Workstream, Member } from "@/server/db/schema";
 import { getTaskActivityAction } from "@/app/actions/tasks";
 import type { ActivityEntry } from "@/server/data/queries";
@@ -89,14 +85,6 @@ const CHANGE_LABEL: Record<string, string> = {
 const selectClass =
   "h-11 w-full rounded-xl border border-border bg-surface/80 px-3 text-sm text-text shadow-xs transition-[border-color,box-shadow,background-color] duration-fast ease-out hover:border-border-strong focus:border-accent focus:bg-surface focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:opacity-50";
 
-/** Adds `days` to a KST YYYY-MM-DD string. */
-function shiftDate(base: string, days: number): string {
-  const [y, m, d] = base.split("-").map(Number);
-  const dt = new Date(Date.UTC(y!, m! - 1, d!));
-  dt.setUTCDate(dt.getUTCDate() + days);
-  return dt.toISOString().slice(0, 10);
-}
-
 // ── Panel ────────────────────────────────────────────────────────────────────
 
 export default function TaskDetailPanel({
@@ -115,11 +103,6 @@ export default function TaskDetailPanel({
 }: TaskDetailPanelProps) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  /** Set while composing a move into Waiting; null once it is saved. */
-  const [waitDraft, setWaitDraft] = useState<{
-    party: string;
-    date: string;
-  } | null>(null);
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
@@ -128,7 +111,6 @@ export default function TaskDetailPanel({
   const pendingDescription = useRef<string | null>(null);
   const activityGuard = useRef(createRequestGuard()).current;
 
-  const today = useMemo(() => todayKST(new Date()), []);
   const cancelled = task?.cancelled_at !== null && task?.cancelled_at !== undefined;
   const readOnly = !task || cancelled;
 
@@ -138,7 +120,6 @@ export default function TaskDetailPanel({
     if (!task) return;
     setTitle(task.title);
     setDescription(task.description ?? "");
-    setWaitDraft(null);
     setActivity([]);
     setAdvancedOpen(false);
     setCommentsOpen(false);
@@ -201,11 +182,7 @@ export default function TaskDetailPanel({
     };
   }, []);
 
-  const statusLabel = task
-    ? cancelled
-      ? "취소됨"
-      : DISPLAY_GROUP_META[displayGroup(task.status)].label
-    : "";
+  const statusLabel = cancelled ? "취소됨" : "업무 상세";
 
   return (
     <Dialog.Root open={open} onOpenChange={handleOpenChange}>
@@ -335,39 +312,8 @@ export default function TaskDetailPanel({
                 />
               </Field>
 
-              {/* Quick actions */}
-              <div className="flex flex-wrap gap-1.5">
-                <QuickChip
-                  disabled={readOnly}
-                  active={task.due_date === today}
-                  onClick={() => void patch({ due_date: today })}
-                >
-                  오늘 마감
-                </QuickChip>
-                <QuickChip
-                  disabled={readOnly}
-                  active={task.due_date === shiftDate(today, 1)}
-                  onClick={() => void patch({ due_date: shiftDate(today, 1) })}
-                >
-                  내일 마감
-                </QuickChip>
-                {/* Importance, not status — a subtask can be the most
-                    consequential thing in the project. */}
-                <QuickChip
-                  disabled={readOnly}
-                  active={task.importance === "key"}
-                  onClick={() =>
-                    void patch({
-                      importance: task.importance === "key" ? "normal" : "key",
-                    })
-                  }
-                >
-                  핵심 업무
-                </QuickChip>
-              </div>
-
               <div className="flex flex-col gap-4">
-                <section className="flex min-w-0 flex-col gap-4">
+                <section className="flex min-w-0 flex-col">
                 {/* Description — debounced */}
                 <Field label="세부 내용" htmlFor="task-description">
                 <textarea
@@ -381,120 +327,6 @@ export default function TaskDetailPanel({
                   className="min-h-24 w-full resize-y rounded-xl border border-border bg-surface/80 px-3.5 py-3 text-sm leading-relaxed text-text shadow-xs placeholder:text-text-quaternary transition-[border-color,box-shadow] duration-fast ease-out hover:border-border-strong focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:opacity-60"
                 />
                 </Field>
-
-                <Field label="진행 상태" htmlFor="task-status">
-                <div
-                  id="task-status"
-                  role="radiogroup"
-                  aria-label="진행 상태"
-                  className="grid grid-cols-3 gap-1 rounded-xl border border-border bg-surface-2/70 p-1"
-                >
-                  {DISPLAY_STATUS_GROUPS.map((group) => {
-                    const current = waitDraft ? "Waiting" : displayGroup(task.status);
-                    const active = current === group;
-                    return (
-                      <button
-                        key={group}
-                        type="button"
-                        role="radio"
-                        aria-checked={active}
-                        disabled={readOnly}
-                        onClick={() => {
-                          if (group === "Waiting") {
-                            // Entering Waiting needs a party and a date, and the
-                            // service rejects the move without them — so collect
-                            // them first and send all three together instead of
-                            // failing on the way in.
-                            if (task.status !== "Waiting") {
-                              setWaitDraft({ party: "", date: "" });
-                            }
-                            return;
-                          }
-                          setWaitDraft(null);
-                          if (active) return; // already in this group
-                          void patch({ status: group });
-                        }}
-                        className={cn(
-                          "h-10 rounded-[10px] text-sm font-semibold transition-colors duration-fast ease-out disabled:opacity-50",
-                          active
-                            ? "bg-surface text-text shadow-sm"
-                            : "text-text-secondary hover:text-text"
-                        )}
-                      >
-                        {DISPLAY_GROUP_META[group].label}
-                      </button>
-                    );
-                  })}
-                </div>
-                </Field>
-
-              {/* A Waiting task without a who and a when is one nobody ever
-                  comes back to, so both are required to enter the state. */}
-                {(waitDraft || task.status === "Waiting") && (
-                  <div className="grid gap-3 sm:grid-cols-2">
-                  <Field label="무엇을 기다리나요" htmlFor="task-waiting-party">
-                    <input
-                      id="task-waiting-party"
-                      type="text"
-                      value={waitDraft ? waitDraft.party : undefined}
-                      defaultValue={
-                        waitDraft ? undefined : task.waiting_party_text ?? ""
-                      }
-                      disabled={readOnly}
-                      placeholder="예: 본사 엠바고 회신"
-                      className={selectClass}
-                      onChange={(e) =>
-                        waitDraft &&
-                        setWaitDraft({ ...waitDraft, party: e.target.value })
-                      }
-                      onBlur={(e) => {
-                        if (waitDraft) return;
-                        const v = e.target.value.trim();
-                        if (v !== (task.waiting_party_text ?? ""))
-                          void patch({ waiting_party_text: v });
-                      }}
-                    />
-                  </Field>
-
-                  <Field label="다음 확인일" htmlFor="task-follow-up">
-                    <input
-                      id="task-follow-up"
-                      type="date"
-                      value={
-                        waitDraft ? waitDraft.date : task.follow_up_at ?? ""
-                      }
-                      min={today}
-                      disabled={readOnly}
-                      className={selectClass}
-                      onChange={(e) => {
-                        if (!waitDraft) {
-                          void patch({ follow_up_at: e.target.value || null });
-                          return;
-                        }
-                        setWaitDraft({ ...waitDraft, date: e.target.value });
-                      }}
-                    />
-                  </Field>
-
-                    {waitDraft && (
-                    <button
-                      type="button"
-                      disabled={!waitDraft.party.trim() || !waitDraft.date}
-                      onClick={async () => {
-                        const ok = await patch({
-                          status: "Waiting",
-                          waiting_party_text: waitDraft.party,
-                          follow_up_at: waitDraft.date,
-                        });
-                        if (ok) setWaitDraft(null);
-                      }}
-                      className="h-11 rounded-xl bg-accent text-sm font-semibold text-white transition-colors hover:bg-accent-hover disabled:opacity-40"
-                    >
-                      대기로 변경
-                    </button>
-                    )}
-                  </div>
-                )}
                 </section>
 
                 <section className="grid min-w-0 content-start gap-3 sm:grid-cols-3">
@@ -687,7 +519,7 @@ export default function TaskDetailPanel({
 
               {commentsOpen && (
                 <CommentThread
-                  taskId={task.id}
+                  target={{ type: "task", id: task.id }}
                   members={members}
                   readOnly={readOnly}
                 />
@@ -796,37 +628,5 @@ export default function TaskDetailPanel({
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
-  );
-}
-
-function QuickChip({
-  children,
-  active,
-  disabled,
-  onClick,
-}: {
-  children: React.ReactNode;
-  active?: boolean;
-  disabled?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      aria-pressed={active}
-      className={cn(
-        "inline-flex h-8 items-center rounded-full border px-3 text-xs font-medium",
-        "transition-[background-color,border-color,transform] duration-fast ease-out active:scale-[0.97]",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        "disabled:cursor-not-allowed disabled:opacity-40",
-        active
-          ? "border-accent bg-accent/10 text-accent"
-          : "border-border bg-surface text-text-secondary hover:border-border-strong hover:text-text"
-      )}
-    >
-      {children}
-    </button>
   );
 }

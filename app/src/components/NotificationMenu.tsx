@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Bell } from "lucide-react";
@@ -16,6 +16,10 @@ export default function NotificationMenu({
   const [notifications, setNotifications] = useState(initialNotifications);
   const unreadCount = notifications.filter((item) => !item.read_at).length;
 
+  useEffect(() => {
+    setNotifications(initialNotifications);
+  }, [initialNotifications]);
+
   async function openNotification(item: NotificationView) {
     if (!item.read_at) {
       setNotifications((current) =>
@@ -25,9 +29,13 @@ export default function NotificationMenu({
             : notification,
         ),
       );
-      await markNotificationReadAction(item.id);
+      await markNotificationReadAction(item.id, item.target_type);
     }
-    router.push(`/search?q=${encodeURIComponent(item.task_title)}`);
+    router.push(
+      item.target_type === "project"
+        ? `/projects/${item.target_id}`
+        : `/search?q=${encodeURIComponent(item.target_title)}`,
+    );
   }
 
   return (
@@ -64,9 +72,9 @@ export default function NotificationMenu({
             >
               {!item.read_at && <span className="absolute left-1 top-4 size-1.5 rounded-full bg-accent" />}
               <p className="truncate text-[11px] font-semibold text-text">
-                {item.actor_name}님이 댓글에서 멘션했습니다
+                {item.actor_name}님이 댓글을 남겼습니다
               </p>
-              <p className="mt-0.5 truncate text-[10px] text-text-tertiary">{item.task_title}</p>
+              <p className="mt-0.5 truncate text-[10px] text-text-tertiary">{item.target_title}</p>
               {item.comment_body && (
                 <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-text-secondary">{item.comment_body}</p>
               )}
