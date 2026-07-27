@@ -210,7 +210,10 @@ export default function HomeContent({
         {/* The board leads: the whole workspace at a glance. Brand is the
             default hierarchy; owner and due-date remain available as pivots. */}
         {showBoard && (brands.length > 0 || projects.length > 0 || boardTasks.length > 0) && (
-          <section className="mb-10" aria-label="전체 업무 흐름">
+          <section
+            className="relative left-1/2 mb-10 w-[min(1400px,calc(100vw-2rem))] -translate-x-1/2"
+            aria-label="전체 업무 흐름"
+          >
             <div className="mb-3 flex flex-wrap items-center gap-3">
               <div className="mr-auto min-w-0">
                 <h1 className="text-[15px] font-semibold tracking-tight text-text">
