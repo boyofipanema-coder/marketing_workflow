@@ -40,6 +40,7 @@ import { searchTasks } from "@/lib/search";
 import { myFocus, needsAttention } from "@/lib/derive";
 import {
   createComment,
+  deleteComment,
   getComments,
   getMemberNotifications,
   markTargetNotificationsRead,
@@ -161,6 +162,53 @@ describe("Shared comments and unread notifications", () => {
     const updated = await getMemberNotifications(db as never, WS_ID, recipientId);
     expect(updated.find((item) => item.target_type === "project")?.read_at).toBeTruthy();
     expect(updated.find((item) => item.target_type === "task")?.read_at).toBeNull();
+  });
+
+  it("allows only the author to delete a comment and removes its notifications", async () => {
+    const db = freshDb();
+    const recipientId = "m_recipient";
+    await db.insert(schema.member).values({
+      id: recipientId,
+      workspace_id: WS_ID,
+      name: "Recipient",
+      email: "recipient@example.com",
+      role: "member",
+    });
+    const task = await createProjectTask(db as never, {
+      workspaceId: WS_ID,
+      projectId: PROJECT_ID,
+      title: "Delete comment target",
+      memberId: MEMBER_ID,
+    });
+    const comment = await createComment(db as never, {
+      target: { type: "task", id: task.id },
+      workspaceId: WS_ID,
+      authorId: MEMBER_ID,
+      body: "삭제할 댓글",
+    });
+
+    await expect(
+      deleteComment(db as never, {
+        target: { type: "task", id: task.id },
+        workspaceId: WS_ID,
+        requesterId: recipientId,
+        commentId: comment.id,
+      }),
+    ).rejects.toThrow("작성한 댓글만 삭제할 수 있습니다.");
+
+    await deleteComment(db as never, {
+      target: { type: "task", id: task.id },
+      workspaceId: WS_ID,
+      requesterId: MEMBER_ID,
+      commentId: comment.id,
+    });
+
+    expect(
+      await getComments(db as never, { type: "task", id: task.id }, WS_ID),
+    ).toHaveLength(0);
+    expect(
+      await getMemberNotifications(db as never, WS_ID, recipientId),
+    ).toHaveLength(0);
   });
 });
 

@@ -2,10 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Loader2, MessageSquare, Send, X } from "lucide-react";
+import { Loader2, MessageSquare, Send, Trash2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
   createCommentAction,
+  deleteCommentAction,
   getCommentsAction,
   markTargetNotificationsReadAction,
 } from "@/app/actions/collaboration";
@@ -31,6 +32,8 @@ export default function CommentThread({
   const [body, setBody] = useState("");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -62,6 +65,22 @@ export default function CommentThread({
     setBody("");
   }
 
+  async function remove(commentId: string) {
+    if (deletingId) return;
+    setDeletingId(commentId);
+    setError(null);
+    const result = await deleteCommentAction(target, commentId);
+    setDeletingId(null);
+    if (!result.success) {
+      setError(result.error ?? "댓글을 삭제하지 못했습니다.");
+      return;
+    }
+    setComments((current) =>
+      current.filter((comment) => comment.id !== commentId),
+    );
+    setConfirmingId(null);
+  }
+
   return (
     <section
       className={cn(
@@ -89,17 +108,59 @@ export default function CommentThread({
         )}
         {comments.map((comment) => (
           <div key={comment.id} className="rounded-lg bg-surface-2 px-3 py-2">
-            <div className="flex items-baseline gap-2">
-              <span className="text-[11px] font-semibold text-text">
-                {comment.author_name}
-              </span>
-              <time className="text-[9px] tabular-nums text-text-quaternary">
-                {comment.created_at.slice(5, 16).replace("T", " ")}
-              </time>
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-baseline gap-2">
+                <span className="text-[11px] font-semibold text-text">
+                  {comment.author_name}
+                </span>
+                <time className="text-[9px] tabular-nums text-text-quaternary">
+                  {comment.created_at.slice(5, 16).replace("T", " ")}
+                </time>
+              </div>
+              {comment.can_delete && confirmingId !== comment.id && (
+                <button
+                  type="button"
+                  onClick={() => setConfirmingId(comment.id)}
+                  aria-label={`${comment.author_name}님의 댓글 삭제`}
+                  className="grid size-6 shrink-0 place-items-center rounded-md text-text-quaternary hover:bg-surface-3 hover:text-flag-blocked focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <Trash2 className="size-3" aria-hidden />
+                </button>
+              )}
             </div>
             <p className="mt-1 whitespace-pre-wrap break-words text-xs leading-relaxed text-text-secondary">
               {comment.body}
             </p>
+            {comment.can_delete && confirmingId === comment.id && (
+              <div
+                role="group"
+                aria-label="댓글 삭제 확인"
+                className="mt-2 flex items-center justify-end gap-2 border-t border-separator pt-2"
+              >
+                <span className="mr-auto text-[10px] text-text-tertiary">
+                  삭제할까요?
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setConfirmingId(null)}
+                  disabled={deletingId === comment.id}
+                  className="rounded-md px-2 py-1 text-[10px] font-medium text-text-secondary hover:bg-surface-3"
+                >
+                  취소
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void remove(comment.id)}
+                  disabled={deletingId === comment.id}
+                  className="inline-flex items-center gap-1 rounded-md bg-flag-blocked px-2 py-1 text-[10px] font-semibold text-white disabled:opacity-50"
+                >
+                  {deletingId === comment.id && (
+                    <Loader2 className="size-3 animate-spin" aria-hidden />
+                  )}
+                  삭제
+                </button>
+              </div>
+            )}
           </div>
         ))}
       </div>

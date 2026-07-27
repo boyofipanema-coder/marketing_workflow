@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { getCurrentMember } from "@/server/data/queries";
 import {
   createComment,
+  deleteComment,
   getComments,
   markNotificationRead,
   markTargetNotificationsRead,
@@ -17,7 +18,11 @@ export async function getCommentsAction(
 ): Promise<ActionResult<CommentView[]>> {
   return runAction("getCommentsAction", async () => {
     const { member, db } = await getCurrentMember();
-    return getComments(db, target, member.workspace_id);
+    const comments = await getComments(db, target, member.workspace_id);
+    return comments.map((comment) => ({
+      ...comment,
+      can_delete: comment.author_id === member.id,
+    }));
   });
 }
 
@@ -27,12 +32,31 @@ export async function createCommentAction(
 ): Promise<ActionResult<CommentView>> {
   const result = await runAction("createCommentAction", async () => {
     const { member, db } = await getCurrentMember();
-    return createComment(db, {
+    const comment = await createComment(db, {
       target,
       body,
       workspaceId: member.workspace_id,
       authorId: member.id,
     });
+    return { ...comment, can_delete: true };
+  });
+  if (result.success) revalidatePath("/", "layout");
+  return result;
+}
+
+export async function deleteCommentAction(
+  target: CommentTarget,
+  commentId: string,
+): Promise<ActionResult<null>> {
+  const result = await runAction("deleteCommentAction", async () => {
+    const { member, db } = await getCurrentMember();
+    await deleteComment(db, {
+      target,
+      commentId,
+      workspaceId: member.workspace_id,
+      requesterId: member.id,
+    });
+    return null;
   });
   if (result.success) revalidatePath("/", "layout");
   return result;

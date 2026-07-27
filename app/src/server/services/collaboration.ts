@@ -26,6 +26,7 @@ export interface CommentView {
   created_at: string;
   updated_at: string;
   author_name: string;
+  can_delete?: boolean;
 }
 
 export interface NotificationView {
@@ -211,6 +212,74 @@ export async function createComment(
     updated_at: now,
     author_name: author.name,
   };
+}
+
+export async function deleteComment(
+  db: Database,
+  input: {
+    target: CommentTarget;
+    workspaceId: string;
+    requesterId: string;
+    commentId: string;
+  },
+): Promise<void> {
+  const table = input.target.type === "task" ? task_comment : project_comment;
+  const targetColumn =
+    input.target.type === "task" ? task_comment.task_id : project_comment.project_id;
+  const [comment] = await db
+    .select({ author_id: table.author_id })
+    .from(table)
+    .where(
+      and(
+        eq(table.id, input.commentId),
+        eq(table.workspace_id, input.workspaceId),
+        eq(targetColumn, input.target.id),
+      ),
+    );
+
+  if (!comment) throw new NotFoundError("댓글을 찾지 못했습니다.");
+  if (comment.author_id !== input.requesterId) {
+    throw new ValidationError("작성한 댓글만 삭제할 수 있습니다.");
+  }
+
+  if (input.target.type === "task") {
+    await db
+      .delete(notification)
+      .where(
+        and(
+          eq(notification.workspace_id, input.workspaceId),
+          eq(notification.comment_id, input.commentId),
+        ),
+      );
+    await db
+      .delete(task_comment)
+      .where(
+        and(
+          eq(task_comment.id, input.commentId),
+          eq(task_comment.workspace_id, input.workspaceId),
+          eq(task_comment.author_id, input.requesterId),
+        ),
+      );
+    return;
+  }
+
+  await db
+    .delete(project_notification)
+    .where(
+      and(
+        eq(project_notification.workspace_id, input.workspaceId),
+        eq(project_notification.comment_id, input.commentId),
+      ),
+    );
+  await db
+    .delete(project_comment)
+    .where(
+      and(
+        eq(project_comment.id, input.commentId),
+        eq(project_comment.workspace_id, input.workspaceId),
+        eq(project_comment.author_id, input.requesterId),
+      ),
+    );
 }
 
 export async function getMemberNotifications(
