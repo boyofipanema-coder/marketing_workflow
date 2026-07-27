@@ -135,7 +135,7 @@ function FlowTask({
   const owner = task.assignee_id ? members[task.assignee_id] : null;
 
   return (
-    <div className="relative grid grid-cols-[minmax(17rem,1fr)_minmax(15rem,.85fr)] items-start gap-5">
+    <div className="relative grid grid-cols-[minmax(14rem,.8fr)_minmax(18rem,1fr)] items-start gap-5">
       <div
         className="group relative z-10 flex min-h-14 items-center gap-2 rounded-xl border bg-surface px-3 py-2 shadow-xs transition-[border-color,box-shadow,transform] duration-150 ease-out hover:-translate-y-px hover:shadow-sm active:scale-[0.995]"
         style={{
@@ -180,13 +180,12 @@ function FlowTask({
           <Plus className="size-3.5" />
         </button>
       </div>
-      <div className="relative z-10 min-h-14 px-1 py-0.5">
-        {descendants.length > 0 && (
-          <div className="flex h-6 items-center gap-2 px-1 text-[11px] font-semibold text-text-tertiary">
-            <span>하위업무</span>
-            <span className="tabular-nums">{descendants.length}</span>
-          </div>
-        )}
+      <div
+        className="relative z-10 min-h-14 overflow-hidden rounded-xl border bg-surface px-2 py-1 shadow-xs"
+        style={{
+          borderColor: `color-mix(in srgb, ${brandColor} 24%, rgb(var(--border)))`,
+        }}
+      >
         {visibleDescendants.map(({ task: child, depth }) => {
           const childOwner = child.assignee_id ? members[child.assignee_id] : null;
           return (
@@ -384,7 +383,7 @@ export default function StackedWorkflowBoard({
           }}
         >
           <div className="min-w-[1040px] space-y-3">
-            <div className="grid grid-cols-[10rem_12rem_minmax(17rem,1fr)_minmax(15rem,.85fr)] gap-5 border-b border-border/80 px-3 pb-2 text-xs font-semibold text-text-tertiary">
+            <div className="grid grid-cols-[10rem_15rem_minmax(14rem,.8fr)_minmax(18rem,1fr)] gap-5 border-b border-border/80 px-3 pb-2 text-xs font-semibold text-text-tertiary">
               <span className="pl-2">브랜드</span>
               <span>프로젝트</span>
               <span>주요업무</span>
@@ -442,17 +441,17 @@ export default function StackedWorkflowBoard({
                       return (
                         <article
                           key={project.id}
-                          className="relative grid grid-cols-[12rem_minmax(0,1fr)] items-start gap-5 border-b border-border/70 py-3 last:border-b-0"
+                          className="relative grid grid-cols-[15rem_minmax(0,1fr)] items-stretch gap-5 border-b border-border/70 py-3 last:border-b-0"
                         >
                           <div
-                            className="relative z-10 flex min-h-14 items-center gap-2 border-l-[3px] px-3 py-2"
+                            className="relative z-10 flex min-h-14 items-start gap-2 rounded-2xl border bg-surface px-4 py-4 shadow-xs"
                             style={{
-                              borderLeftColor: brand.color,
+                              borderColor: `color-mix(in srgb, ${brand.color} 28%, rgb(var(--border)))`,
                             }}
                           >
                             <span
                               aria-hidden
-                              className="pointer-events-none absolute left-full top-1/2 h-px w-5"
+                              className="pointer-events-none absolute left-full top-7 h-px w-5"
                               style={{
                                 background: `color-mix(in srgb, ${brand.color} 38%, rgb(var(--border)))`,
                               }}
