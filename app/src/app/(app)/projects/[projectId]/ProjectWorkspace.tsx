@@ -367,6 +367,7 @@ export default function ProjectWorkspace({
           if (!open) store.dismissError();
         }}
         onPatch={controller.patch}
+        onToggleComplete={controller.toggleComplete}
         onCancelTask={controller.cancel}
         onRestoreTask={controller.restore}
       />

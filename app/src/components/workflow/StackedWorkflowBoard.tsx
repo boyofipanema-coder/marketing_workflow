@@ -2,6 +2,8 @@
 
 import { useMemo, useState } from "react";
 import {
+  Check,
+  Circle,
   CircleAlert,
   FolderPlus,
   Network,
@@ -26,10 +28,43 @@ interface StackedWorkflowBoardProps {
   focus: BoardFocus;
   onFocusChange: (focus: BoardFocus) => void;
   onSelect: (task: Task) => void;
+  onToggleComplete: (task: Task) => void;
   onAddProject: (brandId?: string) => void;
   onAddProjectTask: (projectId: string) => void;
   onAddSubtask: (parent: Task) => void;
   onEditProject: (project: Project) => void;
+}
+
+function CompletionButton({
+  task,
+  onToggleComplete,
+  compact = false,
+}: {
+  task: Task;
+  onToggleComplete: (task: Task) => void;
+  compact?: boolean;
+}) {
+  const done = task.status === "Done";
+  return (
+    <button
+      type="button"
+      onClick={() => onToggleComplete(task)}
+      disabled={Boolean(task.cancelled_at)}
+      aria-pressed={done}
+      aria-label={done ? `${task.title} 완료 해제` : `${task.title} 완료`}
+      className={`grid shrink-0 place-items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40 ${
+        compact ? "size-8" : "size-9"
+      }`}
+    >
+      {done ? (
+        <span className="grid size-5 place-items-center rounded-full bg-status-done text-text-on-accent">
+          <Check className="size-3" strokeWidth={3} aria-hidden />
+        </span>
+      ) : (
+        <Circle className="size-5 text-text-quaternary transition-colors hover:text-text-secondary" aria-hidden />
+      )}
+    </button>
+  );
 }
 
 function taskMatchesFocus(task: Task, focus: BoardFocus, now: Date) {
@@ -71,6 +106,7 @@ function ChildTaskRow({
   members,
   unreadComments,
   onSelect,
+  onToggleComplete,
   onAddSubtask,
 }: {
   task: Task;
@@ -79,6 +115,7 @@ function ChildTaskRow({
   members: Member[];
   unreadComments: Record<string, number>;
   onSelect: (task: Task) => void;
+  onToggleComplete: (task: Task) => void;
   onAddSubtask: (parent: Task) => void;
 }) {
   return (
@@ -90,6 +127,7 @@ function ChildTaskRow({
         ["--indent" as string]: `${depth * 8}px`,
       }}
     >
+      <CompletionButton task={task} onToggleComplete={onToggleComplete} compact />
       <button
         type="button"
         onClick={() => onSelect(task)}
@@ -126,6 +164,7 @@ function FlowTask({
   memberList,
   unreadComments,
   onSelect,
+  onToggleComplete,
   onAddSubtask,
   brandColor,
 }: {
@@ -135,6 +174,7 @@ function FlowTask({
   memberList: Member[];
   unreadComments: Record<string, number>;
   onSelect: (task: Task) => void;
+  onToggleComplete: (task: Task) => void;
   onAddSubtask: (parent: Task) => void;
   brandColor: string;
 }) {
@@ -157,6 +197,7 @@ function FlowTask({
           style={{ backgroundColor: brandColor }}
           aria-hidden
         />
+        <CompletionButton task={task} onToggleComplete={onToggleComplete} />
         <button
           type="button"
           onClick={() => onSelect(task)}
@@ -202,6 +243,7 @@ function FlowTask({
               members={memberList}
               unreadComments={unreadComments}
               onSelect={onSelect}
+              onToggleComplete={onToggleComplete}
               onAddSubtask={onAddSubtask}
             />
           );
@@ -220,6 +262,7 @@ function FlowTask({
                 members={memberList}
                 unreadComments={unreadComments}
                 onSelect={onSelect}
+                onToggleComplete={onToggleComplete}
                 onAddSubtask={onAddSubtask}
               />
             ))}
@@ -251,6 +294,7 @@ export default function StackedWorkflowBoard({
   focus,
   onFocusChange,
   onSelect,
+  onToggleComplete,
   onAddProject,
   onAddProjectTask,
   onAddSubtask,
@@ -436,8 +480,9 @@ export default function StackedWorkflowBoard({
                                 members={members}
                                 memberList={memberList}
                                 unreadComments={unreadComments}
-                                onSelect={onSelect}
-                                onAddSubtask={onAddSubtask}
+                              onSelect={onSelect}
+                              onToggleComplete={onToggleComplete}
+                              onAddSubtask={onAddSubtask}
                                 brandColor={brand.color}
                               />
                             ))}

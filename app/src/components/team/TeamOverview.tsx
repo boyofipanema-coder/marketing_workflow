@@ -112,6 +112,7 @@ export default function TeamOverview({
           if (!open) store.dismissError();
         }}
         onPatch={controller.patch}
+        onToggleComplete={controller.toggleComplete}
         onCancelTask={controller.cancel}
         onRestoreTask={controller.restore}
       />

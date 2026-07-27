@@ -11,6 +11,7 @@ import {
   RotateCcw,
   XCircle,
   CalendarClock,
+  Circle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -38,6 +39,7 @@ export interface TaskDetailPanelProps {
   conflict: boolean;
   onOpenChange: (open: boolean) => void;
   onPatch: (task: Task, patch: TaskPatchInput) => Promise<boolean>;
+  onToggleComplete: (task: Task) => void;
   onCancelTask: (task: Task) => void;
   onRestoreTask: (task: Task) => void;
 }
@@ -98,6 +100,7 @@ export default function TaskDetailPanel({
   conflict,
   onOpenChange,
   onPatch,
+  onToggleComplete,
   onCancelTask,
   onRestoreTask,
 }: TaskDetailPanelProps) {
@@ -613,6 +616,22 @@ export default function TaskDetailPanel({
                         ? "변경사항 저장됨"
                         : "자동 저장"}
                 </span>
+                {!cancelled && (
+                  <button
+                    type="button"
+                    onClick={() => onToggleComplete(task)}
+                    disabled={saveState === "saving"}
+                    aria-pressed={task.status === "Done"}
+                    className="inline-flex h-10 items-center gap-2 rounded-xl border border-border bg-surface px-3 text-sm font-semibold text-text-secondary transition-[border-color,background-color,color,transform] hover:border-border-strong hover:bg-surface-2 hover:text-text active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40"
+                  >
+                    {task.status === "Done" ? (
+                      <Check className="h-4 w-4 text-status-done" aria-hidden />
+                    ) : (
+                      <Circle className="h-4 w-4" aria-hidden />
+                    )}
+                    {task.status === "Done" ? "완료 해제" : "완료"}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => handleOpenChange(false)}

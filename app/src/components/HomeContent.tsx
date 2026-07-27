@@ -370,6 +370,7 @@ export default function HomeContent({
               projects={visibleProjects}
               unreadComments={unreadComments}
               onSelect={controller.select}
+              onToggleComplete={controller.toggleComplete}
               onAddProject={(brandId) => startProject(brandId)}
               onAddProjectTask={(projectId) => {
                 setTaskParent(null);
@@ -413,6 +414,7 @@ export default function HomeContent({
           if (!open) store.dismissError();
         }}
         onPatch={controller.patch}
+        onToggleComplete={controller.toggleComplete}
         onCancelTask={controller.cancel}
         onRestoreTask={controller.restore}
       />
