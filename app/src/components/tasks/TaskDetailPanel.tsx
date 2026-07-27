@@ -24,6 +24,7 @@ import { getTaskActivityAction } from "@/app/actions/tasks";
 import type { ActivityEntry } from "@/server/data/queries";
 import type { TaskPatchInput } from "@/app/actions/tasks";
 import type { SaveState } from "./useTaskStore";
+import CommentThread from "./CommentThread";
 
 const DESCRIPTION_DEBOUNCE_MS = 600;
 
@@ -645,6 +646,14 @@ export default function TaskDetailPanel({
                 )}
               </Field>
                 </section>
+              </div>
+
+              <div className="lg:col-span-2">
+                <CommentThread
+                  taskId={task.id}
+                  members={members}
+                  readOnly={readOnly}
+                />
               </div>
 
               {activity.length > 0 && (

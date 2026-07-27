@@ -7,7 +7,9 @@ import { Briefcase, Check, ChevronDown, FolderPlus, Plus, Tags } from "lucide-re
 import TaskSection from "@/components/tasks/TaskSection";
 import TaskDetailPanel from "@/components/tasks/TaskDetailPanel";
 import TaskFormDialog from "@/components/tasks/TaskFormDialog";
-import WorkflowCanvas, { type Focus } from "@/components/workflow/WorkflowCanvas";
+import StackedWorkflowBoard, {
+  type BoardFocus,
+} from "@/components/workflow/StackedWorkflowBoard";
 import EmptyState from "@/components/EmptyState";
 import { useTaskController } from "@/components/tasks/useTaskController";
 import BrandFormDialog from "@/components/projects/BrandFormDialog";
@@ -51,7 +53,7 @@ export default function HomeContent({
   const router = useRouter();
   const controller = useTaskController(tasks);
   const { store } = controller;
-  const [boardFocus, setBoardFocus] = useState<Focus>("all");
+  const [boardFocus, setBoardFocus] = useState<BoardFocus>("all");
   // The board is the landing view. On a phone it is unreadable, so the personal
   // lists lead there instead; server and first client render agree on the board.
   const [showBoard, setShowBoard] = useState(true);
@@ -209,40 +211,17 @@ export default function HomeContent({
             default hierarchy; owner and due-date remain available as pivots. */}
         {showBoard && (brands.length > 0 || projects.length > 0 || boardTasks.length > 0) && (
           <section className="mb-10" aria-label="전체 업무 흐름">
-            <WorkflowCanvas
-              tasks={visibleBoardTasks}
-              brands={visibleBrands}
-              workstreams={workstreams}
-              members={membersRecord}
-              projects={visibleProjects}
-              defaultGroupBy="brand"
-              hierarchyMode
-              onSelect={controller.select}
-              onAddProject={(brandId) => startProject(brandId)}
-              onAddProjectTask={(projectId) => {
-                setTaskParent(null);
-                setTaskProjectId(projectId);
-              }}
-              onAddSubtask={(parent) => {
-                setTaskParent(parent);
-                setTaskProjectId(parent.project_id);
-              }}
-              onEditProject={setEditingProject}
-              focus={boardFocus}
-              onFocusChange={setBoardFocus}
-              dependencies={dependencies}
-              toolbarHeader={
-                <div className="flex flex-wrap items-center gap-3">
-                  <div className="mr-auto min-w-0">
-                    <h1 className="text-[15px] font-semibold tracking-tight text-text">
-                      업무 보드
-                    </h1>
-                    <p className="mt-0.5 truncate text-[11px] font-medium tabular-nums text-text-tertiary">
-                      브랜드 {visibleBrands.length} · 프로젝트 {visibleProjects.length} · 업무{" "}
-                      {visibleBoardTasks.length}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
+            <div className="mb-3 flex flex-wrap items-center gap-3">
+              <div className="mr-auto min-w-0">
+                <h1 className="text-[15px] font-semibold tracking-tight text-text">
+                  업무 보드
+                </h1>
+                <p className="mt-0.5 truncate text-[11px] font-medium tabular-nums text-text-tertiary">
+                  브랜드 {visibleBrands.length} · 프로젝트 {visibleProjects.length} · 업무{" "}
+                  {visibleBoardTasks.filter((task) => task.status !== "Done").length}
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
                     <DropdownMenu.Root>
                       <DropdownMenu.Trigger asChild>
                         <button
@@ -315,29 +294,56 @@ export default function HomeContent({
                         </DropdownMenu.Content>
                       </DropdownMenu.Portal>
                     </DropdownMenu.Root>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setBrandDialogOpen(true)}
-                      className="h-9 rounded-xl"
-                    >
-                      <Plus aria-hidden />
-                      브랜드
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => startProject()}
-                      disabled={brands.length === 0}
-                      title={brands.length === 0 ? "브랜드를 먼저 만들어 주세요" : undefined}
-                      className="h-9 rounded-xl"
-                    >
-                      <FolderPlus aria-hidden />
-                      프로젝트
-                    </Button>
-                  </div>
-                </div>
-              }
+                    <DropdownMenu.Root>
+                      <DropdownMenu.Trigger asChild>
+                        <Button variant="primary" size="sm" className="h-9 rounded-xl">
+                          <Plus aria-hidden />
+                          만들기
+                          <ChevronDown aria-hidden />
+                        </Button>
+                      </DropdownMenu.Trigger>
+                      <DropdownMenu.Portal>
+                        <DropdownMenu.Content
+                          align="end"
+                          sideOffset={6}
+                          className="z-[80] min-w-44 rounded-xl border border-border bg-elevated p-1.5 shadow-xl"
+                        >
+                          <DropdownMenu.Item
+                            onSelect={() => setBrandDialogOpen(true)}
+                            className="flex cursor-default items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium text-text outline-none data-[highlighted]:bg-surface-2"
+                          >
+                            <Tags className="size-3.5" /> 브랜드
+                          </DropdownMenu.Item>
+                          <DropdownMenu.Item
+                            disabled={brands.length === 0}
+                            onSelect={() => startProject()}
+                            className="flex cursor-default items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium text-text outline-none data-[disabled]:opacity-40 data-[highlighted]:bg-surface-2"
+                          >
+                            <FolderPlus className="size-3.5" /> 프로젝트
+                          </DropdownMenu.Item>
+                        </DropdownMenu.Content>
+                      </DropdownMenu.Portal>
+                    </DropdownMenu.Root>
+              </div>
+            </div>
+            <StackedWorkflowBoard
+              tasks={visibleBoardTasks}
+              brands={visibleBrands}
+              members={membersRecord}
+              projects={visibleProjects}
+              onSelect={controller.select}
+              onAddProject={(brandId) => startProject(brandId)}
+              onAddProjectTask={(projectId) => {
+                setTaskParent(null);
+                setTaskProjectId(projectId);
+              }}
+              onAddSubtask={(parent) => {
+                setTaskParent(parent);
+                setTaskProjectId(parent.project_id);
+              }}
+              onEditProject={setEditingProject}
+              focus={boardFocus}
+              onFocusChange={setBoardFocus}
             />
           </section>
         )}
@@ -422,6 +428,7 @@ export default function HomeContent({
         projects={projects}
         workstreams={workstreams}
         members={members}
+        defaultAssigneeId={viewerId}
         defaultProjectId={taskProjectId}
         defaultParentTask={taskParent}
         onCreated={() => router.refresh()}

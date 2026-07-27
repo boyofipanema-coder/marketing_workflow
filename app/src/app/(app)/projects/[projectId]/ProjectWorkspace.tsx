@@ -383,6 +383,7 @@ export default function ProjectWorkspace({
         projects={allProjects}
         workstreams={allWorkstreams}
         members={memberList}
+        defaultAssigneeId={viewerId}
         defaultProjectId={project.id}
         defaultParentTask={taskParent}
         onCreated={() => {

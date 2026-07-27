@@ -236,6 +236,31 @@ export const activity_log = sqliteTable("activity_log", {
 });
 
 // ---------------------------------------------------------------------------
+// collaboration
+// ---------------------------------------------------------------------------
+export const task_comment = sqliteTable("task_comment", {
+  id: text("id").primaryKey(),
+  workspace_id: text("workspace_id").notNull().references(() => workspace.id),
+  task_id: text("task_id").notNull().references(() => task.id),
+  author_id: text("author_id").notNull().references(() => member.id),
+  body: text("body").notNull(),
+  created_at: text("created_at").notNull(),
+  updated_at: text("updated_at").notNull(),
+});
+
+export const notification = sqliteTable("notification", {
+  id: text("id").primaryKey(),
+  workspace_id: text("workspace_id").notNull().references(() => workspace.id),
+  recipient_id: text("recipient_id").notNull().references(() => member.id),
+  actor_id: text("actor_id").notNull().references(() => member.id),
+  task_id: text("task_id").notNull().references(() => task.id),
+  comment_id: text("comment_id").references(() => task_comment.id),
+  kind: text("kind", { enum: ["mention"] }).notNull().default("mention"),
+  read_at: text("read_at"),
+  created_at: text("created_at").notNull(),
+});
+
+// ---------------------------------------------------------------------------
 // Relations
 // ---------------------------------------------------------------------------
 export const workspaceRelations = relations(workspace, ({ many }) => ({
@@ -398,6 +423,12 @@ export type NewMilestone = typeof milestone.$inferInsert;
 
 export type ActivityLog = typeof activity_log.$inferSelect;
 export type NewActivityLog = typeof activity_log.$inferInsert;
+
+export type TaskComment = typeof task_comment.$inferSelect;
+export type NewTaskComment = typeof task_comment.$inferInsert;
+
+export type Notification = typeof notification.$inferSelect;
+export type NewNotification = typeof notification.$inferInsert;
 
 export type TaskDependency = typeof task_dependency.$inferSelect;
 export type NewTaskDependency = typeof task_dependency.$inferInsert;

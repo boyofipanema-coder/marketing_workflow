@@ -13,6 +13,8 @@ import { switchMemberAction } from "@/app/actions/identity";
 import { ownerColor } from "@/lib/colors";
 import { cn } from "@/lib/utils";
 import type { Brand, Member } from "@/server/db/schema";
+import type { NotificationView } from "@/server/services/collaboration";
+import NotificationMenu from "./NotificationMenu";
 
 // ── Nav items ────────────────────────────────────────────────────────────────
 
@@ -24,6 +26,7 @@ import type { Brand, Member } from "@/server/db/schema";
 const NAV_ITEMS = [
   { href: "/home", label: "홈" },
   { href: "/my-work", label: "내 업무" },
+  { href: "/team", label: "팀" },
 ] as const;
 
 // ── NavBar ────────────────────────────────────────────────────────────────────
@@ -32,9 +35,10 @@ export interface NavBarProps {
   members: Member[];
   brands: Brand[];
   viewerId: string;
+  notifications: NotificationView[];
 }
 
-export default function NavBar({ members, brands, viewerId }: NavBarProps) {
+export default function NavBar({ members, brands, viewerId, notifications }: NavBarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [showQuickAdd, setShowQuickAdd] = useState(false);
@@ -120,6 +124,8 @@ export default function NavBar({ members, brands, viewerId }: NavBarProps) {
                 className="h-9 w-44 rounded-xl border border-border bg-surface-2/70 pl-8 pr-3 text-sm text-text placeholder:text-text-quaternary transition-[border-color,box-shadow,background-color] duration-fast ease-out focus:border-accent focus:bg-surface focus:outline-none focus:ring-2 focus:ring-accent/25 lg:w-56"
               />
             </form>
+
+            <NotificationMenu initialNotifications={notifications} />
 
             <DropdownMenu.Root>
               <DropdownMenu.Trigger asChild>
