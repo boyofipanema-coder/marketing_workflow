@@ -54,7 +54,7 @@ describe("cardHeight — LOD", () => {
 });
 
 describe("hierarchyStageIndex", () => {
-  it("maps active roots, active children and completed work to their columns", () => {
+  it("maps roots and children by hierarchy regardless of stored status", () => {
     expect(hierarchyStageIndex(makeTaskFixture({ status: "InProgress" }))).toBe(0);
     expect(
       hierarchyStageIndex(
@@ -65,24 +65,24 @@ describe("hierarchyStageIndex", () => {
       hierarchyStageIndex(
         makeTaskFixture({ status: "Done", parent_task_id: "parent" })
       )
-    ).toBe(2);
+    ).toBe(1);
   });
 });
 
 describe("computeHierarchyGeometry", () => {
   it("makes the brand slot 60% of the former equal slot", () => {
     const geometry = computeHierarchyGeometry(1600);
-    const formerEqualSlot = (geometry.boardW + 18) / 5;
+    const formerEqualSlot = (geometry.boardW + 18) / 4;
 
     expect(geometry.brandW).toBeCloseTo(formerEqualSlot * 0.6, 8);
   });
 
-  it("redistributes the remaining width equally across the other four slots", () => {
+  it("redistributes the remaining width equally across project and task slots", () => {
     const geometry = computeHierarchyGeometry(1600);
     const slotsW = geometry.boardW + 18;
 
-    expect(geometry.colW).toBeCloseTo((slotsW - geometry.brandW) / 4, 8);
-    expect(geometry.brandW + geometry.colW * 4).toBeCloseTo(slotsW, 8);
+    expect(geometry.colW).toBeCloseTo((slotsW - geometry.brandW) / 3, 8);
+    expect(geometry.brandW + geometry.colW * 3).toBeCloseTo(slotsW, 8);
   });
 
   it("keeps 24px outer insets and aligned non-overlapping origins", () => {
@@ -95,12 +95,12 @@ describe("computeHierarchyGeometry", () => {
     expect(geometry.worldW - (geometry.brandX + geometry.boardW)).toBe(24);
   });
 
-  it("applies the five-column minimum as one coordinated constraint", () => {
+  it("applies the four-column minimum as one coordinated constraint", () => {
     const geometry = computeHierarchyGeometry(800);
 
     expect(geometry.brandW).toBe(144);
-    expect(geometry.colW).toBe(264);
-    expect(geometry.boardW).toBe(1182);
-    expect(geometry.worldW).toBe(1230);
+    expect(geometry.colW).toBe(272);
+    expect(geometry.boardW).toBe(942);
+    expect(geometry.worldW).toBe(990);
   });
 });

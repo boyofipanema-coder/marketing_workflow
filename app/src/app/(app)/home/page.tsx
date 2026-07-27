@@ -9,6 +9,7 @@ import {
 } from "@/server/data/queries";
 import { getMemberNotifications } from "@/server/services/collaboration";
 import HomeContent from "@/components/HomeContent";
+import { todayKST } from "@/lib/derive";
 
 /**
  * Home page — server component.
@@ -40,6 +41,7 @@ export default async function HomePage() {
       workstreams={workstreams}
       members={members}
       notifications={notifications}
+      today={todayKST(new Date())}
     />
   );
 }

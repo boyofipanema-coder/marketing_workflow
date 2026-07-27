@@ -2,7 +2,6 @@
 
 import { useLayoutEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import * as Dialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
   ArrowUpRight,
@@ -10,7 +9,6 @@ import {
   ChevronRight,
   Circle,
   CircleCheck,
-  Clock3,
   CornerDownRight,
   FolderPlus,
   Loader2,
@@ -18,14 +16,11 @@ import {
   Pencil,
   Plus,
   Trash2,
-  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { statusMeta, displayGroup, type TaskStatus } from "@/lib/status";
 import {
   cancelTaskAction,
   completeTaskAction,
-  editTaskAction,
   reopenTaskAction,
 } from "@/app/actions/tasks";
 import type { Task, Brand, Workstream, Member, Project } from "@/server/db/schema";
@@ -35,10 +30,9 @@ import { ownerColor } from "@/lib/colors";
 /**
  * WorkflowCanvas — a fixed, document-scrolling swimlane Kanban.
  *
- * Rows = a group-by dimension (Workstream / Owner / Due). Regular boards use
- * status columns; the integrated Home hierarchy maps columns directly to
- * Brand → Project → Task → Subtask → Done. Dense cells cap at CAP cards with
- * a "+N more" expander (decision B).
+ * Rows = a group-by dimension (Workstream / Owner / Due). Columns express task
+ * hierarchy rather than stored workflow status. Dense cells cap at CAP cards
+ * with a "+N more" expander.
  *
  * Two orthogonal axes, kept strictly separate: hierarchy expands *down* (inside
  * a card), grouping pivots *sideways* (the lane axis). Card heights are computed
@@ -46,27 +40,12 @@ import { ownerColor } from "@/lib/colors";
  */
 
 // ── stage flow ────────────────────────────────────────────────────────────────
-const STATUS_STAGE_LABELS = ["진행 중", "대기", "완료"] as const;
-const STATUS_STAGE_TOKENS = ["status-inprogress", "status-waiting", "status-done"] as const;
-const HIERARCHY_STAGE_LABELS = ["업무", "하위업무", "완료"] as const;
-const HIERARCHY_STAGE_TOKENS = ["status-todo", "status-review", "status-done"] as const;
-const STAGE_COUNT = 3;
-
-function statusStageIndex(s: TaskStatus): number {
-  switch (displayGroup(s)) {
-    case "Waiting":
-      return 1;
-    case "Done":
-      return 2;
-    default:
-      return 0;
-  }
-}
+const HIERARCHY_STAGE_LABELS = ["주요업무", "하위업무"] as const;
+const STAGE_COUNT = 2;
 
 export function hierarchyStageIndex(
   task: Pick<Task, "status" | "parent_task_id">
 ): number {
-  if (task.status === "Done") return 2;
   return task.parent_task_id ? 1 : 0;
 }
 const todayStr = () => new Date().toISOString().slice(0, 10);
@@ -152,10 +131,6 @@ function TaskActionMenu({
   onChanged: () => void;
 }) {
   const [pending, setPending] = useState(false);
-  const [waitOpen, setWaitOpen] = useState(false);
-  const [waitingParty, setWaitingParty] = useState("");
-  const [followUpAt, setFollowUpAt] = useState("");
-  const [error, setError] = useState<string | null>(null);
   const done = task.status === "Done";
 
   async function finish() {
@@ -174,28 +149,8 @@ function TaskActionMenu({
     if (result.success) onChanged();
   }
 
-  async function moveToWaiting(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!waitingParty.trim() || !followUpAt) return;
-    setPending(true);
-    setError(null);
-    const result = await editTaskAction(task.id, task.version, {
-      status: "Waiting",
-      waiting_party_text: waitingParty.trim(),
-      follow_up_at: followUpAt,
-    });
-    setPending(false);
-    if (!result.success) {
-      setError(result.error ?? "대기 상태로 이동하지 못했습니다.");
-      return;
-    }
-    setWaitOpen(false);
-    onChanged();
-  }
-
   return (
-    <>
-      <DropdownMenu.Root>
+    <DropdownMenu.Root>
         <DropdownMenu.Trigger asChild>
           <button
             type="button"
@@ -224,20 +179,6 @@ function TaskActionMenu({
               <CircleCheck className="size-3.5" aria-hidden />
               {done ? "완료 해제" : "완료로 이동"}
             </DropdownMenu.Item>
-            {!done && task.status !== "Waiting" && (
-              <DropdownMenu.Item
-                onSelect={() => {
-                  setWaitingParty("");
-                  setFollowUpAt("");
-                  setError(null);
-                  setWaitOpen(true);
-                }}
-                className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-medium text-text outline-none data-[highlighted]:bg-surface-2"
-              >
-                <Clock3 className="size-3.5" aria-hidden />
-                대기로 이동
-              </DropdownMenu.Item>
-            )}
             <DropdownMenu.Separator className="my-1 h-px bg-separator" />
             <DropdownMenu.Item onSelect={() => void remove()} className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-medium text-flag-blocked outline-none data-[highlighted]:bg-flag-blocked/10">
               <Trash2 className="size-3.5" aria-hidden />
@@ -245,63 +186,7 @@ function TaskActionMenu({
             </DropdownMenu.Item>
           </DropdownMenu.Content>
         </DropdownMenu.Portal>
-      </DropdownMenu.Root>
-
-      <Dialog.Root open={waitOpen} onOpenChange={(open) => !pending && setWaitOpen(open)}>
-        <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 z-[80] bg-[rgb(var(--material-scrim))] backdrop-blur-[2px] data-[state=open]:animate-fade-in" />
-          <Dialog.Content
-            aria-describedby={undefined}
-            className="material-panel material-edge fixed left-1/2 top-1/2 z-[90] w-[calc(100vw-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-[22px] border border-separator p-5 shadow-xl focus:outline-none"
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <Dialog.Title className="text-base font-semibold tracking-tight text-text">
-                  대기로 이동
-                </Dialog.Title>
-                <p className="mt-1 line-clamp-1 text-xs text-text-tertiary">{task.title}</p>
-              </div>
-              <Dialog.Close asChild>
-                <button type="button" aria-label="닫기" className="grid size-9 place-items-center rounded-full text-text-secondary hover:bg-surface-2">
-                  <X className="size-4" aria-hidden />
-                </button>
-              </Dialog.Close>
-            </div>
-            <form onSubmit={moveToWaiting} className="mt-5 flex flex-col gap-4">
-              {error && <p role="alert" className="rounded-xl bg-flag-blocked/10 px-3 py-2 text-xs text-flag-blocked">{error}</p>}
-              <label className="flex flex-col gap-1.5 text-xs font-semibold text-text-secondary">
-                무엇을 기다리나요
-                <input
-                  autoFocus
-                  value={waitingParty}
-                  onChange={(event) => setWaitingParty(event.target.value)}
-                  placeholder="예: 본사 승인 회신"
-                  className="h-11 rounded-xl border border-border bg-surface px-3 text-sm font-normal text-text outline-none focus:border-accent focus:ring-2 focus:ring-accent/20"
-                />
-              </label>
-              <label className="flex flex-col gap-1.5 text-xs font-semibold text-text-secondary">
-                다음 확인일
-                <input
-                  type="date"
-                  value={followUpAt}
-                  onChange={(event) => setFollowUpAt(event.target.value)}
-                  className="h-11 rounded-xl border border-border bg-surface px-3 text-sm font-normal text-text outline-none focus:border-accent focus:ring-2 focus:ring-accent/20"
-                />
-              </label>
-              <div className="flex justify-end gap-2">
-                <Dialog.Close asChild>
-                  <button type="button" className="h-10 rounded-xl px-4 text-sm font-semibold text-text-secondary hover:bg-surface-2">취소</button>
-                </Dialog.Close>
-                <button type="submit" disabled={pending || !waitingParty.trim() || !followUpAt} className="inline-flex h-10 items-center gap-2 rounded-xl bg-accent px-4 text-sm font-semibold text-white disabled:opacity-40">
-                  {pending && <Loader2 className="size-4 animate-spin" aria-hidden />}
-                  이동
-                </button>
-              </div>
-            </form>
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
-    </>
+    </DropdownMenu.Root>
   );
 }
 
@@ -331,7 +216,7 @@ const GROUP_OPTS: { id: GroupBy; label: string }[] = [
   { id: "owner", label: "담당자" },
   { id: "due", label: "마감" },
 ];
-export type Focus = "all" | "do" | "wait" | "over";
+export type Focus = "all" | "due" | "over" | "done";
 
 interface Lane {
   key: string;
@@ -475,7 +360,7 @@ interface Layout {
     done: number;
     total: number;
   }[];
-  columns: { i: number; x: number; count: number; label: string; token: string }[];
+  columns: { i: number; x: number; count: number; label: string }[];
   nodes: Positioned[];
   rails: Rail[];
   overflow: { cellKey: string; x: number; y: number; count: number; open: boolean }[];
@@ -492,9 +377,9 @@ function dueBucket(due: string | null): { key: string; name: string; color: stri
   if (!due) return { key: "_none", name: "날짜 미정", color: "rgb(var(--text-quaternary))", order: 4 };
   const diff = Math.round((+new Date(due) - +new Date(new Date().toDateString())) / 864e5);
   if (diff < 0) return { key: "over", name: "기한 초과", color: "rgb(var(--flag-overdue))", order: 0 };
-  if (diff <= 1) return { key: "today", name: "오늘·내일", color: "rgb(var(--status-inprogress))", order: 1 };
+  if (diff <= 1) return { key: "today", name: "오늘·내일", color: "rgb(var(--accent))", order: 1 };
   if (diff <= 7) return { key: "week", name: "이번 주", color: "rgb(var(--accent))", order: 2 };
-  return { key: "later", name: "나중에", color: "rgb(var(--status-inbox))", order: 3 };
+  return { key: "later", name: "나중에", color: "rgb(var(--text-quaternary))", order: 3 };
 }
 const EMPTY_BRANDS: Brand[] = [];
 /**
@@ -533,10 +418,8 @@ function computeLayout(
   dependencies?: Record<string, string[]>,
 ): Layout {
   const lanePad = hierarchyGeometry?.stageX ?? LANEPAD;
-  const stageLabels = hierarchyMode ? HIERARCHY_STAGE_LABELS : STATUS_STAGE_LABELS;
-  const stageTokens = hierarchyMode ? HIERARCHY_STAGE_TOKENS : STATUS_STAGE_TOKENS;
-  const columnIndexOf = (task: Task) =>
-    hierarchyMode ? hierarchyStageIndex(task) : statusStageIndex(task.status);
+  const stageLabels = HIERARCHY_STAGE_LABELS;
+  const columnIndexOf = hierarchyStageIndex;
   // Lane membership is decided by the root of a task's tree, so a promoted
   // descendant always appears in the same band as the work it belongs to.
   const laneKeyOf = (t: Task): string => laneOf.get(t.id) ?? laneKeyFor(t, groupBy, undefined, projectBrand);
@@ -761,7 +644,6 @@ function computeLayout(
     x: lanePad + i * colW,
     count: placed.filter((t) => columnIndexOf(t) === i).length,
     label,
-    token: stageTokens[i],
   }));
 
   // Only relationships that exist in the data get a line. There is deliberately
@@ -894,6 +776,7 @@ export default function WorkflowCanvas({
 
   const stageRef = useRef<HTMLDivElement>(null);
   const hierarchyView = hierarchyMode && groupBy === "brand";
+  const hierarchyColumns = true;
   const effectiveGroupBy: GroupBy = hierarchyView ? "project" : groupBy;
   const hierarchyGeometry = useMemo(
     () => hierarchyView ? computeHierarchyGeometry(stageWidth) : null,
@@ -914,27 +797,23 @@ export default function WorkflowCanvas({
   );
 
   // Which nodes get a card, and how a promoted one points back at its parent.
-  const { childMap, roots, placed, laneOf, parentOf, milestones } = useMemo(
+  const { childMap, roots, laneOf, milestones } = useMemo(
     () => buildBoardGraph(tasks, effectiveGroupBy, undefined, projectBrand),
     [tasks, effectiveGroupBy, projectBrand],
   );
   const canvasPlaced = useMemo(
     () =>
-      hierarchyView
-        ? tasks.filter((task) => !task.cancelled_at && task.kind !== "milestone")
-        : placed,
-    [hierarchyView, tasks, placed]
+      tasks.filter((task) => !task.cancelled_at && task.kind !== "milestone"),
+    [tasks]
   );
   const canvasParentOf = useMemo(
     () =>
-      hierarchyView
-        ? new Map(
-            canvasPlaced.flatMap((task) =>
-              task.parent_task_id ? [[task.id, task.parent_task_id] as const] : []
-            )
-          )
-        : parentOf,
-    [hierarchyView, canvasPlaced, parentOf]
+      new Map(
+        canvasPlaced.flatMap((task) =>
+          task.parent_task_id ? [[task.id, task.parent_task_id] as const] : []
+        )
+      ),
+    [canvasPlaced]
   );
 
   // Level of detail. Below 70% the small type is unreadable anyway, so it is
@@ -945,28 +824,20 @@ export default function WorkflowCanvas({
   const lod = "full" as Lod;
 
   const layout = useMemo(
-    () => computeLayout(canvasPlaced, roots, milestones, childMap, laneOf, canvasParentOf, workstreams, members, brands, projects ?? [], effectiveGroupBy, hierarchyView, hierarchyGeometry, cellsOpen, subsOpen, lod, projectBrand, colW, nodeW, dependencies),
-    [canvasPlaced, roots, milestones, childMap, laneOf, canvasParentOf, workstreams, members, brands, projects, effectiveGroupBy, hierarchyView, hierarchyGeometry, cellsOpen, subsOpen, lod, projectBrand, colW, nodeW, dependencies],
+    () => computeLayout(canvasPlaced, roots, milestones, childMap, laneOf, canvasParentOf, workstreams, members, brands, projects ?? [], effectiveGroupBy, hierarchyColumns, hierarchyGeometry, cellsOpen, subsOpen, lod, projectBrand, colW, nodeW, dependencies),
+    [canvasPlaced, roots, milestones, childMap, laneOf, canvasParentOf, workstreams, members, brands, projects, effectiveGroupBy, hierarchyColumns, hierarchyGeometry, cellsOpen, subsOpen, lod, projectBrand, colW, nodeW, dependencies],
   );
 
-  // A task is blocked while any predecessor is unfinished. Derived, not stored.
-  const blockedBy = useMemo(() => {
-    const byId = new Map(tasks.map((t) => [t.id, t]));
-    const out = new Set<string>();
-    for (const [succId, preds] of Object.entries(dependencies ?? {})) {
-      if (preds.some((p) => byId.get(p)?.status !== "Done")) out.add(succId);
-    }
-    return out;
-  }, [tasks, dependencies]);
-
-  const laneKeyOf = (t: Task) => laneOf.get(t.id) ?? laneKeyFor(t, effectiveGroupBy);
   const matchesFocus = (t: Task) => {
     return focus === "all"
       ? true
-      : focus === "do"
-        ? displayGroup(t.status) === "InProgress"
-        : focus === "wait"
-          ? t.status === "Waiting"
+      : focus === "done"
+        ? t.status === "Done"
+        : focus === "due"
+          ? t.status !== "Done" &&
+            !!t.due_date &&
+            t.due_date >= todayStr() &&
+            t.due_date <= new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10)
           : overdue(t);
   };
 
@@ -1048,7 +919,7 @@ export default function WorkflowCanvas({
             )}
 
             <div className="ml-auto flex flex-wrap gap-1.5">
-          {([["all", "전체", ""], ["do", "지금 할 일", "bg-status-inprogress"], ["wait", "대기", "bg-status-waiting"], ["over", "기한 초과", "bg-flag-overdue"]] as [Focus, string, string][]).map(([f, label, dot]) => (
+          {([["all", "전체", ""], ["due", "7일 내 마감", ""], ["over", "기한 초과", "bg-flag-overdue"], ["done", "완료 업무", ""]] as [Focus, string, string][]).map(([f, label, dot]) => (
             <button key={f} type="button" aria-pressed={focus === f} onClick={() => setFocus(f)}
                   className={cn("inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-[transform,background-color,color,border-color] active:scale-[0.97]", focus === f ? "border-text bg-text text-bg" : "border-border bg-surface/80 text-text-secondary hover:border-border-strong hover:text-text")}>
               {dot && <span className={cn("size-1.5 rounded-full", focus === f ? "bg-bg" : dot)} />}
@@ -1165,12 +1036,10 @@ export default function WorkflowCanvas({
           {/* columns */}
           {layout.columns.map((c) => (
             <div key={c.i} className="pointer-events-none absolute top-0" style={{ left: c.x, top: TOP - 40 }}>
-              <div className="absolute rounded-2xl border border-white/20 backdrop-blur-[2px]" style={{ top: 40, width: colW - COLGAP, height: layout.worldH - TOP - 8, background: `color-mix(in srgb, rgb(var(--${c.token})) 5%, rgb(var(--material-thin)))` }} />
+              <div className="absolute rounded-2xl border border-white/20 bg-surface/[0.18] backdrop-blur-[2px]" style={{ top: 40, width: colW - COLGAP, height: layout.worldH - TOP - 8 }} />
               {/* nowrap: the wrapper is a zero-width absolute box, so without it
                   the label collapses to one character per line. */}
-              <div className="absolute inline-flex h-7 w-max items-center gap-2 whitespace-nowrap rounded-full px-3 text-xs font-semibold"
-                style={{ color: `rgb(var(--${c.token}))`, background: `color-mix(in srgb, rgb(var(--${c.token})) 13%, rgb(var(--surface)))` }}>
-                <span className="size-2 rounded-full" style={{ background: `rgb(var(--${c.token}))` }} />
+              <div className="absolute inline-flex h-7 w-max items-center gap-2 whitespace-nowrap rounded-full bg-surface-2 px-3 text-xs font-semibold text-text-secondary">
                 {c.label}<span className="font-mono tabular-nums text-text-tertiary">{c.count}</span>
               </div>
             </div>
@@ -1329,10 +1198,6 @@ export default function WorkflowCanvas({
 
           {/* cards */}
           {layout.nodes.map(({ task, x, y, h }) => {
-            // Card color/label reflect the 3-status group, not the 6 stored
-            // values — a Review or ToDo task must read as "진행 중" everywhere,
-            // not just in which column it lands in.
-            const meta = statusMeta(displayGroup(task.status));
             const over = overdue(task);
             const dim = !matchesFocus(task);
             const assignee = task.assignee_id ? members[task.assignee_id] : undefined;
@@ -1345,17 +1210,16 @@ export default function WorkflowCanvas({
             // Compact has no toggle to collapse an already-expanded subtree
             // (the meter button below is itself lod-gated), so it must not
             // render the rows in the first place — matches cardHeight's guard.
-            const rows = !hierarchyView && hasKids && open && lod === "full" ? subRows(task, 0) : [];
+            const rows = !hierarchyColumns && hasKids && open && lod === "full" ? subRows(task, 0) : [];
             return (
               <div key={task.id} data-card
                 className={cn("group absolute flex flex-col overflow-hidden rounded-[14px] bg-surface transition-[opacity,box-shadow] duration-200",
                   // Importance is carried by weight and elevation only — never by
                   // colour, which belongs exclusively to status.
                   key_ ? "border-2 border-text/25 shadow-md" : "border shadow-sm",
-                  !key_ && (task.status === "Waiting" && !hasKids ? "border-dashed border-status-waiting/50" : "border-separator"),
+                  !key_ && "border-separator",
                   dim && "opacity-30 saturate-50")}
                 style={{ left: x, top: y, width: nodeW, height: h }}>
-                <div className={cn("shrink-0", meta.dot, key_ ? "h-1.5" : "h-1")} />
                 <div className="absolute left-2 top-3 z-20">
                   <TaskCompleteButton task={task} onChanged={() => router.refresh()} />
                 </div>
@@ -1388,20 +1252,10 @@ export default function WorkflowCanvas({
                     </div>
                     <div className={cn("mb-2 line-clamp-2 leading-snug", key_ ? "text-[14.5px] font-semibold" : "text-[13px] font-medium", task.status === "Done" && "text-text-secondary")}>{task.title}</div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10.5px] font-semibold", meta.fill, meta.text)}>
-                        <span className={cn("size-1.5 rounded-full", meta.dot)} />{task.status === "Waiting" && !hasKids ? "대기 중" : meta.label}
-                      </span>
                       {lod === "full" && task.due_date && <span className={cn("inline-flex items-center gap-1 text-[10.5px] tabular-nums", over ? "font-semibold text-flag-overdue" : "text-text-tertiary")}>{over ? "⚠" : "📅"} {fmtDue(task.due_date)}</span>}
                       <span className={cn("inline-flex items-center text-[11px] font-medium text-text-secondary", lod === "compact" && "hidden")}>
                         {assignee ? <span className="grid h-5 min-w-5 place-items-center rounded-full px-1.5 text-[9px] font-bold tracking-tight text-white" style={{ background: ownerColor(assignee.id) }}>{assignee.name}</span> : "미지정"}
                       </span>
-                      {/* The two facts that make a Waiting task actionable. */}
-                      {lod === "full" && task.status === "Waiting" && task.waiting_party_text && (
-                        <span className="w-full truncate text-[10px] text-text-tertiary">
-                          {task.waiting_party_text}
-                          {task.follow_up_at && ` · ${fmtDue(task.follow_up_at)} 확인`}
-                        </span>
-                      )}
                     </div>
                     {/* No progress bar. A leaf task has no measurable percentage
                         — it is in a status, and the status pill above already
@@ -1410,11 +1264,11 @@ export default function WorkflowCanvas({
                   </button>
 
                   {/* subtask meter — the inline-expand toggle */}
-                  {!hierarchyView && hasKids && lod === "full" && (
+                  {!hierarchyColumns && hasKids && lod === "full" && (
                     <button type="button" data-ui onClick={() => toggleSub(task.id)}
                       className="flex shrink-0 items-center gap-2 rounded-lg bg-surface-2 px-2.5 py-1.5 transition-colors hover:bg-surface-3">
                       <span className="whitespace-nowrap text-[10.5px] font-semibold tabular-nums text-text-secondary">⤷ 세부 업무 {sd}/{sn}</span>
-                      <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-3"><span className={cn("block h-full rounded-full", meta.dot)} style={{ width: `${sn ? (sd / sn) * 100 : 0}%` }} /></span>
+                      <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-3"><span className="block h-full rounded-full bg-text-tertiary" style={{ width: `${sn ? (sd / sn) * 100 : 0}%` }} /></span>
                       <ChevronRight className={cn("size-3.5 text-text-tertiary transition-transform", open && "rotate-90")} />
                     </button>
                   )}

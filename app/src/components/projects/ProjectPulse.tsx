@@ -11,11 +11,11 @@ export interface ProjectPulseProps {
   /** Milestone-kind tasks for this project. */
   milestones: Task[];
   /** Clicking a stat jumps the board to that subset. */
-  onFocus?: (focus: "do" | "wait" | "over") => void;
+  onFocus?: (focus: "due" | "over" | "done") => void;
 }
 
 interface Stat {
-  key: "do" | "wait" | "over" | null;
+  key: "due" | "over" | "done" | null;
   label: string;
   value: number;
   tone: string;
@@ -29,9 +29,9 @@ function fmt(iso: string): string {
 }
 
 /**
- * The one-glance read on a project: how far along it is, what is moving, what
- * is stuck, and what is late. This sits above the board so someone opening the
- * project answers "where are we?" before touching anything.
+ * A status-neutral one-glance read on the project. Stored workflow states stay
+ * intact, but the summary only exposes observable facts: open, completed and
+ * overdue work, plus the next milestone.
  */
 export default function ProjectPulse({
   tasks,
@@ -49,22 +49,16 @@ export default function ProjectPulse({
 
     const stats: Stat[] = [
       {
-        key: "do",
-        label: "진행 중",
-        value: live.filter((t) => t.status === "InProgress").length,
-        tone: "text-status-inprogress",
-      },
-      {
-        key: "wait",
-        label: "대기",
-        value: live.filter((t) => t.status === "Waiting").length,
-        tone: "text-status-waiting",
-      },
-      {
         key: null,
-        label: "검토 중",
-        value: live.filter((t) => t.status === "Review").length,
-        tone: "text-status-review",
+        label: "열린 업무",
+        value: live.filter((t) => t.status !== "Done").length,
+        tone: "text-text",
+      },
+      {
+        key: "done",
+        label: "완료 업무",
+        value: done.length,
+        tone: "text-text-secondary",
       },
       {
         key: "over",
@@ -90,7 +84,7 @@ export default function ProjectPulse({
 
   return (
     <section
-      aria-label="프로젝트 진행 요약"
+      aria-label="프로젝트 업무 요약"
       className="mb-4 flex flex-col gap-3 rounded-xl border border-separator bg-surface p-4"
     >
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">

@@ -80,9 +80,7 @@ export default function ProjectWorkspace({
   const controller = useTaskController(tasks);
   const { store } = controller;
 
-  // A pan-and-zoom board is the wrong first screen on a phone — there the
-  // single-column list is the readable one. Both server and first client render
-  // agree on "workflow", so this only ever narrows after mount.
+  // The production task list remains the readable project view on phones.
   useEffect(() => {
     if (window.matchMedia("(max-width: 640px)").matches) {
       setActiveTab("tasks");
@@ -130,7 +128,7 @@ export default function ProjectWorkspace({
 
   return (
     <>
-      <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-8">
+      <div className="mx-auto max-w-5xl px-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))] pt-6 sm:px-6 sm:py-8">
         {/* Header */}
         <header className="mb-4">
           <div className="flex items-start justify-between gap-3">
@@ -143,11 +141,11 @@ export default function ProjectWorkspace({
                   프로젝트
                 </div>
               )}
-              <h1 className="font-serif text-2xl font-semibold leading-tight text-text">
+              <h1 className="text-2xl font-semibold leading-snug text-text [word-break:keep-all]">
                 {project.name}
               </h1>
               {project.one_line_objective && (
-                <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-text-secondary">
+                <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-text-secondary [word-break:keep-all]">
                   {project.one_line_objective}
                 </p>
               )}
@@ -248,7 +246,7 @@ export default function ProjectWorkspace({
               role="tab"
               aria-selected={activeTab === id}
               onClick={() => setActiveTab(id)}
-              className={`-mb-px border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
+              className={`-mb-px min-h-12 flex-1 border-b-2 px-2 py-2.5 text-sm font-medium transition-colors sm:flex-none sm:px-4 ${
                 activeTab === id
                   ? "border-accent text-text"
                   : "border-transparent text-text-secondary hover:border-border-strong hover:text-text"
@@ -259,52 +257,51 @@ export default function ProjectWorkspace({
           ))}
         </nav>
 
-        {activeTab === "workflow" &&
-          (visibleTasks.length > 0 ? (
-            <WorkflowCanvas
-              tasks={controller.tasks}
-              workstreams={workstreams}
-              members={members}
-              onSelect={controller.select}
-              onAddTask={archived ? undefined : () => startTask()}
-              onAddSubtask={archived ? undefined : startTask}
-              focus={boardFocus}
-              onFocusChange={setBoardFocus}
-              // Project header, pulse strip and tabs sit above the board here,
-              // so the stage gets what is left rather than Home's allowance.
-              projectId={project.id}
-              dependencies={dependencies}
-              onAddMilestone={async (pid, name, due) => {
-                const r = await createMilestoneAction(pid, name, due);
-                if (!r.success) setProjectError(r.error ?? "마일스톤을 추가하지 못했습니다.");
-                return r.success;
-              }}
-            />
-          ) : (
-            // An empty board is the first thing a new project shows, so it has
-            // to be a place to start work rather than a dead end.
-            <div className="rounded-xl border border-dashed border-border bg-surface-2/40 px-6 py-12">
-              <div className="mx-auto flex max-w-sm flex-col items-center gap-4 text-center">
-                <h3 className="text-sm font-medium text-text-secondary">
-                  아직 업무가 없습니다
-                </h3>
-                <p className="text-xs leading-relaxed text-text-tertiary">
-                  업무를 추가하면 업무 영역별로 진행 단계가 한눈에 보이는
-                  흐름 보드가 만들어집니다.
-                </p>
-                {!archived && (
-                  <button
-                    type="button"
-                    onClick={() => startTask()}
-                    className="inline-flex h-10 items-center gap-2 rounded-xl bg-accent px-4 text-sm font-semibold text-white shadow-sm transition-[background-color,transform] hover:bg-accent-hover active:scale-[0.98]"
-                  >
-                    <Plus className="size-4" aria-hidden />
-                    첫 업무 추가
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
+        {activeTab === "workflow" && (
+          <div className="hidden sm:block">
+              {visibleTasks.length > 0 ? (
+                <WorkflowCanvas
+                  tasks={controller.tasks}
+                  workstreams={workstreams}
+                  members={members}
+                  onSelect={controller.select}
+                  onAddTask={archived ? undefined : () => startTask()}
+                  onAddSubtask={archived ? undefined : startTask}
+                  focus={boardFocus}
+                  onFocusChange={setBoardFocus}
+                  projectId={project.id}
+                  dependencies={dependencies}
+                  onAddMilestone={async (pid, name, due) => {
+                    const r = await createMilestoneAction(pid, name, due);
+                    if (!r.success) setProjectError(r.error ?? "마일스톤을 추가하지 못했습니다.");
+                    return r.success;
+                  }}
+                />
+              ) : (
+                <div className="rounded-xl border border-dashed border-border bg-surface-2/40 px-6 py-12">
+                  <div className="mx-auto flex max-w-sm flex-col items-center gap-4 text-center">
+                    <h3 className="text-sm font-medium text-text-secondary">
+                      아직 업무가 없습니다
+                    </h3>
+                    <p className="text-xs leading-relaxed text-text-tertiary">
+                      업무를 추가하면 업무 영역별 진행 단계가 한눈에 보이는
+                      흐름 보드가 만들어집니다.
+                    </p>
+                    {!archived && (
+                      <button
+                        type="button"
+                        onClick={() => startTask()}
+                        className="inline-flex h-10 items-center gap-2 rounded-xl bg-accent px-4 text-sm font-semibold text-white shadow-sm transition-[background-color,transform] hover:bg-accent-hover active:scale-[0.98]"
+                      >
+                        <Plus className="size-4" aria-hidden />
+                        첫 업무 추가
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+          </div>
+        )}
 
         {activeTab === "tasks" && (
           <TaskList

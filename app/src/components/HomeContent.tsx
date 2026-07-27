@@ -10,11 +10,13 @@ import TaskFormDialog from "@/components/tasks/TaskFormDialog";
 import StackedWorkflowBoard, {
   type BoardFocus,
 } from "@/components/workflow/StackedWorkflowBoard";
+import MobileWorkflowOverview from "@/components/workflow/MobileWorkflowOverview";
 import EmptyState from "@/components/EmptyState";
 import { useTaskController } from "@/components/tasks/useTaskController";
 import BrandFormDialog from "@/components/projects/BrandFormDialog";
 import ProjectFormDialog from "@/components/projects/ProjectFormDialog";
 import { Button } from "@/components/ui";
+import { summarizeWorkspaceWorkflow } from "@/lib/workflow-summary";
 import type { Task, Brand, Project, Workstream, Member } from "@/server/db/schema";
 import type { NotificationView } from "@/server/services/collaboration";
 
@@ -27,6 +29,7 @@ export interface HomeContentProps {
   members: Member[];
   notifications: NotificationView[];
   dependencies?: Record<string, string[]>;
+  today: string;
 }
 
 /**
@@ -45,14 +48,12 @@ export default function HomeContent({
   members,
   notifications,
   dependencies,
+  today,
 }: HomeContentProps) {
   const router = useRouter();
   const controller = useTaskController(tasks);
   const { store } = controller;
   const [boardFocus, setBoardFocus] = useState<BoardFocus>("all");
-  // The board is the landing view. On a phone it is unreadable, so the personal
-  // lists lead there instead; server and first client render agree on the board.
-  const [showBoard, setShowBoard] = useState(true);
   const [brandDialogOpen, setBrandDialogOpen] = useState(false);
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [projectBrandId, setProjectBrandId] = useState<string | undefined>();
@@ -62,10 +63,6 @@ export default function HomeContent({
   const [brandFilterIds, setBrandFilterIds] = useState<string[]>([]);
   const [taskProjectId, setTaskProjectId] = useState<string | null>(null);
   const [taskParent, setTaskParent] = useState<Task | null>(null);
-
-  useEffect(() => {
-    if (window.matchMedia("(max-width: 640px)").matches) setShowBoard(false);
-  }, []);
 
   useEffect(() => {
     function onFocus() {
@@ -155,6 +152,23 @@ export default function HomeContent({
     }
     return `브랜드 ${brandFilterIds.length}개`;
   }, [brandFilterIds, brands]);
+  const mobileWorkflowGroups = useMemo(
+    () =>
+      summarizeWorkspaceWorkflow(
+        visibleBrands,
+        visibleProjects,
+        visibleBoardTasks,
+        workstreams,
+        today,
+      ),
+    [
+      today,
+      visibleBoardTasks,
+      visibleBrands,
+      visibleProjects,
+      workstreams,
+    ],
+  );
 
   const shared = {
     members: membersRecord,
@@ -188,7 +202,7 @@ export default function HomeContent({
 
   return (
     <>
-      <div className="mx-auto max-w-5xl px-4 pb-4 sm:px-6">
+      <div className="mx-auto max-w-5xl px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:px-6 sm:pb-4">
         {store.error && (
           <p
             role="alert"
@@ -217,19 +231,29 @@ export default function HomeContent({
           </div>
         )}
 
-        {/* The board leads: the whole workspace at a glance. Brand is the
-            default hierarchy; owner and due-date remain available as pivots. */}
-        {showBoard && (brands.length > 0 || projects.length > 0 || boardTasks.length > 0) && (
+        {mobileWorkflowGroups.length > 0 && (
+          <MobileWorkflowOverview
+            groups={mobileWorkflowGroups}
+            members={membersRecord}
+            today={today}
+            onSelect={controller.select}
+            unreadComments={unreadComments}
+          />
+        )}
+
+        {/* Desktop retains the spatial board. Mobile gets the same hierarchy
+            as a readable vertical flow from the first render. */}
+        {(brands.length > 0 || projects.length > 0 || boardTasks.length > 0) && (
           <section
-            className="relative left-1/2 mb-10 w-[min(1400px,calc(100vw-2rem))] -translate-x-1/2"
+            className="relative left-1/2 mb-10 hidden w-[min(1400px,calc(100vw-2rem))] -translate-x-1/2 md:block"
             aria-label="전체 업무 흐름"
           >
             <div className="mb-[18px] flex flex-wrap items-center gap-3 px-6">
               <div className="mr-auto min-w-0">
-                <h1 className="text-[15px] font-semibold tracking-tight text-text">
+                <h1 className="text-xl font-semibold tracking-tight text-text">
                   업무 보드
                 </h1>
-                <p className="mt-0.5 truncate text-[11px] font-medium tabular-nums text-text-tertiary">
+                <p className="mt-0.5 truncate text-xs font-medium tabular-nums text-text-secondary">
                   브랜드 {visibleBrands.length} · 프로젝트 {visibleProjects.length} · 업무{" "}
                   {visibleBoardTasks.filter((task) => task.status !== "Done").length}
                 </p>

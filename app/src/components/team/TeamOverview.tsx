@@ -1,10 +1,9 @@
 "use client";
 
 import { useMemo } from "react";
-import { AlertTriangle, CalendarDays, Clock3, Layers3 } from "lucide-react";
+import { AlertTriangle, CalendarDays, CheckCircle2, Layers3 } from "lucide-react";
 import TaskDetailPanel from "@/components/tasks/TaskDetailPanel";
 import { useTaskController } from "@/components/tasks/useTaskController";
-import { StatusBadge } from "@/components/ui";
 import { memberWorkload } from "@/lib/workload";
 import type { Brand, Member, Project, Task, Workstream } from "@/server/db/schema";
 
@@ -38,7 +37,7 @@ export default function TeamOverview({
         <header className="mb-5">
           <h1 className="text-xl font-semibold tracking-tight text-text">팀 업무 현황</h1>
           <p className="mt-1 text-sm text-text-secondary">
-            점수 대신 현재 맡은 업무, 이번 주 마감, 지연, 대기 건수를 그대로 보여줍니다.
+            현재 맡은 업무와 일정, 완료 건수를 구성원별로 보여줍니다.
           </p>
         </header>
         <div className="grid gap-4 lg:grid-cols-3">
@@ -56,7 +55,7 @@ export default function TeamOverview({
                       [Layers3, "활성", workload.activeCount],
                       [CalendarDays, "이번 주", workload.dueThisWeekCount],
                       [AlertTriangle, "기한 초과", workload.overdueCount],
-                      [Clock3, "대기", workload.waitingCount],
+                      [CheckCircle2, "완료", workload.completedCount],
                     ].map(([Icon, label, value]) => {
                       const MetricIcon = Icon as typeof Layers3;
                       return (
@@ -86,7 +85,6 @@ export default function TeamOverview({
                             {[brand?.name, project?.name].filter(Boolean).join(" · ") || "미분류"}
                           </span>
                         </span>
-                        <StatusBadge status={task.status} variant="pip" />
                         {task.due_date && <span className="text-[10px] tabular-nums text-text-tertiary">{task.due_date.slice(5)}</span>}
                       </button>
                     );
