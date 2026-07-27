@@ -127,6 +127,7 @@ function FlowTask({
   unreadComments,
   onSelect,
   onAddSubtask,
+  brandColor,
 }: {
   task: Task;
   childrenByParent: Map<string, Task[]>;
@@ -135,6 +136,7 @@ function FlowTask({
   unreadComments: Record<string, number>;
   onSelect: (task: Task) => void;
   onAddSubtask: (parent: Task) => void;
+  brandColor: string;
 }) {
   const descendants = descendantsOf(task.id, childrenByParent);
   const visibleDescendants = descendants.slice(0, 3);
@@ -151,7 +153,8 @@ function FlowTask({
           className="pointer-events-none absolute left-full top-1/2 h-px w-5 bg-border"
         />
         <span
-          className="h-7 w-1 shrink-0 rounded-full bg-border-strong"
+          className="h-7 w-1 shrink-0 rounded-full"
+          style={{ backgroundColor: brandColor }}
           aria-hidden
         />
         <button
@@ -435,6 +438,7 @@ export default function StackedWorkflowBoard({
                                 unreadComments={unreadComments}
                                 onSelect={onSelect}
                                 onAddSubtask={onAddSubtask}
+                                brandColor={brand.color}
                               />
                             ))}
                             {!roots.length && (
