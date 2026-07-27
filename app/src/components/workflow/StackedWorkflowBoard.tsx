@@ -86,30 +86,32 @@ function ChildTaskRow({
   return (
     <div
       title={task.description ?? `${task.title} · ${owner?.name ?? "담당자 미지정"}`}
-      className="group/child flex h-9 w-[calc(100%-var(--indent))] items-center gap-2 border-b border-border/60 px-1.5 text-left transition-colors duration-150 last:border-b-0 hover:bg-surface-2/70"
+      className="group/child flex h-10 w-[calc(100%-var(--indent))] items-center gap-2 border-b border-border/60 px-1.5 text-left transition-colors duration-fast ease-out last:border-b-0 hover:bg-surface-2/70"
       style={{
-        marginLeft: `${depth * 10}px`,
-        ["--indent" as string]: `${depth * 10}px`,
+        marginLeft: `${depth * 8}px`,
+        ["--indent" as string]: `${depth * 8}px`,
       }}
     >
       <StatusBadge status={task.status} variant="pip" className="shrink-0" />
       <button
         type="button"
         onClick={() => onSelect(task)}
-        className="min-w-0 flex-1 truncate text-left text-xs font-medium text-text active:scale-[0.99]"
+        className="min-w-0 flex-1 truncate text-left text-sm font-medium text-text transition-transform duration-fast ease-out active:scale-[0.99]"
       >
         {task.title}
       </button>
       <OwnerBadge owner={owner} />
-      <button
+      <Button
         type="button"
+        variant="ghost"
+        size="icon-sm"
         onClick={() => onAddSubtask(task)}
         aria-label={`${task.title}에 하위업무 추가`}
         title="하위업무 추가"
-        className="grid size-7 shrink-0 place-items-center rounded-md text-text-tertiary opacity-60 transition-opacity hover:bg-surface-3 hover:text-text hover:opacity-100 group-hover/child:opacity-100 focus-visible:opacity-100"
+        className="shrink-0 text-text-tertiary opacity-60 hover:opacity-100 group-hover/child:opacity-100 focus-visible:opacity-100"
       >
         <Plus className="size-3.5" />
-      </button>
+      </Button>
     </div>
   );
 }
@@ -120,14 +122,12 @@ function FlowTask({
   members,
   onSelect,
   onAddSubtask,
-  brandColor,
 }: {
   task: Task;
   childrenByParent: Map<string, Task[]>;
   members: Record<string, Member>;
   onSelect: (task: Task) => void;
   onAddSubtask: (parent: Task) => void;
-  brandColor: string;
 }) {
   const descendants = descendantsOf(task.id, childrenByParent);
   const visibleDescendants = descendants.slice(0, 3);
@@ -137,33 +137,26 @@ function FlowTask({
   return (
     <div className="relative grid grid-cols-[minmax(14rem,.8fr)_minmax(18rem,1fr)] items-start gap-5">
       <div
-        className="group relative z-10 flex min-h-14 items-center gap-2 rounded-xl border bg-surface px-3 py-2 shadow-xs transition-[border-color,box-shadow,transform] duration-150 ease-out hover:-translate-y-px hover:shadow-sm active:scale-[0.995]"
-        style={{
-          borderColor: `color-mix(in srgb, ${brandColor} 28%, rgb(var(--border)))`,
-        }}
+        className="group relative z-10 flex min-h-14 items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2 shadow-xs transition-[border-color,box-shadow,transform] duration-fast ease-out hover:-translate-y-px hover:border-border-strong hover:shadow-sm active:scale-[0.995]"
       >
         <span
           aria-hidden
-          className="pointer-events-none absolute left-full top-1/2 h-px w-5"
-          style={{
-            background: `color-mix(in srgb, ${brandColor} 42%, rgb(var(--border)))`,
-          }}
+          className="pointer-events-none absolute left-full top-1/2 h-px w-5 bg-border"
         />
         <span
-          className="h-7 w-1 shrink-0 rounded-full"
-          style={{ backgroundColor: brandColor }}
+          className="h-7 w-1 shrink-0 rounded-full bg-border-strong"
           aria-hidden
         />
         <button
           type="button"
           onClick={() => onSelect(task)}
           title={task.description ?? task.title}
-          className="min-w-0 flex-1 truncate text-left text-sm font-semibold tracking-[-0.01em] text-text"
+          className="line-clamp-2 min-w-0 flex-1 text-left text-base font-semibold leading-5 tracking-[-0.01em] text-text transition-transform duration-fast ease-out active:scale-[0.99]"
         >
           {task.title}
         </button>
         <span className="flex shrink-0 items-center gap-2">
-          <StatusBadge status={task.status} variant="dot" className="text-xs" />
+          <StatusBadge status={task.status} variant="dot" />
           <OwnerBadge owner={owner} />
           {task.due_date && (
             <span className="text-xs tabular-nums text-text-tertiary">
@@ -171,21 +164,18 @@ function FlowTask({
             </span>
           )}
         </span>
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size="icon-sm"
           onClick={() => onAddSubtask(task)}
           aria-label={`${task.title}에 하위업무 추가`}
-          className="grid size-7 shrink-0 place-items-center rounded-lg text-text-tertiary opacity-0 hover:bg-surface-2 hover:text-text group-hover:opacity-100 focus-visible:opacity-100"
+          className="shrink-0 text-text-tertiary opacity-60 group-hover:opacity-100 focus-visible:opacity-100"
         >
           <Plus className="size-3.5" />
-        </button>
+        </Button>
       </div>
-      <div
-        className="relative z-10 min-h-14 overflow-hidden rounded-xl border bg-surface px-2 py-1 shadow-xs"
-        style={{
-          borderColor: `color-mix(in srgb, ${brandColor} 24%, rgb(var(--border)))`,
-        }}
-      >
+      <div className="relative z-10 min-h-14 overflow-hidden rounded-xl border border-border bg-surface px-2 py-1">
         {visibleDescendants.map(({ task: child, depth }) => {
           const childOwner = child.assignee_id ? members[child.assignee_id] : null;
           return (
@@ -217,14 +207,16 @@ function FlowTask({
           </details>
         )}
         {!descendants.length && (
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="sm"
             onClick={() => onAddSubtask(task)}
-            className="flex h-9 items-center gap-1.5 px-2 text-xs font-medium text-text-tertiary hover:text-text-secondary"
+            className="px-2 text-xs text-text-tertiary hover:text-text-secondary"
           >
             <Plus className="size-3" />
             하위업무 추가
-          </button>
+          </Button>
         )}
       </div>
     </div>
@@ -281,14 +273,14 @@ export default function StackedWorkflowBoard({
           <button
             type="button"
             onClick={() => setView("workflow")}
-            className={`h-8 rounded-lg px-3 text-xs font-semibold ${view === "workflow" ? "bg-surface text-text shadow-xs" : "text-text-secondary"}`}
+            className={`h-8 rounded-lg px-3 text-xs font-semibold transition-transform duration-fast ease-out active:scale-[0.97] ${view === "workflow" ? "bg-surface text-text shadow-xs" : "text-text-secondary"}`}
           >
             워크플로우
           </button>
           <button
             type="button"
             onClick={() => setView("flow")}
-            className={`h-8 rounded-lg px-3 text-xs font-semibold ${view === "flow" ? "bg-surface text-text shadow-xs" : "text-text-secondary"}`}
+            className={`h-8 rounded-lg px-3 text-xs font-semibold transition-transform duration-fast ease-out active:scale-[0.97] ${view === "flow" ? "bg-surface text-text shadow-xs" : "text-text-secondary"}`}
           >
             진행 흐름
           </button>
@@ -307,7 +299,7 @@ export default function StackedWorkflowBoard({
                 setScope("active");
                 onFocusChange(id);
               }}
-              className={`h-8 rounded-full px-3 text-xs font-semibold ${scope === "active" && focus === id ? "bg-text text-bg" : "border border-border bg-surface text-text-secondary hover:border-border-strong"}`}
+              className={`h-8 rounded-full px-3 text-xs font-semibold transition-transform duration-fast ease-out active:scale-[0.97] ${scope === "active" && focus === id ? "bg-text text-bg" : "border border-border bg-surface text-text-secondary hover:border-border-strong"}`}
             >
               {label}
             </button>
@@ -315,7 +307,7 @@ export default function StackedWorkflowBoard({
           <button
             type="button"
             onClick={() => setScope(scope === "done" ? "active" : "done")}
-            className={`h-8 rounded-full px-3 text-xs font-semibold ${scope === "done" ? "bg-status-done text-white" : "border border-border bg-surface text-text-secondary"}`}
+            className={`h-8 rounded-full px-3 text-xs font-semibold transition-transform duration-fast ease-out active:scale-[0.97] ${scope === "done" ? "bg-status-done text-white" : "border border-border bg-surface text-text-secondary"}`}
           >
             완료 업무
           </button>
@@ -356,7 +348,7 @@ export default function StackedWorkflowBoard({
                               type="button"
                               onClick={() => onSelect(task)}
                               title={[brand?.name, project?.name, task.title].filter(Boolean).join(" · ")}
-                              className="mb-1 flex w-full items-center gap-1.5 truncate rounded-md border border-border bg-surface px-2 py-1.5 text-left text-xs font-medium text-text shadow-xs hover:text-accent"
+                              className="mb-1 flex w-full items-center gap-1.5 truncate rounded-md border border-border bg-surface px-2 py-1.5 text-left text-xs font-medium text-text shadow-xs transition-[color,transform] duration-fast ease-out hover:text-accent active:scale-[0.99]"
                               style={{
                                 borderLeftWidth: 3,
                                 borderLeftColor: brand?.color ?? "rgb(var(--border))",
@@ -383,11 +375,15 @@ export default function StackedWorkflowBoard({
           }}
         >
           <div className="min-w-[1040px] space-y-3">
-            <div className="grid grid-cols-[10rem_15rem_minmax(14rem,.8fr)_minmax(18rem,1fr)] gap-5 border-b border-border/80 px-3 pb-2 text-xs font-semibold text-text-tertiary">
-              <span className="pl-2">브랜드</span>
-              <span>프로젝트</span>
-              <span>주요업무</span>
-              <span>하위업무</span>
+            <div className="grid grid-cols-[10rem_minmax(0,1fr)] border-b border-border/80 pb-2 text-xs font-semibold text-text-tertiary">
+              <span className="pl-5">브랜드</span>
+              <div className="grid grid-cols-[15rem_minmax(0,1fr)] gap-5 px-3">
+                <span>프로젝트</span>
+                <div className="grid grid-cols-[minmax(14rem,.8fr)_minmax(18rem,1fr)] gap-5">
+                  <span>주요업무</span>
+                  <span>하위업무</span>
+                </div>
+              </div>
             </div>
             {brands.map((brand) => {
               const brandProjects = projects.filter(
@@ -407,8 +403,7 @@ export default function StackedWorkflowBoard({
                   <header className="flex min-h-24 flex-col justify-between border-r border-border/80 px-4 py-3 pl-5">
                     <div>
                       <span
-                        className="mb-2 block h-1 w-7 rounded-full"
-                        style={{ backgroundColor: brand.color }}
+                        className="mb-2 block h-1 w-7 rounded-full bg-border-strong"
                         aria-hidden
                       />
                       <h2 className="break-keep text-base font-semibold tracking-tight text-text">
@@ -418,14 +413,16 @@ export default function StackedWorkflowBoard({
                         프로젝트 {brandProjects.length}
                       </p>
                     </div>
-                    <button
+                    <Button
                       type="button"
+                      variant="ghost"
+                      size="sm"
                       onClick={() => onAddProject(brand.id)}
-                      className="mt-3 flex h-8 w-max items-center gap-1.5 rounded-lg px-2 text-xs font-semibold text-text-secondary hover:bg-surface hover:text-text"
+                      className="mt-3 w-max px-2 text-xs font-semibold text-text-secondary"
                     >
                       <FolderPlus className="size-3" />
                       프로젝트 추가
-                    </button>
+                    </Button>
                   </header>
 
                   <div className="space-y-2.5 p-3">
@@ -444,20 +441,14 @@ export default function StackedWorkflowBoard({
                           className="relative grid grid-cols-[15rem_minmax(0,1fr)] items-stretch gap-5 border-b border-border/70 py-3 last:border-b-0"
                         >
                           <div
-                            className="relative z-10 flex min-h-14 items-start gap-2 rounded-2xl border bg-surface px-4 py-4 shadow-xs"
-                            style={{
-                              borderColor: `color-mix(in srgb, ${brand.color} 28%, rgb(var(--border)))`,
-                            }}
+                            className="relative z-10 flex min-h-14 items-start gap-2 rounded-2xl border border-border bg-surface px-4 py-4"
                           >
                             <span
                               aria-hidden
-                              className="pointer-events-none absolute left-full top-7 h-px w-5"
-                              style={{
-                                background: `color-mix(in srgb, ${brand.color} 38%, rgb(var(--border)))`,
-                              }}
+                              className="pointer-events-none absolute left-full top-7 h-px w-5 bg-border"
                             />
                             <span
-                              className="size-2 shrink-0 rounded-[3px]"
+                              className="mt-1.5 size-2 shrink-0 rounded-full"
                               style={{ backgroundColor: brand.color }}
                               aria-hidden
                             />
@@ -465,21 +456,25 @@ export default function StackedWorkflowBoard({
                               type="button"
                               onClick={() => onEditProject(project)}
                               title={project.one_line_objective ?? project.name}
-                              className="min-w-0 flex-1 break-words text-left text-sm font-semibold leading-5 tracking-[-0.01em] text-text hover:text-accent"
+                              className="min-w-0 flex-1 break-words text-left text-base font-semibold leading-5 tracking-[-0.01em] text-text transition-[color,transform] duration-fast ease-out hover:text-accent active:scale-[0.99]"
                             >
                               {project.name}
                             </button>
-                            <span className="shrink-0 text-xs tabular-nums text-text-tertiary">
-                              {projectTasks.length}
+                            <span className="flex h-5 shrink-0 items-center gap-0.5">
+                              <span className="px-1 text-xs tabular-nums text-text-tertiary">
+                                {projectTasks.length}
+                              </span>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon-sm"
+                                onClick={() => onAddProjectTask(project.id)}
+                                aria-label={`${project.name}에 업무 추가`}
+                                className="-mt-1.5 shrink-0 text-text-tertiary"
+                              >
+                                <Plus className="size-3.5" />
+                              </Button>
                             </span>
-                            <button
-                              type="button"
-                              onClick={() => onAddProjectTask(project.id)}
-                              aria-label={`${project.name}에 업무 추가`}
-                              className="grid size-6 shrink-0 place-items-center rounded-md text-text-tertiary hover:bg-surface-2 hover:text-text"
-                            >
-                              <Plus className="size-3.5" />
-                            </button>
                           </div>
 
                           <div className="relative z-10 space-y-2">
@@ -491,14 +486,13 @@ export default function StackedWorkflowBoard({
                                 members={members}
                                 onSelect={onSelect}
                                 onAddSubtask={onAddSubtask}
-                                brandColor={brand.color}
                               />
                             ))}
                             {!roots.length && (
                               <button
                                 type="button"
                                 onClick={() => onAddProjectTask(project.id)}
-                                className="flex h-12 w-full items-center justify-center gap-1.5 border-y border-dashed border-border text-xs font-medium text-text-tertiary hover:border-border-strong hover:text-text-secondary"
+                                className="flex h-12 w-full items-center justify-center gap-1.5 border-y border-dashed border-border text-xs font-medium text-text-tertiary transition-[border-color,color,transform] duration-fast ease-out hover:border-border-strong hover:text-text-secondary active:scale-[0.99]"
                               >
                                 <Plus className="size-3.5" />
                                 이 프로젝트의 첫 업무 추가
