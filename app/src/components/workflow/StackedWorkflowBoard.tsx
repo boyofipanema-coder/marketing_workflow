@@ -197,7 +197,6 @@ function FlowTask({
           style={{ backgroundColor: brandColor }}
           aria-hidden
         />
-        <CompletionButton task={task} onToggleComplete={onToggleComplete} />
         <button
           type="button"
           onClick={() => onSelect(task)}

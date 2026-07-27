@@ -629,7 +629,7 @@ export default function TaskDetailPanel({
                     ) : (
                       <Circle className="h-4 w-4" aria-hidden />
                     )}
-                    {task.status === "Done" ? "완료 해제" : "완료"}
+                    {task.status === "Done" ? "업무 다시 열기" : "업무 종료 및 보관"}
                   </button>
                 )}
                 <button
