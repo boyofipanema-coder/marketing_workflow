@@ -5,6 +5,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import {
   X,
   Check,
+  ChevronDown,
   Loader2,
   AlertTriangle,
   RotateCcw,
@@ -120,6 +121,9 @@ export default function TaskDetailPanel({
     date: string;
   } | null>(null);
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [activityOpen, setActivityOpen] = useState(false);
   const descriptionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingDescription = useRef<string | null>(null);
   const activityGuard = useRef(createRequestGuard()).current;
@@ -136,6 +140,9 @@ export default function TaskDetailPanel({
     setDescription(task.description ?? "");
     setWaitDraft(null);
     setActivity([]);
+    setAdvancedOpen(false);
+    setCommentsOpen(false);
+    setActivityOpen(false);
     const id = task.id;
     const token = activityGuard.next();
     void getTaskActivityAction(id).then((r) => {
@@ -217,13 +224,13 @@ export default function TaskDetailPanel({
           className="
             material-panel material-edge
             group fixed inset-0 z-50 overflow-hidden
-            sm:inset-auto sm:left-1/2 sm:top-1/2 sm:h-auto sm:max-h-[calc(100dvh-2rem)] sm:w-[calc(100vw-2rem)] sm:max-w-5xl
+            sm:inset-auto sm:left-1/2 sm:top-1/2 sm:h-[min(720px,calc(100dvh-2rem))] sm:w-[calc(100vw-2rem)] sm:max-w-3xl
             sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-[24px]
             sm:border sm:border-separator sm:shadow-xl
             focus:outline-none
           "
         >
-        <div className="flex h-full flex-col group-data-[state=open]:animate-scale-in">
+        <div className="flex h-full min-h-0 flex-col group-data-[state=open]:animate-scale-in">
           {/* Header */}
           <header className="flex items-start justify-between gap-3 border-b border-separator px-5 py-4">
             <div className="min-w-0 flex-1">
@@ -270,11 +277,11 @@ export default function TaskDetailPanel({
               선택된 업무가 없습니다
             </div>
           ) : (
-            <div className="grid flex-1 grid-cols-1 content-start gap-5 overflow-y-auto px-5 py-5 sm:px-6 lg:grid-cols-2">
+            <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 py-5 sm:px-6">
               {error && (
                 <div
                   role="alert"
-                  className="flex items-start gap-2 rounded-xl border border-flag-blocked/30 bg-flag-blocked/10 px-3 py-2.5 text-xs text-flag-blocked lg:col-span-2"
+                  className="flex items-start gap-2 rounded-xl border border-flag-blocked/30 bg-flag-blocked/10 px-3 py-2.5 text-xs text-flag-blocked"
                 >
                   <AlertTriangle className="mt-px h-3.5 w-3.5 flex-shrink-0" aria-hidden />
                   <span>
@@ -286,7 +293,7 @@ export default function TaskDetailPanel({
               )}
 
               {cancelled && (
-                <div className="flex items-center justify-between gap-2 rounded-xl border border-separator bg-surface-2 px-3 py-2.5 text-xs text-text-secondary lg:col-span-2">
+                <div className="flex items-center justify-between gap-2 rounded-xl border border-separator bg-surface-2 px-3 py-2.5 text-xs text-text-secondary">
                   <span>취소된 업무입니다. 복구해야 수정할 수 있습니다.</span>
                   <button
                     type="button"
@@ -300,7 +307,7 @@ export default function TaskDetailPanel({
               )}
 
               {/* Title — commits on Enter or blur */}
-              <Field label="업무명" htmlFor="task-title" className="lg:col-span-2">
+              <Field label="업무명" htmlFor="task-title">
                 <input
                   id="task-title"
                   value={title}
@@ -329,7 +336,7 @@ export default function TaskDetailPanel({
               </Field>
 
               {/* Quick actions */}
-              <div className="flex flex-wrap gap-1.5 lg:col-span-2">
+              <div className="flex flex-wrap gap-1.5">
                 <QuickChip
                   disabled={readOnly}
                   active={task.due_date === today}
@@ -359,19 +366,19 @@ export default function TaskDetailPanel({
                 </QuickChip>
               </div>
 
-              <div className="grid gap-5 lg:col-span-2 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
+              <div className="flex flex-col gap-4">
                 <section className="flex min-w-0 flex-col gap-4">
                 {/* Description — debounced */}
                 <Field label="세부 내용" htmlFor="task-description">
                 <textarea
                   id="task-description"
-                  rows={7}
+                  rows={4}
                   value={description}
                   disabled={readOnly}
                   onChange={(e) => handleDescriptionChange(e.target.value)}
                   onBlur={flushDescription}
                   placeholder="배경, 결과물, 참고 링크를 적어 두세요."
-                  className="min-h-40 w-full resize-y rounded-xl border border-border bg-surface/80 px-3.5 py-3 text-sm leading-relaxed text-text shadow-xs placeholder:text-text-quaternary transition-[border-color,box-shadow] duration-fast ease-out hover:border-border-strong focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:opacity-60"
+                  className="min-h-24 w-full resize-y rounded-xl border border-border bg-surface/80 px-3.5 py-3 text-sm leading-relaxed text-text shadow-xs placeholder:text-text-quaternary transition-[border-color,box-shadow] duration-fast ease-out hover:border-border-strong focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:opacity-60"
                 />
                 </Field>
 
@@ -490,174 +497,223 @@ export default function TaskDetailPanel({
                 )}
                 </section>
 
-                <section className="grid min-w-0 content-start gap-3 sm:grid-cols-2">
-                <Field label="프로젝트" htmlFor="task-project">
-                <select
-                  id="task-project"
-                  value={task.project_id ?? ""}
-                  disabled={readOnly}
-                  onChange={(e) =>
-                    void patch({ project_id: e.target.value || null })
-                  }
-                  className={selectClass}
-                >
-                  <option value="">프로젝트 없음 (Inbox)</option>
-                  {projects.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-
-              <Field label="업무 영역" htmlFor="task-workstream">
-                <select
-                  id="task-workstream"
-                  value={task.workstream_id ?? ""}
-                  disabled={readOnly || projectWorkstreams.length === 0}
-                  onChange={(e) =>
-                    void patch({ workstream_id: e.target.value || null })
-                  }
-                  className={selectClass}
-                >
-                  <option value="">
-                    {projectWorkstreams.length === 0
-                      ? "등록된 업무 영역 없음"
-                      : "지정 안 함"}
-                  </option>
-                  {projectWorkstreams.map((w) => (
-                    <option key={w.id} value={w.id}>
-                      {w.name}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-
-              <Field label="담당자" htmlFor="task-assignee">
-                <select
-                  id="task-assignee"
-                  value={task.assignee_id ?? ""}
-                  disabled={readOnly}
-                  onChange={(e) =>
-                    void patch({ assignee_id: e.target.value || null })
-                  }
-                  className={selectClass}
-                >
-                  <option value="">담당자 없음</option>
-                  {members.map((member) => (
-                    <option key={member.id} value={member.id}>
-                      {member.name}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-
-              <Field label="업무 유형">
-                <div className="grid grid-cols-2 gap-1 rounded-xl border border-border bg-surface-2/70 p-1">
-                  {([
-                    ["task", "업무"],
-                    ["milestone", "마일스톤"],
-                  ] as const).map(([value, label]) => (
-                    <button
-                      key={value}
-                      type="button"
+                <section className="grid min-w-0 content-start gap-3 sm:grid-cols-3">
+                  <Field label="프로젝트" htmlFor="task-project">
+                    <select
+                      id="task-project"
+                      value={task.project_id ?? ""}
                       disabled={readOnly}
-                      aria-pressed={task.kind === value}
-                      onClick={() => void patch({ kind: value })}
-                      className={cn(
-                        "h-9 rounded-[9px] text-xs font-semibold transition-[background-color,color,box-shadow] disabled:opacity-50",
-                        task.kind === value
-                          ? "bg-surface text-text shadow-sm"
-                          : "text-text-secondary hover:text-text"
-                      )}
+                      onChange={(e) =>
+                        void patch({ project_id: e.target.value || null })
+                      }
+                      className={selectClass}
                     >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </Field>
+                      <option value="">프로젝트 없음 (Inbox)</option>
+                      {projects.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
 
-              <div className="grid grid-cols-1 gap-3 sm:col-span-2 sm:grid-cols-2">
-                <Field label="시작일" htmlFor="task-start">
-                  <input
-                    id="task-start"
-                    type="date"
-                    value={task.start_date ?? ""}
-                    disabled={readOnly}
-                    onChange={(e) =>
-                      void patch({ start_date: e.target.value || null })
-                    }
-                    className={selectClass}
-                  />
-                </Field>
+                  <Field label="담당자" htmlFor="task-assignee">
+                    <select
+                      id="task-assignee"
+                      value={task.assignee_id ?? ""}
+                      disabled={readOnly}
+                      onChange={(e) =>
+                        void patch({ assignee_id: e.target.value || null })
+                      }
+                      className={selectClass}
+                    >
+                      <option value="">담당자 없음</option>
+                      {members.map((member) => (
+                        <option key={member.id} value={member.id}>
+                          {member.name}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
 
-                <Field label="마감일" htmlFor="task-due">
-                  <input
-                    id="task-due"
-                    type="date"
-                    value={task.due_date ?? ""}
-                    disabled={readOnly}
-                    onChange={(e) => {
-                      const value = e.target.value || null;
-                      // Clearing the date must clear the time with it, or the
-                      // server rejects the orphaned time.
-                      void patch(
-                        value
-                          ? { due_date: value }
-                          : { due_date: null, due_time: null }
-                      );
-                    }}
-                    className={selectClass}
-                  />
-                </Field>
-              </div>
+                  <Field label="마감일" htmlFor="task-due">
+                    <input
+                      id="task-due"
+                      type="date"
+                      value={task.due_date ?? ""}
+                      disabled={readOnly}
+                      onChange={(e) => {
+                        const value = e.target.value || null;
+                        void patch(
+                          value
+                            ? { due_date: value }
+                            : { due_date: null, due_time: null }
+                        );
+                      }}
+                      className={selectClass}
+                    />
+                  </Field>
+                </section>
 
-              <Field label="마감 시간 (선택)" htmlFor="task-due-time">
-                <div className="flex items-center gap-2">
-                  <CalendarClock
-                    className="h-4 w-4 flex-shrink-0 text-text-tertiary"
+                <button
+                  type="button"
+                  onClick={() => setAdvancedOpen((value) => !value)}
+                  aria-expanded={advancedOpen}
+                  className="flex h-10 items-center gap-2 border-y border-separator text-left text-xs font-semibold text-text-secondary transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <ChevronDown
+                    className={cn(
+                      "h-4 w-4 transition-transform",
+                      advancedOpen && "rotate-180"
+                    )}
                     aria-hidden
                   />
-                  <input
-                    id="task-due-time"
-                    type="time"
-                    value={task.due_time ?? ""}
-                    disabled={readOnly || !task.due_date}
-                    onChange={(e) =>
-                      void patch({ due_time: e.target.value || null })
-                    }
-                    className={selectClass}
-                  />
-                  {task.due_time && (
-                    <button
-                      type="button"
-                      onClick={() => void patch({ due_time: null })}
-                      disabled={readOnly}
-                      className="flex-shrink-0 rounded px-2 py-2 text-xs text-text-secondary hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      시간 제거
-                    </button>
-                  )}
-                </div>
-                {!task.due_date && (
-                  <p className="text-2xs text-text-tertiary">
-                    마감일을 먼저 지정해 주세요.
-                  </p>
+                  추가 정보
+                  <span className="font-normal text-text-tertiary">
+                    업무 영역 · 유형 · 세부 일정
+                  </span>
+                </button>
+
+                {advancedOpen && (
+                  <section className="grid min-w-0 gap-3 rounded-xl bg-surface-2/45 p-3 sm:grid-cols-2">
+                    <Field label="업무 영역" htmlFor="task-workstream">
+                      <select
+                        id="task-workstream"
+                        value={task.workstream_id ?? ""}
+                        disabled={readOnly || projectWorkstreams.length === 0}
+                        onChange={(e) =>
+                          void patch({ workstream_id: e.target.value || null })
+                        }
+                        className={selectClass}
+                      >
+                        <option value="">
+                          {projectWorkstreams.length === 0
+                            ? "등록된 업무 영역 없음"
+                            : "지정 안 함"}
+                        </option>
+                        {projectWorkstreams.map((w) => (
+                          <option key={w.id} value={w.id}>
+                            {w.name}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+
+                    <Field label="업무 유형">
+                      <div className="grid grid-cols-2 gap-1 rounded-xl border border-border bg-surface-2/70 p-1">
+                        {([
+                          ["task", "업무"],
+                          ["milestone", "마일스톤"],
+                        ] as const).map(([value, label]) => (
+                          <button
+                            key={value}
+                            type="button"
+                            disabled={readOnly}
+                            aria-pressed={task.kind === value}
+                            onClick={() => void patch({ kind: value })}
+                            className={cn(
+                              "h-9 rounded-[9px] text-xs font-semibold transition-[background-color,color,box-shadow] disabled:opacity-50",
+                              task.kind === value
+                                ? "bg-surface text-text shadow-sm"
+                                : "text-text-secondary hover:text-text"
+                            )}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </Field>
+
+                    <Field label="시작일" htmlFor="task-start">
+                      <input
+                        id="task-start"
+                        type="date"
+                        value={task.start_date ?? ""}
+                        disabled={readOnly}
+                        onChange={(e) =>
+                          void patch({ start_date: e.target.value || null })
+                        }
+                        className={selectClass}
+                      />
+                    </Field>
+
+                    <Field label="마감 시간 (선택)" htmlFor="task-due-time">
+                      <div className="flex items-center gap-2">
+                        <CalendarClock
+                          className="h-4 w-4 flex-shrink-0 text-text-tertiary"
+                          aria-hidden
+                        />
+                        <input
+                          id="task-due-time"
+                          type="time"
+                          value={task.due_time ?? ""}
+                          disabled={readOnly || !task.due_date}
+                          onChange={(e) =>
+                            void patch({ due_time: e.target.value || null })
+                          }
+                          className={selectClass}
+                        />
+                        {task.due_time && (
+                          <button
+                            type="button"
+                            onClick={() => void patch({ due_time: null })}
+                            disabled={readOnly}
+                            className="flex-shrink-0 rounded px-2 py-2 text-xs text-text-secondary hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          >
+                            제거
+                          </button>
+                        )}
+                      </div>
+                    </Field>
+                  </section>
                 )}
-              </Field>
-                </section>
               </div>
 
-              <div className="lg:col-span-2">
+              <button
+                type="button"
+                onClick={() => setCommentsOpen((value) => !value)}
+                aria-expanded={commentsOpen}
+                className="flex h-10 items-center gap-2 border-b border-separator text-left text-xs font-semibold text-text-secondary transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <ChevronDown
+                  className={cn(
+                    "h-4 w-4 transition-transform",
+                    commentsOpen && "rotate-180"
+                  )}
+                  aria-hidden
+                />
+                댓글과 협업
+              </button>
+
+              {commentsOpen && (
                 <CommentThread
                   taskId={task.id}
                   members={members}
                   readOnly={readOnly}
                 />
-              </div>
+              )}
 
               {activity.length > 0 && (
-                <Field label="변경 이력" className="lg:col-span-2">
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setActivityOpen((value) => !value)}
+                    aria-expanded={activityOpen}
+                    className="flex h-10 items-center gap-2 border-b border-separator text-left text-xs font-semibold text-text-secondary transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <ChevronDown
+                      className={cn(
+                        "h-4 w-4 transition-transform",
+                        activityOpen && "rotate-180"
+                      )}
+                      aria-hidden
+                    />
+                    변경 이력
+                    <span className="font-normal tabular-nums text-text-tertiary">
+                      {activity.length}
+                    </span>
+                  </button>
+                  {activityOpen && (
                   <ul className="flex flex-col gap-1.5">
                     {activity.map((a) => (
                       <li key={a.id} className="flex items-baseline gap-2 text-xs text-text-secondary">
@@ -671,33 +727,69 @@ export default function TaskDetailPanel({
                       </li>
                     ))}
                   </ul>
-                </Field>
+                  )}
+                </>
               )}
             </div>
           )}
 
-          {/* Footer — cancel / restore */}
+          {/* Persistent actions — independent from the scroll position. */}
           {task && (
-            <footer className="border-t border-separator px-5 py-3">
-              {cancelled ? (
+            <footer className="flex flex-shrink-0 items-center justify-between gap-3 border-t border-separator bg-surface/95 px-5 py-3 backdrop-blur sm:px-6">
+              <div>
+                {cancelled ? (
+                  <button
+                    type="button"
+                    onClick={() => onRestoreTask(task)}
+                    className="inline-flex h-10 items-center gap-2 rounded-lg px-3 text-sm font-medium text-accent transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <RotateCcw className="h-4 w-4" aria-hidden />
+                    취소 복구
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => onCancelTask(task)}
+                    className="inline-flex h-10 items-center gap-2 rounded-lg px-3 text-sm font-medium text-flag-blocked transition-colors hover:bg-flag-blocked/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <XCircle className="h-4 w-4" aria-hidden />
+                    업무 취소
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-3">
+                <span
+                  className={cn(
+                    "hidden items-center gap-1.5 text-xs sm:flex",
+                    saveState === "error"
+                      ? "text-flag-blocked"
+                      : "text-text-tertiary"
+                  )}
+                >
+                  {saveState === "saving" && (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                  )}
+                  {saveState === "saved" && (
+                    <Check className="h-3.5 w-3.5 text-status-done" aria-hidden />
+                  )}
+                  {saveState === "saving"
+                    ? "저장 중"
+                    : saveState === "error"
+                      ? "저장 실패"
+                      : saveState === "saved"
+                        ? "변경사항 저장됨"
+                        : "자동 저장"}
+                </span>
                 <button
                   type="button"
-                  onClick={() => onRestoreTask(task)}
-                  className="inline-flex h-10 items-center gap-2 rounded-lg px-3 text-sm font-medium text-accent transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={() => handleOpenChange(false)}
+                  className="inline-flex h-10 items-center gap-2 rounded-xl bg-accent px-4 text-sm font-semibold text-white shadow-sm transition-[background-color,transform] hover:bg-accent-hover active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                  <RotateCcw className="h-4 w-4" aria-hidden />
-                  취소 복구
+                  <Check className="h-4 w-4" aria-hidden />
+                  저장하고 닫기
                 </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => onCancelTask(task)}
-                  className="inline-flex h-10 items-center gap-2 rounded-lg px-3 text-sm font-medium text-flag-blocked transition-colors hover:bg-flag-blocked/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <XCircle className="h-4 w-4" aria-hidden />
-                  업무 취소
-                </button>
-              )}
+              </div>
             </footer>
           )}
         </div>
