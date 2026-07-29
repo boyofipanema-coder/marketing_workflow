@@ -194,7 +194,7 @@ function FlowTask({
   const owner = task.assignee_id ? members[task.assignee_id] : null;
 
   return (
-    <div className="relative grid grid-cols-[minmax(14rem,.8fr)_minmax(18rem,1fr)] items-start gap-5">
+    <div className="relative grid grid-cols-[minmax(14rem,.8fr)_minmax(16rem,.9fr)] items-start gap-5">
       <div
         className="group relative z-10 flex min-h-14 items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2 shadow-xs transition-[border-color,box-shadow,transform] duration-fast ease-out hover:-translate-y-px hover:border-border-strong hover:shadow-sm active:scale-[0.995]"
       >
@@ -365,12 +365,12 @@ export default function StackedWorkflowBoard({
             backgroundSize: "22px 22px",
           }}
         >
-          <div className="min-w-[1040px] space-y-3">
+          <div className="min-w-[1056px] space-y-3">
             <div className="grid grid-cols-[10rem_minmax(0,1fr)] border-b border-border/80 pb-2 text-xs font-semibold text-text-tertiary">
               <span className="pl-5">브랜드</span>
-              <div className="grid grid-cols-[15rem_minmax(0,1fr)] gap-5 px-3">
+              <div className="grid grid-cols-[18rem_minmax(0,1fr)] gap-5 px-3">
                 <span>프로젝트</span>
-                <div className="grid grid-cols-[minmax(14rem,.8fr)_minmax(18rem,1fr)] gap-5">
+                <div className="grid grid-cols-[minmax(14rem,.8fr)_minmax(16rem,.9fr)] gap-5">
                   <span>주요업무</span>
                   <span>하위업무</span>
                 </div>
@@ -421,19 +421,22 @@ export default function StackedWorkflowBoard({
                       const projectTasks = scopedTasks.filter(
                         (task) => task.project_id === project.id,
                       );
-                      const projectDoneTasks = tasks
-                        .filter(
-                          (task) =>
-                            task.project_id === project.id &&
-                            task.status === "Done" &&
-                            !task.cancelled_at &&
-                            task.kind !== "milestone",
-                        )
+                      const projectAllTasks = tasks.filter(
+                        (task) =>
+                          task.project_id === project.id &&
+                          !task.cancelled_at &&
+                          task.kind !== "milestone",
+                      );
+                      const projectDoneTasks = projectAllTasks
+                        .filter((task) => task.status === "Done")
                         .sort((a, b) =>
                           (b.completed_at ?? b.updated_at).localeCompare(
                             a.completed_at ?? a.updated_at,
                           ),
                         );
+                      const completionPercent = projectAllTasks.length
+                        ? (projectDoneTasks.length / projectAllTasks.length) * 100
+                        : 0;
                       const roots = projectTasks.filter(
                         (task) =>
                           !task.parent_task_id || !taskIds.has(task.parent_task_id),
@@ -442,49 +445,56 @@ export default function StackedWorkflowBoard({
                       return (
                         <article
                           key={project.id}
-                          className="relative grid grid-cols-[15rem_minmax(0,1fr)] items-stretch gap-5 border-b border-border/70 py-3 last:border-b-0"
+                          className="relative grid grid-cols-[18rem_minmax(0,1fr)] items-stretch gap-5 border-b border-border/70 py-3 last:border-b-0"
                         >
                           <div
-                            className="relative z-10 flex min-h-14 items-start gap-2 rounded-2xl border border-border bg-surface px-4 py-4"
+                            className="relative z-10 flex min-h-[72px] flex-col rounded-2xl border border-border bg-surface p-3"
                           >
                             <span
                               aria-hidden
                               className="pointer-events-none absolute left-full top-7 h-px w-5 bg-border"
                             />
-                            <span
-                              className="mt-1.5 size-2 shrink-0 rounded-full"
-                              style={{ backgroundColor: brand.color }}
-                              aria-hidden
-                            />
-                            <button
-                              type="button"
-                              onClick={() => onEditProject(project)}
-                              title={project.one_line_objective ?? project.name}
-                              className="min-w-0 flex-1 break-words text-left text-base font-semibold leading-5 tracking-[-0.01em] text-text transition-[color,transform] duration-fast ease-out hover:text-accent active:scale-[0.99]"
-                            >
-                              {project.name}
-                            </button>
-                            <CommentSidecarButton
-                              target={{ type: "project", id: project.id }}
-                              title={project.name}
-                              members={memberList}
-                              unreadCount={unreadComments[`project:${project.id}`]}
-                            />
-                            <span className="flex h-5 shrink-0 items-center gap-0.5">
-                              {scope === "active" && projectDoneTasks.length > 0 && (
+                            <div className="flex h-8 min-w-0 items-center gap-2">
+                              <span
+                                className="size-2 shrink-0 rounded-full"
+                                style={{ backgroundColor: brand.color }}
+                                aria-hidden
+                              />
+                              <button
+                                type="button"
+                                onClick={() => onEditProject(project)}
+                                title={project.name}
+                                className="min-w-0 flex-1 truncate whitespace-nowrap text-left text-base font-semibold leading-5 tracking-[-0.01em] text-text transition-[color,transform] duration-fast ease-out hover:text-accent active:scale-[0.99]"
+                              >
+                                {project.name}
+                              </button>
+                            </div>
+                            <div className="mt-auto flex min-h-8 items-end justify-between gap-2 pl-4">
+                              {projectDoneTasks.length > 0 ? (
                                 <DropdownMenu.Root>
                                   <DropdownMenu.Trigger asChild>
                                     <button
                                       type="button"
                                       aria-label={`${project.name} 최근 완료 업무 ${projectDoneTasks.length}개`}
-                                      className="inline-flex h-8 items-center gap-1 rounded-lg px-1.5 text-[11px] font-semibold tabular-nums text-text-tertiary transition-colors hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                      className="flex w-20 flex-col gap-1 rounded-md py-1 text-left text-[10px] font-semibold tabular-nums text-text-tertiary transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                                     >
-                                      <Check
-                                        className="size-3 text-status-done"
-                                        strokeWidth={2.5}
+                                      <span className="inline-flex items-center gap-1">
+                                        <Check
+                                          className="size-3 text-status-done"
+                                          strokeWidth={2.5}
+                                          aria-hidden
+                                        />
+                                        완료 {projectDoneTasks.length}/{projectAllTasks.length}
+                                      </span>
+                                      <span
+                                        className="h-1 w-full overflow-hidden rounded-full bg-surface-3"
                                         aria-hidden
-                                      />
-                                      {projectDoneTasks.length}
+                                      >
+                                        <span
+                                          className="block h-full rounded-full bg-status-done"
+                                          style={{ width: `${completionPercent}%` }}
+                                        />
+                                      </span>
                                     </button>
                                   </DropdownMenu.Trigger>
                                   <DropdownMenu.Portal>
@@ -515,21 +525,30 @@ export default function StackedWorkflowBoard({
                                     </DropdownMenu.Content>
                                   </DropdownMenu.Portal>
                                 </DropdownMenu.Root>
+                              ) : (
+                                <span className="inline-flex h-8 items-center text-[10px] font-semibold tabular-nums text-text-quaternary">
+                                  완료 0/{projectAllTasks.length}
+                                </span>
                               )}
-                              <span className="px-1 text-xs tabular-nums text-text-tertiary">
-                                {projectTasks.length}
+                              <span className="flex shrink-0 items-center gap-0.5">
+                                <CommentSidecarButton
+                                  target={{ type: "project", id: project.id }}
+                                  title={project.name}
+                                  members={memberList}
+                                  unreadCount={unreadComments[`project:${project.id}`]}
+                                />
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  onClick={() => onAddProjectTask(project.id)}
+                                  aria-label={`${project.name}에 업무 추가`}
+                                  className="shrink-0 text-text-tertiary"
+                                >
+                                  <Plus className="size-3.5" />
+                                </Button>
                               </span>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon-sm"
-                                onClick={() => onAddProjectTask(project.id)}
-                                aria-label={`${project.name}에 업무 추가`}
-                                className="-mt-1.5 shrink-0 text-text-tertiary"
-                              >
-                                <Plus className="size-3.5" />
-                              </Button>
-                            </span>
+                            </div>
                           </div>
 
                           <div className="relative z-10 space-y-2">
