@@ -16,7 +16,12 @@ import { todayKST } from "@/lib/derive";
  * Hands the raw task set to the client, which derives each section itself so
  * an edit re-sorts the page without a round trip.
  */
-export default async function HomePage() {
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ project?: string }>;
+}) {
+  const { project: initialOpenProjectId } = await searchParams;
   const { member: viewer, db } = await getCurrentMember();
   const workspaceId = viewer.workspace_id;
 
@@ -39,6 +44,7 @@ export default async function HomePage() {
       members={members}
       notifications={notifications}
       today={todayKST(new Date())}
+      initialOpenProjectId={initialOpenProjectId}
     />
   );
 }

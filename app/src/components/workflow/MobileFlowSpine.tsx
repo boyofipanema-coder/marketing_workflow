@@ -1,6 +1,6 @@
 "use client";
 
-import { CornerDownRight } from "lucide-react";
+import { Check, Circle, CornerDownRight, Plus } from "lucide-react";
 import { CommentSidecarButton } from "@/components/tasks/CommentThread";
 import {
   matchesWorkflowFilter,
@@ -29,16 +29,18 @@ function TaskBranch({
   childrenByParent,
   members,
   onSelect,
+  onToggleComplete,
+  onAddSubtask,
   depth = 0,
-  showChildren = true,
   unreadComments,
 }: {
   task: Task;
   childrenByParent: Map<string, Task[]>;
   members: Record<string, Member>;
   onSelect: (task: Task) => void;
+  onToggleComplete?: (task: Task) => void;
+  onAddSubtask?: (task: Task) => void;
   depth?: number;
-  showChildren?: boolean;
   unreadComments?: Record<string, number>;
 }) {
   const children = childrenByParent.get(task.id) ?? [];
@@ -48,6 +50,25 @@ function TaskBranch({
   return (
     <li>
       <div className={cn("flex min-w-0 items-start gap-1 border-t border-separator/80", depth > 0 && "pl-4")}>
+        {onToggleComplete ? (
+          <button
+            type="button"
+            onClick={() => onToggleComplete(task)}
+            aria-label={task.status === "Done" ? `${task.title} 완료 해제` : `${task.title} 완료`}
+            aria-pressed={task.status === "Done"}
+            className="grid size-11 shrink-0 place-items-center rounded-full text-text-quaternary transition-colors hover:text-text-tertiary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {task.status === "Done" ? (
+              <span className="grid size-5 place-items-center rounded-full bg-status-done text-text-on-accent">
+                <Check className="size-3" strokeWidth={3} aria-hidden />
+              </span>
+            ) : (
+              <Circle className="size-5" aria-hidden />
+            )}
+          </button>
+        ) : (
+          <span aria-hidden className="ml-1 mt-5 size-2 shrink-0 rounded-full bg-text-quaternary" />
+        )}
         <button
           type="button"
           onClick={() => onSelect(task)}
@@ -59,7 +80,6 @@ function TaskBranch({
               className="mt-0.5 size-3.5 shrink-0 text-text-quaternary"
             />
           )}
-          <span aria-hidden className="mt-1.5 size-2 shrink-0 rounded-full bg-text-quaternary" />
           <span className="min-w-0 flex-1">
             <span className="line-clamp-2 text-sm font-medium leading-snug text-text [word-break:keep-all]">
               {task.title}
@@ -87,9 +107,19 @@ function TaskBranch({
           members={Object.values(members)}
           unreadCount={unreadComments?.[`task:${task.id}`] ?? 0}
         />
+        {onAddSubtask && task.status !== "Done" && (
+          <button
+            type="button"
+            onClick={() => onAddSubtask(task)}
+            aria-label={`${task.title}에 세부업무 추가`}
+            className="grid size-10 shrink-0 place-items-center rounded-lg text-text-quaternary transition-[color,transform] hover:text-text active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <Plus className="size-4" aria-hidden />
+          </button>
+        )}
       </div>
 
-      {showChildren && children.length > 0 && (
+      {children.length > 0 && (
         <ul className="ml-3 border-l border-separator pl-2">
           {children.map((child) => (
             <TaskBranch
@@ -98,8 +128,9 @@ function TaskBranch({
               childrenByParent={childrenByParent}
               members={members}
               onSelect={onSelect}
+              onToggleComplete={onToggleComplete}
+              onAddSubtask={onAddSubtask}
               depth={depth + 1}
-              showChildren
               unreadComments={unreadComments}
             />
           ))}
@@ -114,9 +145,10 @@ export interface MobileFlowSpineProps {
   members: Record<string, Member>;
   today: string;
   onSelect: (task: Task) => void;
+  onToggleComplete?: (task: Task) => void;
+  onAddSubtask?: (task: Task) => void;
   filter?: WorkflowFilter;
   onFilterChange?: (filter: WorkflowFilter) => void;
-  compact?: boolean;
   unreadComments?: Record<string, number>;
 }
 
@@ -125,9 +157,10 @@ export default function MobileFlowSpine({
   members,
   today,
   onSelect,
+  onToggleComplete,
+  onAddSubtask,
   filter = "all",
   onFilterChange,
-  compact = false,
   unreadComments,
 }: MobileFlowSpineProps) {
   const visibleStages = summary.stages
@@ -172,7 +205,6 @@ export default function MobileFlowSpine({
             const done = stage.tasks.filter(
               (task) => task.status === "Done",
             ).length;
-            const tasks = compact ? stage.tasks.slice(0, 2) : stage.tasks;
             return (
               <li
                 key={stage.id}
@@ -200,16 +232,17 @@ export default function MobileFlowSpine({
                   </span>
                 </div>
 
-                {tasks.length > 0 ? (
+                {stage.tasks.length > 0 ? (
                   <ul className="min-w-0">
-                    {tasks.map((task) => (
+                    {stage.tasks.map((task) => (
                       <TaskBranch
                         key={task.id}
                         task={task}
                         childrenByParent={summary.childrenByParent}
                         members={members}
                         onSelect={onSelect}
-                        showChildren={!compact}
+                        onToggleComplete={onToggleComplete}
+                        onAddSubtask={onAddSubtask}
                         unreadComments={unreadComments}
                       />
                     ))}
@@ -220,11 +253,6 @@ export default function MobileFlowSpine({
                   </p>
                 )}
 
-                {compact && stage.tasks.length > tasks.length && (
-                  <p className="border-t border-separator/80 pt-2 text-xs font-medium text-text-secondary">
-                    업무 {stage.tasks.length - tasks.length}개 더 있음
-                  </p>
-                )}
               </li>
             );
           })}

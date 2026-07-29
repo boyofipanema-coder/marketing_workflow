@@ -29,6 +29,7 @@ export interface HomeContentProps {
   members: Member[];
   notifications: NotificationView[];
   today: string;
+  initialOpenProjectId?: string;
 }
 
 /**
@@ -47,6 +48,7 @@ export default function HomeContent({
   members,
   notifications,
   today,
+  initialOpenProjectId,
 }: HomeContentProps) {
   const router = useRouter();
   const controller = useTaskController(tasks);
@@ -236,10 +238,16 @@ export default function HomeContent({
             today={today}
             onSelect={controller.select}
             unreadComments={unreadComments}
+            initialOpenProjectId={initialOpenProjectId}
             onAddTask={(projectId) => {
               setTaskParent(null);
               setTaskProjectId(projectId);
             }}
+            onAddSubtask={(parent) => {
+              setTaskParent(parent);
+              setTaskProjectId(parent.project_id);
+            }}
+            onToggleComplete={controller.toggleComplete}
           />
         )}
 

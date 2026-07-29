@@ -1,7 +1,6 @@
 "use client";
 
-import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Plus } from "lucide-react";
 import { CommentSidecarButton } from "@/components/tasks/CommentThread";
 import MobileFlowSpine from "@/components/workflow/MobileFlowSpine";
@@ -14,7 +13,10 @@ export interface MobileWorkflowOverviewProps {
   today: string;
   onSelect: (task: Task) => void;
   unreadComments: Record<string, number>;
+  initialOpenProjectId?: string;
   onAddTask: (projectId: string) => void;
+  onAddSubtask: (task: Task) => void;
+  onToggleComplete: (task: Task) => void;
 }
 
 export default function MobileWorkflowOverview({
@@ -23,10 +25,19 @@ export default function MobileWorkflowOverview({
   today,
   onSelect,
   unreadComments,
+  initialOpenProjectId,
   onAddTask,
+  onAddSubtask,
+  onToggleComplete,
 }: MobileWorkflowOverviewProps) {
-  const [openProjectId, setOpenProjectId] = useState<string | null>(null);
+  const [openProjectId, setOpenProjectId] = useState<string | null>(
+    initialOpenProjectId ?? null,
+  );
   const projects = groups.flatMap((group) => group.projects);
+
+  useEffect(() => {
+    if (initialOpenProjectId) setOpenProjectId(initialOpenProjectId);
+  }, [initialOpenProjectId]);
   const total = projects.reduce(
     (sum, summary) => sum + summary.counts.total,
     0,
@@ -149,7 +160,8 @@ export default function MobileWorkflowOverview({
                             members={members}
                             today={today}
                             onSelect={onSelect}
-                            compact
+                            onToggleComplete={onToggleComplete}
+                            onAddSubtask={onAddSubtask}
                             unreadComments={unreadComments}
                           />
                         ) : (
@@ -157,22 +169,14 @@ export default function MobileWorkflowOverview({
                             아직 등록된 업무가 없습니다
                           </p>
                         )}
-                        <div className="mt-5 grid grid-cols-2 gap-2">
-                          <button
-                            type="button"
-                            onClick={() => onAddTask(summary.project.id)}
-                            className="inline-flex min-h-12 items-center justify-center gap-1.5 rounded-xl border border-border bg-surface px-3 text-sm font-semibold text-text transition-[background-color,transform] hover:bg-surface-3 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                          >
-                            <Plus className="size-4" aria-hidden />
-                            업무 추가
-                          </button>
-                          <Link
-                            href={`/projects/${summary.project.id}`}
-                            className="flex min-h-12 items-center justify-center rounded-xl bg-text px-3 text-sm font-semibold text-bg transition-transform duration-base ease-out active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                          >
-                            전체 보기
-                          </Link>
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => onAddTask(summary.project.id)}
+                          className="mt-5 inline-flex min-h-12 w-full items-center justify-center gap-1.5 rounded-xl border border-border bg-surface px-4 text-sm font-semibold text-text transition-[background-color,transform] hover:bg-surface-3 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        >
+                          <Plus className="size-4" aria-hidden />
+                          업무 추가
+                        </button>
                       </div>
                     )}
                   </article>

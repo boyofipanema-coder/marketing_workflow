@@ -35,7 +35,7 @@ export default function NotificationMenu({
     }
     router.push(
       item.target_type === "project"
-        ? `/projects/${item.target_id}`
+        ? `/home?project=${encodeURIComponent(item.target_id)}`
         : `/search?q=${encodeURIComponent(item.target_title)}`,
     );
   }
