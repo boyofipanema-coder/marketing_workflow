@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { X, Loader2, Archive, AlertTriangle } from "lucide-react";
 import { Button, Input } from "@/components/ui";
@@ -55,10 +55,16 @@ export default function ProjectFormDialog({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
+  const wasOpen = useRef(false);
 
   // Reload the form whenever it opens, so a cancelled edit leaves no residue.
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      wasOpen.current = false;
+      return;
+    }
+    if (wasOpen.current) return;
+    wasOpen.current = true;
     setName(project?.name ?? "");
     setBrandId(project?.brand_id ?? defaultBrandId ?? brands[0]?.id ?? "");
     setObjective(project?.one_line_objective ?? "");
