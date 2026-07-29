@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
   Check,
   Circle,
@@ -187,8 +188,9 @@ function FlowTask({
   brandColor: string;
 }) {
   const descendants = descendantsOf(task.id, childrenByParent);
-  const visibleDescendants = descendants.slice(0, 3);
+  const [showAllDescendants, setShowAllDescendants] = useState(false);
   const remainingDescendants = descendants.slice(3);
+  const visibleDescendants = showAllDescendants ? descendants : descendants.slice(0, 3);
   const owner = task.assignee_id ? members[task.assignee_id] : null;
 
   return (
@@ -258,24 +260,16 @@ function FlowTask({
           );
         })}
         {remainingDescendants.length > 0 && (
-          <details className="group/more">
-            <summary className="flex h-8 cursor-pointer list-none items-center px-2 text-xs font-semibold text-accent transition-colors hover:text-accent-hover">
-              + {remainingDescendants.length}개 더 보기
-            </summary>
-            {remainingDescendants.map(({ task: child, depth }) => (
-              <ChildTaskRow
-                key={child.id}
-                task={child}
-                depth={depth}
-                owner={child.assignee_id ? members[child.assignee_id] : null}
-                members={memberList}
-                unreadComments={unreadComments}
-                onSelect={onSelect}
-                onToggleComplete={onToggleComplete}
-                onAddSubtask={onAddSubtask}
-              />
-            ))}
-          </details>
+          <button
+            type="button"
+            onClick={() => setShowAllDescendants((value) => !value)}
+            aria-expanded={showAllDescendants}
+            className="flex h-8 w-full items-center px-2 text-left text-xs font-semibold text-accent transition-colors hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {showAllDescendants
+              ? "간략히 보기"
+              : `+ ${remainingDescendants.length}개 더 보기`}
+          </button>
         )}
         {!descendants.length && (
           <Button
@@ -477,6 +471,51 @@ export default function StackedWorkflowBoard({
                               unreadCount={unreadComments[`project:${project.id}`]}
                             />
                             <span className="flex h-5 shrink-0 items-center gap-0.5">
+                              {scope === "active" && projectDoneTasks.length > 0 && (
+                                <DropdownMenu.Root>
+                                  <DropdownMenu.Trigger asChild>
+                                    <button
+                                      type="button"
+                                      aria-label={`${project.name} 최근 완료 업무 ${projectDoneTasks.length}개`}
+                                      className="inline-flex h-8 items-center gap-1 rounded-lg px-1.5 text-[11px] font-semibold tabular-nums text-text-tertiary transition-colors hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                    >
+                                      <Check
+                                        className="size-3 text-status-done"
+                                        strokeWidth={2.5}
+                                        aria-hidden
+                                      />
+                                      {projectDoneTasks.length}
+                                    </button>
+                                  </DropdownMenu.Trigger>
+                                  <DropdownMenu.Portal>
+                                    <DropdownMenu.Content
+                                      align="end"
+                                      sideOffset={6}
+                                      collisionPadding={12}
+                                      className="z-[80] w-64 rounded-xl border border-separator bg-elevated/95 p-1.5 shadow-xl backdrop-blur-xl data-[state=open]:animate-scale-in"
+                                    >
+                                      <p className="px-2.5 py-1.5 text-[10px] font-semibold text-text-tertiary">
+                                        최근 완료
+                                      </p>
+                                      {projectDoneTasks.slice(0, 3).map((doneTask) => (
+                                        <DropdownMenu.Item
+                                          key={doneTask.id}
+                                          onSelect={() => onSelect(doneTask)}
+                                          className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-xs text-text-secondary outline-none data-[highlighted]:bg-surface-2 data-[highlighted]:text-text"
+                                        >
+                                          <Check
+                                            className="size-3.5 shrink-0 text-status-done"
+                                            aria-hidden
+                                          />
+                                          <span className="truncate line-through">
+                                            {doneTask.title}
+                                          </span>
+                                        </DropdownMenu.Item>
+                                      ))}
+                                    </DropdownMenu.Content>
+                                  </DropdownMenu.Portal>
+                                </DropdownMenu.Root>
+                              )}
                               <span className="px-1 text-xs tabular-nums text-text-tertiary">
                                 {projectTasks.length}
                               </span>
@@ -508,38 +547,6 @@ export default function StackedWorkflowBoard({
                                 brandColor={brand.color}
                               />
                             ))}
-                            {scope === "active" && projectDoneTasks.length > 0 && (
-                              <details className="group/done rounded-xl border border-separator bg-surface/70">
-                                <summary className="flex h-10 cursor-pointer list-none items-center gap-2 px-3 text-xs text-text-secondary [&::-webkit-details-marker]:hidden">
-                                  <Check
-                                    className="size-3.5 shrink-0 text-status-done"
-                                    aria-hidden
-                                  />
-                                  <span className="shrink-0 font-semibold">
-                                    최근 완료 {projectDoneTasks.length}
-                                  </span>
-                                  <span className="truncate text-text-tertiary">
-                                    {projectDoneTasks[0]?.title}
-                                  </span>
-                                </summary>
-                                <ul className="border-t border-separator px-3 py-1">
-                                  {projectDoneTasks.slice(0, 3).map((doneTask) => (
-                                    <li key={doneTask.id}>
-                                      <button
-                                        type="button"
-                                        onClick={() => onSelect(doneTask)}
-                                        className="flex h-8 w-full items-center gap-2 truncate text-left text-xs text-text-tertiary hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                      >
-                                        <span aria-hidden>✓</span>
-                                        <span className="truncate line-through">
-                                          {doneTask.title}
-                                        </span>
-                                      </button>
-                                    </li>
-                                  ))}
-                                </ul>
-                              </details>
-                            )}
                             {!roots.length && (
                               <button
                                 type="button"

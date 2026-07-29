@@ -200,11 +200,10 @@ export default function TaskDetailPanel({
         <Dialog.Content
           aria-describedby={undefined}
           className="
-            material-panel material-edge
-            group fixed inset-0 z-50 overflow-hidden
+            group fixed inset-0 z-50 overflow-hidden bg-surface
             sm:inset-auto sm:left-1/2 sm:top-1/2 sm:h-[min(720px,calc(100dvh-2rem))] sm:w-[calc(100vw-2rem)] sm:max-w-3xl
             sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-[24px]
-            sm:border sm:border-separator sm:shadow-xl
+            sm:border sm:border-border sm:shadow-xl
             focus:outline-none
           "
         >
@@ -314,23 +313,21 @@ export default function TaskDetailPanel({
               </Field>
 
               <div className="flex flex-col gap-4">
-                <section className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-surface">
-                  <div className="p-3">
-                    {/* Description — debounced */}
-                    <Field label="세부 내용" htmlFor="task-description">
-                      <textarea
-                        id="task-description"
-                        rows={4}
-                        value={description}
-                        disabled={readOnly}
-                        onChange={(e) => handleDescriptionChange(e.target.value)}
-                        onBlur={flushDescription}
-                        placeholder="배경, 결과물, 참고 링크를 적어 두세요."
-                        className="max-h-40 min-h-24 w-full resize-y rounded-lg border border-border bg-surface-2/40 px-3.5 py-3 text-sm leading-relaxed text-text placeholder:text-text-quaternary transition-[border-color,box-shadow] duration-fast ease-out hover:border-border-strong focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:opacity-60"
-                      />
-                    </Field>
-                  </div>
-                  <div className="border-t border-separator p-3">
+                <section className="flex min-w-0 flex-col gap-4">
+                  {/* Description — debounced */}
+                  <Field label="세부 내용" htmlFor="task-description">
+                    <textarea
+                      id="task-description"
+                      rows={4}
+                      value={description}
+                      disabled={readOnly}
+                      onChange={(e) => handleDescriptionChange(e.target.value)}
+                      onBlur={flushDescription}
+                      placeholder="배경, 결과물, 참고 링크를 적어 두세요."
+                      className="max-h-40 min-h-24 w-full resize-y rounded-xl border border-border bg-surface px-3.5 py-3 text-sm leading-relaxed text-text shadow-xs placeholder:text-text-quaternary transition-[border-color,box-shadow] duration-fast ease-out hover:border-border-strong focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:opacity-60"
+                    />
+                  </Field>
+                  <div className="border-t border-separator pt-4">
                     <h3 className="mb-2 text-xs font-semibold text-text-secondary">
                       댓글
                     </h3>
