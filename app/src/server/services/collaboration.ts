@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import type { Database } from "@/server/db/client";
 import {
   member,
@@ -33,9 +33,11 @@ export interface NotificationView {
   id: string;
   target_type: CommentTarget["type"];
   target_id: string;
+  kind: "mention" | "comment" | "task_created" | "task_scheduled";
   actor_name: string;
   target_title: string;
   comment_body: string | null;
+  schedule_date: string | null;
   read_at: string | null;
   created_at: string;
 }
@@ -337,7 +339,7 @@ export async function getMemberNotifications(
         }),
     ]);
   const memberById = new Map(members.map((item) => [item.id, item.name]));
-  const taskById = new Map(tasks.map((item) => [item.id, item.title]));
+  const taskById = new Map(tasks.map((item) => [item.id, item]));
   const projectById = new Map(projects.map((item) => [item.id, item.name]));
   const taskCommentById = new Map(taskComments.map((item) => [item.id, item.body]));
   const projectCommentById = new Map(
@@ -349,11 +351,13 @@ export async function getMemberNotifications(
       id: row.id,
       target_type: "task",
       target_id: row.task_id,
+      kind: row.kind,
       actor_name: memberById.get(row.actor_id) ?? "알 수 없음",
-      target_title: taskById.get(row.task_id) ?? "업무",
+      target_title: taskById.get(row.task_id)?.title ?? "업무",
       comment_body: row.comment_id
         ? taskCommentById.get(row.comment_id) ?? null
         : null,
+      schedule_date: taskById.get(row.task_id)?.due_date ?? null,
       read_at: row.read_at,
       created_at: row.created_at,
     })),
@@ -361,11 +365,13 @@ export async function getMemberNotifications(
       id: row.id,
       target_type: "project",
       target_id: row.project_id,
+      kind: "comment",
       actor_name: memberById.get(row.actor_id) ?? "알 수 없음",
       target_title: projectById.get(row.project_id) ?? "프로젝트",
       comment_body: row.comment_id
         ? projectCommentById.get(row.comment_id) ?? null
         : null,
+      schedule_date: null,
       read_at: row.read_at,
       created_at: row.created_at,
     })),
@@ -410,6 +416,7 @@ export async function markTargetNotificationsRead(
           eq(notification.task_id, target.id),
           eq(notification.workspace_id, workspaceId),
           eq(notification.recipient_id, recipientId),
+          inArray(notification.kind, ["mention", "comment"]),
         ),
       );
     return;

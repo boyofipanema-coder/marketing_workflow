@@ -2,6 +2,7 @@ import { and, eq, desc, inArray, isNull, sql } from "drizzle-orm";
 import {
   task,
   activity_log,
+  notification,
   project as projectTable,
   workstream as workstreamTable,
   member as memberTable,
@@ -509,6 +510,36 @@ function logRows(rows: Omit<NewActivityLog, "id">[]) {
   return rows.map((row) => ({ id: crypto.randomUUID(), ...row }));
 }
 
+async function notifyWorkspace(
+  db: Database,
+  input: {
+    workspaceId: string;
+    actorId: string;
+    taskId: string;
+    kind: "task_created" | "task_scheduled";
+    createdAt: string;
+  },
+): Promise<void> {
+  const recipients = await db
+    .select({ id: memberTable.id })
+    .from(memberTable)
+    .where(eq(memberTable.workspace_id, input.workspaceId));
+  const values = recipients
+    .filter((recipient) => recipient.id !== input.actorId)
+    .map((recipient) => ({
+      id: crypto.randomUUID(),
+      workspace_id: input.workspaceId,
+      recipient_id: recipient.id,
+      actor_id: input.actorId,
+      task_id: input.taskId,
+      comment_id: null,
+      kind: input.kind,
+      read_at: null,
+      created_at: input.createdAt,
+    }));
+  if (values.length) await db.insert(notification).values(values);
+}
+
 /** Small fixed backoff before retrying a transient write failure. */
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -583,6 +614,21 @@ async function commitVersionedUpdate(
   }
 
   await writeActivityRowsWithRetry(db, logRows(activityRows));
+  const schedule = activityRows.find(
+    (row) =>
+      row.change_type === "due_date" &&
+      row.from_value !== row.to_value &&
+      row.to_value,
+  );
+  if (schedule) {
+    await notifyWorkspace(db, {
+      workspaceId,
+      actorId: schedule.actor_id,
+      taskId,
+      kind: "task_scheduled",
+      createdAt: schedule.created_at,
+    });
+  }
 
   return (updated[0] ?? { ...current, ...updates }) as Task;
 }
@@ -627,6 +673,13 @@ export async function createByTitle(
   };
 
   await db.insert(task).values(newTask);
+  await notifyWorkspace(db, {
+    workspaceId: params.workspaceId,
+    actorId: params.memberId,
+    taskId: newTask.id,
+    kind: "task_created",
+    createdAt: now,
+  });
   return newTask as Task;
 }
 
@@ -760,6 +813,13 @@ export async function createProjectTask(
   };
 
   await db.insert(task).values(newTask);
+  await notifyWorkspace(db, {
+    workspaceId: params.workspaceId,
+    actorId: params.memberId,
+    taskId: newTask.id,
+    kind: "task_created",
+    createdAt: now,
+  });
   return newTask as Task;
 }
 
@@ -810,6 +870,13 @@ export async function createSubtask(
   };
 
   await db.insert(task).values(newTask);
+  await notifyWorkspace(db, {
+    workspaceId: parent.workspace_id,
+    actorId: params.memberId,
+    taskId: newTask.id,
+    kind: "task_created",
+    createdAt: now,
+  });
   return newTask as Task;
 }
 

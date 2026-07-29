@@ -40,14 +40,19 @@ export default function CommentThread({
     let active = true;
     setLoading(true);
     setError(null);
-    void getCommentsAction(target).then((result) => {
-      if (!active) return;
-      setLoading(false);
-      if (result.success && result.data) setComments(result.data);
-      else setError(result.error ?? "댓글을 불러오지 못했습니다.");
-    });
+    function load() {
+      void getCommentsAction(target).then((result) => {
+        if (!active) return;
+        setLoading(false);
+        if (result.success && result.data) setComments(result.data);
+        else setError(result.error ?? "댓글을 불러오지 못했습니다.");
+      });
+    }
+    load();
+    const timer = window.setInterval(load, 5000);
     return () => {
       active = false;
+      window.clearInterval(timer);
     };
   }, [target.id, target.type]);
 
@@ -224,11 +229,13 @@ export default function CommentThread({
 export function CommentSidecarButton({
   target,
   title,
+  description,
   members,
   unreadCount = 0,
 }: {
   target: CommentTarget;
   title: string;
+  description?: string | null;
   members: Member[];
   unreadCount?: number;
 }) {
@@ -333,7 +340,24 @@ export function CommentSidecarButton({
                 <X className="size-4" />
               </button>
             </header>
-            <CommentThread target={target} members={members} embedded />
+            {target.type === "task" && (
+              <section className="mb-3 border-b border-separator pb-3">
+                <h3 className="mb-1.5 text-[10px] font-semibold text-text-tertiary">
+                  세부 내용
+                </h3>
+                <div className="max-h-28 overflow-y-auto rounded-lg bg-surface-2 px-3 py-2">
+                  <p className="whitespace-pre-wrap break-words text-xs leading-relaxed text-text-secondary">
+                    {description || "등록된 세부 내용이 없습니다."}
+                  </p>
+                </div>
+              </section>
+            )}
+            <section>
+              <h3 className="mb-1.5 text-[10px] font-semibold text-text-tertiary">
+                댓글
+              </h3>
+              <CommentThread target={target} members={members} embedded />
+            </section>
           </aside>,
           document.body,
         )}

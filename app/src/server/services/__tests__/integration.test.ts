@@ -151,6 +151,12 @@ describe("Shared comments and unread notifications", () => {
     expect(unread.map((item) => item.target_type).sort()).toEqual([
       "project",
       "task",
+      "task",
+    ]);
+    expect(unread.map((item) => item.kind).sort()).toEqual([
+      "comment",
+      "comment",
+      "task_created",
     ]);
 
     await markTargetNotificationsRead(
@@ -162,6 +168,42 @@ describe("Shared comments and unread notifications", () => {
     const updated = await getMemberNotifications(db as never, WS_ID, recipientId);
     expect(updated.find((item) => item.target_type === "project")?.read_at).toBeTruthy();
     expect(updated.find((item) => item.target_type === "task")?.read_at).toBeNull();
+  });
+
+  it("keeps task creation and schedule updates in the work inbox", async () => {
+    const db = freshDb();
+    const recipientId = "m_recipient";
+    await db.insert(schema.member).values({
+      id: recipientId,
+      workspace_id: WS_ID,
+      name: "Recipient",
+      email: "recipient@example.com",
+      role: "member",
+    });
+    const task = await createProjectTask(db as never, {
+      workspaceId: WS_ID,
+      projectId: PROJECT_ID,
+      title: "Scheduled task",
+      memberId: MEMBER_ID,
+    });
+    await editTask(
+      db as never,
+      task.id,
+      WS_ID,
+      { due_date: "2026-07-30", actor_id: MEMBER_ID },
+      task.version,
+    );
+
+    const updates = await getMemberNotifications(
+      db as never,
+      WS_ID,
+      recipientId,
+    );
+    expect(updates.map((item) => item.kind)).toEqual([
+      "task_scheduled",
+      "task_created",
+    ]);
+    expect(updates[0]?.schedule_date).toBe("2026-07-30");
   });
 
   it("allows only the author to delete a comment and removes its notifications", async () => {
@@ -206,9 +248,12 @@ describe("Shared comments and unread notifications", () => {
     expect(
       await getComments(db as never, { type: "task", id: task.id }, WS_ID),
     ).toHaveLength(0);
-    expect(
-      await getMemberNotifications(db as never, WS_ID, recipientId),
-    ).toHaveLength(0);
+    const remaining = await getMemberNotifications(
+      db as never,
+      WS_ID,
+      recipientId,
+    );
+    expect(remaining.map((item) => item.kind)).toEqual(["task_created"]);
   });
 });
 

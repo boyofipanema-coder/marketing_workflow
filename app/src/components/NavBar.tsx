@@ -14,7 +14,7 @@ import { ownerColor } from "@/lib/colors";
 import { cn } from "@/lib/utils";
 import type { Brand, Member } from "@/server/db/schema";
 import type { NotificationView } from "@/server/services/collaboration";
-import NotificationMenu from "./NotificationMenu";
+import NotificationMenu, { WorkInboxMenu } from "./NotificationMenu";
 
 // ── Nav items ────────────────────────────────────────────────────────────────
 
@@ -126,6 +126,7 @@ export default function NavBar({ members, brands, viewerId, notifications }: Nav
             </form>
 
             <NotificationMenu initialNotifications={notifications} />
+            <WorkInboxMenu initialNotifications={notifications} />
 
             <DropdownMenu.Root>
               <DropdownMenu.Trigger asChild>

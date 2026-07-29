@@ -108,7 +108,6 @@ export default function TaskDetailPanel({
   const [description, setDescription] = useState("");
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [commentsOpen, setCommentsOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
   const descriptionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingDescription = useRef<string | null>(null);
@@ -125,7 +124,6 @@ export default function TaskDetailPanel({
     setDescription(task.description ?? "");
     setActivity([]);
     setAdvancedOpen(false);
-    setCommentsOpen(false);
     setActivityOpen(false);
     const id = task.id;
     const token = activityGuard.next();
@@ -316,20 +314,33 @@ export default function TaskDetailPanel({
               </Field>
 
               <div className="flex flex-col gap-4">
-                <section className="flex min-w-0 flex-col">
-                {/* Description — debounced */}
-                <Field label="세부 내용" htmlFor="task-description">
-                <textarea
-                  id="task-description"
-                  rows={4}
-                  value={description}
-                  disabled={readOnly}
-                  onChange={(e) => handleDescriptionChange(e.target.value)}
-                  onBlur={flushDescription}
-                  placeholder="배경, 결과물, 참고 링크를 적어 두세요."
-                  className="min-h-24 w-full resize-y rounded-xl border border-border bg-surface/80 px-3.5 py-3 text-sm leading-relaxed text-text shadow-xs placeholder:text-text-quaternary transition-[border-color,box-shadow] duration-fast ease-out hover:border-border-strong focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:opacity-60"
-                />
-                </Field>
+                <section className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-surface">
+                  <div className="p-3">
+                    {/* Description — debounced */}
+                    <Field label="세부 내용" htmlFor="task-description">
+                      <textarea
+                        id="task-description"
+                        rows={4}
+                        value={description}
+                        disabled={readOnly}
+                        onChange={(e) => handleDescriptionChange(e.target.value)}
+                        onBlur={flushDescription}
+                        placeholder="배경, 결과물, 참고 링크를 적어 두세요."
+                        className="max-h-40 min-h-24 w-full resize-y rounded-lg border border-border bg-surface-2/40 px-3.5 py-3 text-sm leading-relaxed text-text placeholder:text-text-quaternary transition-[border-color,box-shadow] duration-fast ease-out hover:border-border-strong focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:opacity-60"
+                      />
+                    </Field>
+                  </div>
+                  <div className="border-t border-separator p-3">
+                    <h3 className="mb-2 text-xs font-semibold text-text-secondary">
+                      댓글
+                    </h3>
+                    <CommentThread
+                      target={{ type: "task", id: task.id }}
+                      members={members}
+                      readOnly={readOnly}
+                      embedded
+                    />
+                  </div>
                 </section>
 
                 <section className="grid min-w-0 content-start gap-3 sm:grid-cols-3">
@@ -371,7 +382,7 @@ export default function TaskDetailPanel({
                     </select>
                   </Field>
 
-                  <Field label="마감일" htmlFor="task-due">
+                  <Field label="일정 / 마감일" htmlFor="task-due">
                     <input
                       id="task-due"
                       type="date"
@@ -379,16 +390,44 @@ export default function TaskDetailPanel({
                       disabled={readOnly}
                       onChange={(e) => {
                         const value = e.target.value || null;
+                        const singleDay =
+                          task.start_date !== null &&
+                          task.start_date === task.due_date;
                         void patch(
                           value
-                            ? { due_date: value }
-                            : { due_date: null, due_time: null }
+                            ? {
+                                due_date: value,
+                                ...(singleDay ? { start_date: value } : {}),
+                              }
+                            : {
+                                due_date: null,
+                                due_time: null,
+                                ...(singleDay ? { start_date: null } : {}),
+                              }
                         );
                       }}
                       className={selectClass}
                     />
                   </Field>
                 </section>
+
+                <label className="flex min-h-8 items-center gap-2 text-xs font-medium text-text-secondary">
+                  <input
+                    type="checkbox"
+                    checked={
+                      task.due_date !== null &&
+                      task.start_date === task.due_date
+                    }
+                    disabled={readOnly || !task.due_date}
+                    onChange={(e) =>
+                      void patch({
+                        start_date: e.target.checked ? task.due_date : null,
+                      })
+                    }
+                    className="size-4 rounded border-border text-accent focus:ring-ring"
+                  />
+                  하루 일정으로 지정
+                </label>
 
                 <button
                   type="button"
@@ -503,30 +542,6 @@ export default function TaskDetailPanel({
                   </section>
                 )}
               </div>
-
-              <button
-                type="button"
-                onClick={() => setCommentsOpen((value) => !value)}
-                aria-expanded={commentsOpen}
-                className="flex h-10 items-center gap-2 border-b border-separator text-left text-xs font-semibold text-text-secondary transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <ChevronDown
-                  className={cn(
-                    "h-4 w-4 transition-transform",
-                    commentsOpen && "rotate-180"
-                  )}
-                  aria-hidden
-                />
-                댓글과 협업
-              </button>
-
-              {commentsOpen && (
-                <CommentThread
-                  target={{ type: "task", id: task.id }}
-                  members={members}
-                  readOnly={readOnly}
-                />
-              )}
 
               {activity.length > 0 && (
                 <>

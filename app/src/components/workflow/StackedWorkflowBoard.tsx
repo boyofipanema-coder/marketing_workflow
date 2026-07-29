@@ -127,6 +127,9 @@ function ChildTaskRow({
         ["--indent" as string]: `${depth * 8}px`,
       }}
     >
+      <span className="shrink-0 text-xs font-semibold text-text-tertiary" aria-hidden>
+        ㄴ
+      </span>
       <CompletionButton task={task} onToggleComplete={onToggleComplete} compact />
       <button
         type="button"
@@ -139,6 +142,7 @@ function ChildTaskRow({
       <CommentSidecarButton
         target={{ type: "task", id: task.id }}
         title={task.title}
+        description={task.description}
         members={members}
         unreadCount={unreadComments[`task:${task.id}`]}
       />
@@ -210,12 +214,14 @@ function FlowTask({
           {task.due_date && (
             <span className="text-xs tabular-nums text-text-tertiary">
               {task.due_date.slice(5)}
+              {task.start_date === task.due_date ? " 일정" : " 마감"}
             </span>
           )}
         </span>
         <CommentSidecarButton
           target={{ type: "task", id: task.id }}
           title={task.title}
+          description={task.description}
           members={memberList}
           unreadCount={unreadComments[`task:${task.id}`]}
         />
@@ -417,6 +423,19 @@ export default function StackedWorkflowBoard({
                       const projectTasks = scopedTasks.filter(
                         (task) => task.project_id === project.id,
                       );
+                      const projectDoneTasks = tasks
+                        .filter(
+                          (task) =>
+                            task.project_id === project.id &&
+                            task.status === "Done" &&
+                            !task.cancelled_at &&
+                            task.kind !== "milestone",
+                        )
+                        .sort((a, b) =>
+                          (b.completed_at ?? b.updated_at).localeCompare(
+                            a.completed_at ?? a.updated_at,
+                          ),
+                        );
                       const roots = projectTasks.filter(
                         (task) =>
                           !task.parent_task_id || !taskIds.has(task.parent_task_id),
@@ -485,6 +504,38 @@ export default function StackedWorkflowBoard({
                                 brandColor={brand.color}
                               />
                             ))}
+                            {scope === "active" && projectDoneTasks.length > 0 && (
+                              <details className="group/done rounded-xl border border-separator bg-surface/70">
+                                <summary className="flex h-10 cursor-pointer list-none items-center gap-2 px-3 text-xs text-text-secondary [&::-webkit-details-marker]:hidden">
+                                  <Check
+                                    className="size-3.5 shrink-0 text-status-done"
+                                    aria-hidden
+                                  />
+                                  <span className="shrink-0 font-semibold">
+                                    최근 완료 {projectDoneTasks.length}
+                                  </span>
+                                  <span className="truncate text-text-tertiary">
+                                    {projectDoneTasks[0]?.title}
+                                  </span>
+                                </summary>
+                                <ul className="border-t border-separator px-3 py-1">
+                                  {projectDoneTasks.slice(0, 3).map((doneTask) => (
+                                    <li key={doneTask.id}>
+                                      <button
+                                        type="button"
+                                        onClick={() => onSelect(doneTask)}
+                                        className="flex h-8 w-full items-center gap-2 truncate text-left text-xs text-text-tertiary hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                      >
+                                        <span aria-hidden>✓</span>
+                                        <span className="truncate line-through">
+                                          {doneTask.title}
+                                        </span>
+                                      </button>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </details>
+                            )}
                             {!roots.length && (
                               <button
                                 type="button"

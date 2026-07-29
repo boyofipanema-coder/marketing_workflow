@@ -54,6 +54,14 @@ function TaskBranch({
           depth > 0 && "pl-4",
         )}
       >
+        {depth > 0 && (
+          <span
+            aria-hidden
+            className="mt-0.5 shrink-0 text-xs font-semibold text-text-tertiary"
+          >
+            ㄴ
+          </span>
+        )}
         <span aria-hidden className="mt-1.5 size-2 shrink-0 rounded-full bg-text-quaternary" />
         <span className="min-w-0 flex-1">
           <span className="line-clamp-2 text-sm font-medium leading-snug text-text [word-break:keep-all]">
@@ -62,7 +70,10 @@ function TaskBranch({
           <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-text-tertiary">
             {assignee && <span>{assignee.name}</span>}
             {task.due_date && (
-              <span className="tabular-nums">{shortDate(task.due_date)} 마감</span>
+              <span className="tabular-nums">
+                {shortDate(task.due_date)}{" "}
+                {task.start_date === task.due_date ? "일정" : "마감"}
+              </span>
             )}
             {children.length > 0 && (
               <span className="tabular-nums">

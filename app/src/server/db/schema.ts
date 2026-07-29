@@ -265,7 +265,11 @@ export const notification = sqliteTable("notification", {
   actor_id: text("actor_id").notNull().references(() => member.id),
   task_id: text("task_id").notNull().references(() => task.id),
   comment_id: text("comment_id").references(() => task_comment.id),
-  kind: text("kind", { enum: ["mention", "comment"] }).notNull().default("comment"),
+  kind: text("kind", {
+    enum: ["mention", "comment", "task_created", "task_scheduled"],
+  })
+    .notNull()
+    .default("comment"),
   read_at: text("read_at"),
   created_at: text("created_at").notNull(),
 });

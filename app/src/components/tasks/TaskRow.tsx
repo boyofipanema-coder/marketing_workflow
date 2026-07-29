@@ -152,7 +152,9 @@ export default function TaskRow({
             >
               {overdue
                 ? `기한 초과 · ${formatDue(task.due_date, task.due_time)}`
-                : `${formatDue(task.due_date, task.due_time)} 마감`}
+                : task.start_date === task.due_date
+                  ? `${formatDue(task.due_date, task.due_time)} 일정`
+                  : `${formatDue(task.due_date, task.due_time)} 마감`}
             </span>
           )}
 
@@ -177,6 +179,7 @@ export default function TaskRow({
       <CommentSidecarButton
         target={{ type: "task", id: task.id }}
         title={task.title}
+        description={task.description}
         members={Object.values(members)}
         unreadCount={unreadCommentCount}
       />

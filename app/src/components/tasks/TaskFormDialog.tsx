@@ -61,6 +61,7 @@ export default function TaskFormDialog({
   const [startDate, setStartDate] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [dueTime, setDueTime] = useState("");
+  const [singleDay, setSingleDay] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -81,6 +82,7 @@ export default function TaskFormDialog({
     setStartDate("");
     setDueDate("");
     setDueTime("");
+    setSingleDay(false);
     setAdvancedOpen(false);
     setPending(false);
     setError(null);
@@ -194,18 +196,36 @@ export default function TaskFormDialog({
                     ))}
                   </select>
                 </Field>
-                <Field label="마감일" htmlFor="create-task-due">
+                <Field label="일정 / 마감일" htmlFor="create-task-due">
                   <input
                     id="create-task-due"
                     type="date"
                     value={dueDate}
                     onChange={(event) => {
-                      setDueDate(event.target.value);
-                      if (!event.target.value) setDueTime("");
+                      const value = event.target.value;
+                      setDueDate(value);
+                      if (singleDay) setStartDate(value);
+                      if (!value) {
+                        setDueTime("");
+                        setSingleDay(false);
+                      }
                     }}
                     className={inputClass}
                   />
                 </Field>
+                <label className="flex min-h-8 items-center gap-2 text-xs font-medium text-text-secondary sm:col-span-2">
+                  <input
+                    type="checkbox"
+                    checked={singleDay}
+                    disabled={!dueDate}
+                    onChange={(event) => {
+                      setSingleDay(event.target.checked);
+                      setStartDate(event.target.checked ? dueDate : "");
+                    }}
+                    className="size-4 rounded border-border text-accent focus:ring-ring"
+                  />
+                  하루 일정으로 지정
+                </label>
               </div>
 
               <button
@@ -233,7 +253,19 @@ export default function TaskFormDialog({
                     </select>
                   </Field>
                   <Field label="시작일" htmlFor="create-task-start">
-                    <input id="create-task-start" type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} className={inputClass} />
+                    <input
+                      id="create-task-start"
+                      type="date"
+                      value={startDate}
+                      onChange={(event) => {
+                        setStartDate(event.target.value);
+                        setSingleDay(
+                          Boolean(event.target.value) &&
+                            event.target.value === dueDate,
+                        );
+                      }}
+                      className={inputClass}
+                    />
                   </Field>
                   <Field label="마감 시간" htmlFor="create-task-due-time">
                     <input id="create-task-due-time" type="time" value={dueTime} onChange={(event) => setDueTime(event.target.value)} disabled={!dueDate} className={inputClass} />
