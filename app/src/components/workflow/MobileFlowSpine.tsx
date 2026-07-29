@@ -1,6 +1,7 @@
 "use client";
 
 import { CornerDownRight } from "lucide-react";
+import { CommentSidecarButton } from "@/components/tasks/CommentThread";
 import {
   matchesWorkflowFilter,
   type ProjectWorkflowSummary,
@@ -46,47 +47,47 @@ function TaskBranch({
 
   return (
     <li>
-      <button
-        type="button"
-        onClick={() => onSelect(task)}
-        className={cn(
-          "group flex min-h-12 w-full min-w-0 items-start gap-3 border-t border-separator/80 py-3 text-left",
-          "focus-visible:relative focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-          depth > 0 && "pl-4",
-        )}
-      >
-        {depth > 1 && (
-          <CornerDownRight
-            aria-hidden
-            className="mt-0.5 size-3.5 shrink-0 text-text-quaternary"
-          />
-        )}
-        <span aria-hidden className="mt-1.5 size-2 shrink-0 rounded-full bg-text-quaternary" />
-        <span className="min-w-0 flex-1">
-          <span className="line-clamp-2 text-sm font-medium leading-snug text-text [word-break:keep-all]">
-            {task.title}
+      <div className={cn("flex min-w-0 items-start gap-1 border-t border-separator/80", depth > 0 && "pl-4")}>
+        <button
+          type="button"
+          onClick={() => onSelect(task)}
+          className="group flex min-h-12 min-w-0 flex-1 items-start gap-3 py-3 text-left focus-visible:relative focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {depth > 0 && (
+            <CornerDownRight
+              aria-hidden
+              className="mt-0.5 size-3.5 shrink-0 text-text-quaternary"
+            />
+          )}
+          <span aria-hidden className="mt-1.5 size-2 shrink-0 rounded-full bg-text-quaternary" />
+          <span className="min-w-0 flex-1">
+            <span className="line-clamp-2 text-sm font-medium leading-snug text-text [word-break:keep-all]">
+              {task.title}
+            </span>
+            <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-text-tertiary">
+              {assignee && <span>{assignee.name}</span>}
+              {task.due_date && (
+                <span className="tabular-nums">
+                  {shortDate(task.due_date)}{" "}
+                  {task.start_date === task.due_date ? "일정" : "마감"}
+                </span>
+              )}
+              {children.length > 0 && (
+                <span className="tabular-nums">
+                  세부 업무 {doneChildren}/{children.length}
+                </span>
+              )}
+            </span>
           </span>
-          <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-text-tertiary">
-            {assignee && <span>{assignee.name}</span>}
-            {task.due_date && (
-              <span className="tabular-nums">
-                {shortDate(task.due_date)}{" "}
-                {task.start_date === task.due_date ? "일정" : "마감"}
-              </span>
-            )}
-            {children.length > 0 && (
-              <span className="tabular-nums">
-                세부 업무 {doneChildren}/{children.length}
-              </span>
-            )}
-            {!!unreadComments?.[`task:${task.id}`] && (
-              <span className="font-semibold text-accent">
-                💬 {unreadComments[`task:${task.id}`]}
-              </span>
-            )}
-          </span>
-        </span>
-      </button>
+        </button>
+        <CommentSidecarButton
+          target={{ type: "task", id: task.id }}
+          title={task.title}
+          description={task.description}
+          members={Object.values(members)}
+          unreadCount={unreadComments?.[`task:${task.id}`] ?? 0}
+        />
+      </div>
 
       {showChildren && children.length > 0 && (
         <ul className="ml-3 border-l border-separator pl-2">

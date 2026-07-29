@@ -238,6 +238,10 @@ export default function HomeContent({
             today={today}
             onSelect={controller.select}
             unreadComments={unreadComments}
+            onAddTask={(projectId) => {
+              setTaskParent(null);
+              setTaskProjectId(projectId);
+            }}
           />
         )}
 

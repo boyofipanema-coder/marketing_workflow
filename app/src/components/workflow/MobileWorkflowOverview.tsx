@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { Plus } from "lucide-react";
+import { CommentSidecarButton } from "@/components/tasks/CommentThread";
 import MobileFlowSpine from "@/components/workflow/MobileFlowSpine";
 import type { BrandWorkflowSummary } from "@/lib/workflow-summary";
 import type { Member, Task } from "@/server/db/schema";
@@ -12,6 +14,7 @@ export interface MobileWorkflowOverviewProps {
   today: string;
   onSelect: (task: Task) => void;
   unreadComments: Record<string, number>;
+  onAddTask: (projectId: string) => void;
 }
 
 export default function MobileWorkflowOverview({
@@ -20,6 +23,7 @@ export default function MobileWorkflowOverview({
   today,
   onSelect,
   unreadComments,
+  onAddTask,
 }: MobileWorkflowOverviewProps) {
   const [openProjectId, setOpenProjectId] = useState<string | null>(null);
   const projects = groups.flatMap((group) => group.projects);
@@ -84,6 +88,7 @@ export default function MobileWorkflowOverview({
                     key={summary.project.id}
                     className={index > 0 ? "border-t border-separator" : ""}
                   >
+                    <div className="flex min-w-0 items-start gap-1 px-4 py-4">
                     <button
                       type="button"
                       aria-expanded={open}
@@ -91,7 +96,7 @@ export default function MobileWorkflowOverview({
                       onClick={() =>
                         setOpenProjectId(open ? null : summary.project.id)
                       }
-                      className="flex min-h-12 w-full min-w-0 items-start gap-3 px-4 py-4 text-left transition-colors duration-base ease-out hover:bg-surface-2 focus-visible:relative focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      className="flex min-h-12 min-w-0 flex-1 items-start gap-3 text-left transition-colors duration-base ease-out hover:bg-surface-2 focus-visible:relative focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
                       <span className="min-w-0 flex-1">
                         <span className="line-clamp-2 text-base font-semibold leading-snug text-text [word-break:keep-all]">
@@ -125,6 +130,13 @@ export default function MobileWorkflowOverview({
                         {open ? "접기" : "펼치기"}
                       </span>
                     </button>
+                    <CommentSidecarButton
+                      target={{ type: "project", id: summary.project.id }}
+                      title={summary.project.name}
+                      members={Object.values(members)}
+                      unreadCount={unreadComments[`project:${summary.project.id}`] ?? 0}
+                    />
+                    </div>
 
                     {open && (
                       <div
@@ -145,12 +157,22 @@ export default function MobileWorkflowOverview({
                             아직 등록된 업무가 없습니다
                           </p>
                         )}
-                        <Link
-                          href={`/projects/${summary.project.id}`}
-                          className="mt-5 flex min-h-12 w-full items-center justify-center rounded-xl bg-text px-4 text-sm font-semibold text-bg transition-transform duration-base ease-out active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        >
-                          프로젝트 전체 보기
-                        </Link>
+                        <div className="mt-5 grid grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => onAddTask(summary.project.id)}
+                            className="inline-flex min-h-12 items-center justify-center gap-1.5 rounded-xl border border-border bg-surface px-3 text-sm font-semibold text-text transition-[background-color,transform] hover:bg-surface-3 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          >
+                            <Plus className="size-4" aria-hidden />
+                            업무 추가
+                          </button>
+                          <Link
+                            href={`/projects/${summary.project.id}`}
+                            className="flex min-h-12 items-center justify-center rounded-xl bg-text px-3 text-sm font-semibold text-bg transition-transform duration-base ease-out active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          >
+                            전체 보기
+                          </Link>
+                        </div>
                       </div>
                     )}
                   </article>

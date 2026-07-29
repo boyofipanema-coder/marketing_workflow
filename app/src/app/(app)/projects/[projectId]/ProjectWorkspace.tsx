@@ -1,24 +1,28 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Archive, ChevronRight, MoreHorizontal, Pencil, Plus, RotateCcw } from "lucide-react";
 import TaskList from "@/components/tasks/TaskList";
 import TaskDetailPanel from "@/components/tasks/TaskDetailPanel";
 import TaskFormDialog from "@/components/tasks/TaskFormDialog";
+import { CommentSidecarButton } from "@/components/tasks/CommentThread";
 import { useTaskController } from "@/components/tasks/useTaskController";
 import ProjectFormDialog from "@/components/projects/ProjectFormDialog";
 import WorkstreamManager from "@/components/projects/WorkstreamManager";
 import MilestoneManager from "@/components/projects/MilestoneManager";
 import WorkflowCanvas, { type Focus } from "@/components/workflow/WorkflowCanvas";
 import ProjectPulse from "@/components/projects/ProjectPulse";
+import MobileFlowSpine from "@/components/workflow/MobileFlowSpine";
 import { createMilestoneAction } from "@/app/actions/milestones";
 import {
   archiveProjectAction,
   restoreProjectAction,
 } from "@/app/actions/projects";
 import { isMilestone } from "@/lib/board-graph";
+import { todayKST } from "@/lib/derive";
+import { summarizeProjectWorkflow } from "@/lib/workflow-summary";
 import type { Brand, Project, Task, Workstream, Member } from "@/server/db/schema";
 
 export interface ProjectWorkspaceProps {
@@ -80,13 +84,6 @@ export default function ProjectWorkspace({
   const controller = useTaskController(tasks);
   const { store } = controller;
 
-  // The production task list remains the readable project view on phones.
-  useEffect(() => {
-    if (window.matchMedia("(max-width: 640px)").matches) {
-      setActiveTab("tasks");
-    }
-  }, []);
-
   // Refresh on focus so a change made in another tab shows up on return.
   useEffect(() => {
     function onFocus() {
@@ -125,6 +122,10 @@ export default function ProjectWorkspace({
   const visibleTasks = controller.tasks.filter(
     (t) => t.parent_task_id === null && !isMilestone(t)
   );
+  const mobileSummary = useMemo(
+    () => summarizeProjectWorkflow(project, controller.tasks, workstreams, todayKST(new Date())),
+    [controller.tasks, project, workstreams],
+  );
 
   return (
     <>
@@ -151,6 +152,12 @@ export default function ProjectWorkspace({
               )}
             </div>
 
+            <div className="flex shrink-0 items-center gap-1">
+              <CommentSidecarButton
+                target={{ type: "project", id: project.id }}
+                title={project.name}
+                members={memberList}
+              />
             <DropdownMenu.Root>
               <DropdownMenu.Trigger asChild>
                 <button
@@ -194,6 +201,7 @@ export default function ProjectWorkspace({
                 </DropdownMenu.Content>
               </DropdownMenu.Portal>
             </DropdownMenu.Root>
+            </div>
           </div>
 
           <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-text-secondary">
@@ -258,6 +266,31 @@ export default function ProjectWorkspace({
         </nav>
 
         {activeTab === "workflow" && (
+          <>
+          <div className="sm:hidden">
+            {mobileSummary.counts.total > 0 ? (
+              <MobileFlowSpine
+                summary={mobileSummary}
+                members={members}
+                today={todayKST(new Date())}
+                onSelect={controller.select}
+              />
+            ) : (
+              <p className="rounded-xl bg-surface-2 px-4 py-6 text-center text-sm text-text-secondary">
+                아직 등록된 업무가 없습니다
+              </p>
+            )}
+            {!archived && (
+              <button
+                type="button"
+                onClick={() => startTask()}
+                className="mt-5 inline-flex min-h-12 items-center gap-2 rounded-xl bg-text px-4 text-sm font-semibold text-bg transition-transform active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <Plus className="size-4" aria-hidden />
+                업무 추가
+              </button>
+            )}
+          </div>
           <div className="hidden sm:block">
               {visibleTasks.length > 0 ? (
                 <WorkflowCanvas
@@ -301,6 +334,7 @@ export default function ProjectWorkspace({
                 </div>
               )}
           </div>
+          </>
         )}
 
         {activeTab === "tasks" && (
