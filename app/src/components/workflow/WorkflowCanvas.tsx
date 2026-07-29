@@ -1281,7 +1281,12 @@ export default function WorkflowCanvas({
                         const cav = c.assignee_id ? members[c.assignee_id] : undefined;
                         return (
                           <div key={c.id} className="flex items-center gap-2 rounded-md py-1 pr-1 hover:bg-surface-2" style={{ height: ROW_H, paddingLeft: 6 + depth * 14 }}>
-                            <span className="shrink-0 text-[10px] font-semibold text-text-tertiary" aria-hidden>ㄴ</span>
+                            {depth > 0 && (
+                              <CornerDownRight
+                                className="size-3 shrink-0 text-text-quaternary"
+                                aria-hidden
+                              />
+                            )}
                             {ck ? (
                               <button type="button" data-ui aria-label="세부 업무 펼치기" onClick={() => toggleSub(c.id)} className="grid size-4 shrink-0 place-items-center rounded text-text-tertiary hover:bg-surface-3">
                                 <ChevronRight className={cn("size-3 transition-transform", co && "rotate-90")} />

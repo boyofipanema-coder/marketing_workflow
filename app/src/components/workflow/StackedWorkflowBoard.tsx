@@ -5,6 +5,7 @@ import {
   Check,
   Circle,
   CircleAlert,
+  CornerDownRight,
   FolderPlus,
   Network,
   Plus,
@@ -127,9 +128,12 @@ function ChildTaskRow({
         ["--indent" as string]: `${depth * 8}px`,
       }}
     >
-      <span className="shrink-0 text-xs font-semibold text-text-tertiary" aria-hidden>
-        ㄴ
-      </span>
+      {depth > 0 && (
+        <CornerDownRight
+          className="size-3.5 shrink-0 text-text-quaternary"
+          aria-hidden
+        />
+      )}
       <CompletionButton task={task} onToggleComplete={onToggleComplete} compact />
       <button
         type="button"

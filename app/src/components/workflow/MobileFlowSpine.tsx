@@ -1,5 +1,6 @@
 "use client";
 
+import { CornerDownRight } from "lucide-react";
 import {
   matchesWorkflowFilter,
   type ProjectWorkflowSummary,
@@ -54,13 +55,11 @@ function TaskBranch({
           depth > 0 && "pl-4",
         )}
       >
-        {depth > 0 && (
-          <span
+        {depth > 1 && (
+          <CornerDownRight
             aria-hidden
-            className="mt-0.5 shrink-0 text-xs font-semibold text-text-tertiary"
-          >
-            ㄴ
-          </span>
+            className="mt-0.5 size-3.5 shrink-0 text-text-quaternary"
+          />
         )}
         <span aria-hidden className="mt-1.5 size-2 shrink-0 rounded-full bg-text-quaternary" />
         <span className="min-w-0 flex-1">
