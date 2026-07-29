@@ -28,7 +28,6 @@ export interface HomeContentProps {
   workstreams: Workstream[];
   members: Member[];
   notifications: NotificationView[];
-  dependencies?: Record<string, string[]>;
   today: string;
 }
 
@@ -47,7 +46,6 @@ export default function HomeContent({
   workstreams,
   members,
   notifications,
-  dependencies,
   today,
 }: HomeContentProps) {
   const router = useRouter();

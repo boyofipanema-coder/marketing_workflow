@@ -1,7 +1,6 @@
 import {
   getCurrentMember,
   getWorkspaceTasks,
-  getDependencyMap,
   getWorkspaceBrands,
   getWorkspaceProjects,
   getWorkspaceWorkstreams,
@@ -21,9 +20,8 @@ export default async function HomePage() {
   const { member: viewer, db } = await getCurrentMember();
   const workspaceId = viewer.workspace_id;
 
-  const [tasks, dependencies, brands, projects, workstreams, members, notifications] = await Promise.all([
+  const [tasks, brands, projects, workstreams, members, notifications] = await Promise.all([
     getWorkspaceTasks(db, workspaceId),
-    getDependencyMap(db, workspaceId),
     getWorkspaceBrands(db, workspaceId),
     getWorkspaceProjects(db, workspaceId),
     getWorkspaceWorkstreams(db, workspaceId),
@@ -35,7 +33,6 @@ export default async function HomePage() {
     <HomeContent
       viewerId={viewer.id}
       tasks={tasks}
-      dependencies={dependencies}
       brands={brands}
       projects={projects}
       workstreams={workstreams}

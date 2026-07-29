@@ -5,7 +5,6 @@
 import {
   PBKDF2_ITERATIONS,
   PBKDF2_KEY_LENGTH,
-  PBKDF2_SALT_LENGTH,
 } from "./constants";
 
 function toBase64(bytes: Uint8Array<ArrayBuffer>): string {
@@ -38,15 +37,6 @@ async function deriveKey(
     keyMaterial,
     PBKDF2_KEY_LENGTH * 8
   );
-}
-
-/** Returns a `salt:hash` string suitable for storage in `auth_account.credential_hash`. */
-export async function hashPassword(password: string): Promise<string> {
-  // `new Uint8Array(byteLength)` → `Uint8Array<ArrayBuffer>` (own buffer)
-  const salt = new Uint8Array(PBKDF2_SALT_LENGTH);
-  crypto.getRandomValues(salt);
-  const hash = await deriveKey(password, salt);
-  return `${toBase64(salt)}:${toBase64(new Uint8Array(hash))}`;
 }
 
 /** Constant-time comparison of the candidate password against the stored hash. */

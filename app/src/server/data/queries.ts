@@ -144,20 +144,6 @@ export async function getWorkspaceProjects(
     .orderBy(asc(project.created_at));
 }
 
-/** Fetch the workspace's archived projects, newest first. */
-export async function getArchivedProjects(
-  db: Database,
-  workspaceId: string
-): Promise<Project[]> {
-  const rows = await db
-    .select()
-    .from(project)
-    .where(eq(project.workspace_id, workspaceId));
-  return rows
-    .filter((p) => p.archived_at !== null && p.archived_at !== undefined)
-    .sort((a, b) => (a.archived_at! < b.archived_at! ? 1 : -1));
-}
-
 /** Fetch a single project by ID, scoped to the caller's workspace. */
 export async function getProjectById(
   db: Database,
@@ -265,27 +251,6 @@ export async function getProjectMilestones(
       )
     )
     .orderBy(asc(task.due_date));
-}
-
-/** Fetch every milestone in the workspace's active projects, earliest due first. */
-export async function getWorkspaceMilestones(
-  db: Database,
-  workspaceId: string
-): Promise<Task[]> {
-  const rows = await db
-    .select({ t: task })
-    .from(task)
-    .innerJoin(project, eq(task.project_id, project.id))
-    .where(
-      and(
-        eq(task.workspace_id, workspaceId),
-        eq(task.kind, "milestone"),
-        isNull(task.cancelled_at),
-        isNull(project.archived_at)
-      )
-    )
-    .orderBy(asc(task.due_date));
-  return rows.map((r) => r.t);
 }
 
 // ---------------------------------------------------------------------------

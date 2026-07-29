@@ -21,9 +21,6 @@ import type { Task } from "@/server/db/schema";
 /** Client-supplied patch. actor_id is filled server-side from the session. */
 export type TaskPatchInput = Omit<TaskPatch, "actor_id">;
 
-/** Legacy alias kept for the existing QuickAdd/WorkflowCanvas call sites. */
-export type CreateTaskResult = ActionResult<Task>;
-
 export interface CreateProjectTaskInput {
   projectId: string;
   parentTaskId?: string | null;

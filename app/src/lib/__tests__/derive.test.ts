@@ -12,7 +12,6 @@ import {
   waiting,
   review,
   later,
-  currentISOWeekKST,
   teamInMotion,
   teamWaiting,
 } from "../derive";
@@ -406,7 +405,6 @@ describe("milestones are excluded from every derived section", () => {
 
 describe("sort order", () => {
   it("sorts by dueDate asc, nulls last", () => {
-    const now = NOW_KST_2024_03_15;
     const t1 = makeTask({ id: "t1", assignee_id: "v", status: "InProgress", due_date: "2024-03-20" });
     const t2 = makeTask({ id: "t2", assignee_id: "v", status: "InProgress", due_date: null });
     const t3 = makeTask({ id: "t3", assignee_id: "v", status: "InProgress", due_date: "2024-03-18" });

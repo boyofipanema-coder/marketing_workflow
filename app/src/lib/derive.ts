@@ -149,7 +149,6 @@ export function inbox(tasks: Task[]): Task[] {
 /** status=ToDo AND today <= startDate <= today+7 (KST) */
 export function comingNext(tasks: Task[], now: Date): Task[] {
   const today = todayKST(now);
-  const plusSevenDate = new Date();
   // compute today+7 in KST
   const [y, m, d] = today.split("-").map(Number);
   const base = new Date(y!, m! - 1, d!);
