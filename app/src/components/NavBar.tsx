@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { Plus, Search, Menu, X, FileText, FolderPlus } from "lucide-react";
+import { Plus, Search, Menu, X, FileText, FolderPlus, CircleHelp } from "lucide-react";
 import QuickAdd from "./QuickAdd";
 import ProjectFormDialog from "./projects/ProjectFormDialog";
 import { Button } from "@/components/ui";
@@ -125,6 +125,15 @@ export default function NavBar({ members, brands, viewerId, notifications }: Nav
               />
             </form>
 
+            <Link
+              href="/guide"
+              aria-label="사용 안내"
+              title="사용 안내"
+              className="grid size-8 place-items-center rounded-lg text-text-secondary transition-[transform,background-color,color] duration-fast ease-out hover:bg-surface-2 hover:text-text active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+            >
+              <CircleHelp className="size-4" aria-hidden />
+            </Link>
+
             <NotificationMenu initialNotifications={notifications} />
             <WorkInboxMenu initialNotifications={notifications} />
 
@@ -219,6 +228,21 @@ export default function NavBar({ members, brands, viewerId, notifications }: Nav
                 {label}
               </Link>
             ))}
+
+            <Link
+              href="/guide"
+              aria-current={isActive("/guide") ? "page" : undefined}
+              onClick={() => setMobileMenuOpen(false)}
+              className={cn(
+                "flex items-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-colors duration-fast ease-out",
+                isActive("/guide")
+                  ? "bg-surface-3 text-text"
+                  : "text-text-secondary hover:bg-surface-2 hover:text-text",
+              )}
+            >
+              <CircleHelp className="size-4" aria-hidden />
+              사용 안내
+            </Link>
 
             <form onSubmit={submitSearch} className="relative mt-2">
               <Search
