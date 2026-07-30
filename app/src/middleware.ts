@@ -1,15 +1,19 @@
 import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { SESSION_COOKIE_NAME } from "@/server/auth/constants";
 
 /**
- * Login is intentionally bypassed at this stage — the app auto-enters as the
- * default workspace member (see getCurrentMember). This middleware is a
- * passthrough. To re-enable the route guard, restore the session-cookie check
- * and the matcher config from git history.
+ * Reject requests that do not have a session cookie before rendering the app.
+ * The app layout checks that the token is valid and not expired in D1.
  */
-export function middleware(): NextResponse {
+export function middleware(request: NextRequest): NextResponse {
+  if (!request.cookies.get(SESSION_COOKIE_NAME)?.value) {
+    return NextResponse.redirect(new URL("/login", request.url));
+  }
+
   return NextResponse.next();
 }
 
 export const config = {
-  matcher: [],
+  matcher: ["/((?!login|api|_next/static|_next/image|favicon\\.ico).*)"],
 };

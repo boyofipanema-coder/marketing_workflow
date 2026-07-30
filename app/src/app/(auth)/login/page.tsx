@@ -20,22 +20,6 @@ export default function LoginPage() {
         <form action={action} className="space-y-4">
           <div>
             <label
-              htmlFor="email"
-              className="mb-1 block text-sm font-medium text-text-secondary"
-            >이메일</label>
-            <input
-              id="email"
-              name="email"
-              type="email"
-              autoComplete="email"
-              required
-              className="w-full rounded-lg border border-border px-3 py-2 text-sm text-text placeholder-text-quaternary focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
-              placeholder="you@example.com"
-            />
-          </div>
-
-          <div>
-            <label
               htmlFor="password"
               className="mb-1 block text-sm font-medium text-text-secondary"
             >비밀번호</label>
@@ -43,7 +27,7 @@ export default function LoginPage() {
               id="password"
               name="password"
               type="password"
-              autoComplete="current-password"
+              autoComplete="off"
               required
               className="w-full rounded-lg border border-border px-3 py-2 text-sm text-text placeholder-text-quaternary focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/30"
               placeholder="••••••••"

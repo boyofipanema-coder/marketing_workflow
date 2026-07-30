@@ -4,12 +4,7 @@ import { member as memberTable } from "@/server/db/schema";
 import { ownerColor } from "@/lib/colors";
 import { selectMemberAction } from "@/app/actions/identity";
 
-export const dynamic = "force-dynamic";
-
-/**
- * Entry screen — pick who you are. No password: this is a small, known team
- * sharing one workspace, not a public login. See server/auth/active-member.ts.
- */
+/** Member choice follows the shared password gate and controls task attribution. */
 export default async function SelectMemberPage() {
   const { env } = await getCloudflareContext({ async: true });
   const db = createDb(env.DB);

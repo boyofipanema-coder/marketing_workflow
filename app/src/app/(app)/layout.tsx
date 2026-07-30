@@ -16,16 +16,14 @@ import { getMemberNotifications } from "@/server/services/collaboration";
 export const dynamic = "force-dynamic";
 
 /**
- * App shell layout — wraps all app screens.
- * Password auth isn't set up yet: getCurrentMember falls back to whoever
- * picked themselves on /select-member, or redirects there.
+ * App shell layout — wraps all authenticated app screens.
  */
 export default async function AppLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  // Resolves a member (real session or the picked one) and warms the request.
+  // Validates the session against D1 before rendering any workspace data.
   const { member: viewer, db } = await getCurrentMember();
   const [members, brands, notifications] = await Promise.all([
     getWorkspaceMembers(db, viewer.workspace_id),

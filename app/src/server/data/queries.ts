@@ -22,9 +22,8 @@ import { dependencyMap } from "@/server/services/dependency";
 
 /**
  * Reads the session cookie, validates it against D1, and returns the current
- * member. Falls back to whichever member picked themselves on the entry
- * screen (server/auth/active-member.ts — no password yet). Redirects to
- * /select-member if neither is present.
+ * member. A valid shared session is required; the optional member picker
+ * determines who is credited for work in that browser.
  */
 export async function getCurrentMember(): Promise<{
   member: Member;
@@ -33,29 +32,30 @@ export async function getCurrentMember(): Promise<{
   const { env } = await getCloudflareContext({ async: true });
   const db = createDb(env.DB);
 
-  // If a valid session exists, use it.
   const cookieStore = await cookies();
   const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
   if (token) {
     const currentMember = await validateSession(db, token);
     if (currentMember) {
+      const activeMemberId = await getActiveMemberId();
+      if (activeMemberId) {
+        const [activeMember] = await db
+          .select()
+          .from(member)
+          .where(
+            and(
+              eq(member.id, activeMemberId),
+              eq(member.workspace_id, currentMember.workspace_id)
+            )
+          )
+          .limit(1);
+        if (activeMember) return { member: activeMember, db };
+      }
       return { member: currentMember, db };
     }
   }
 
-  // No real session — fall back to whoever picked themselves on the entry
-  // screen. Not authentication: anyone with the app open can switch, which is
-  // fine for a small known team sharing one workspace.
-  const activeMemberId = await getActiveMemberId();
-  if (activeMemberId) {
-    const [active] = await db
-      .select()
-      .from(member)
-      .where(eq(member.id, activeMemberId));
-    if (active) return { member: active, db };
-  }
-
-  redirect("/select-member");
+  redirect("/login");
 }
 
 // ---------------------------------------------------------------------------
