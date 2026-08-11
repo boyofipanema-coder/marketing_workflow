@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import TaskSection from "@/components/tasks/TaskSection";
 import TaskDetailPanel from "@/components/tasks/TaskDetailPanel";
 import { useTaskController } from "@/components/tasks/useTaskController";
+import { notificationIndicators } from "@/lib/notification-indicators";
 import type { NotificationView } from "@/server/services/collaboration";
 import type { Task, Project, Workstream, Member } from "@/server/db/schema";
 
@@ -60,14 +61,8 @@ export default function MyWorkContent({
         }),
     [controller.tasks, viewerId],
   );
-  const unreadComments = useMemo(
-    () =>
-      notifications.reduce<Record<string, number>>((counts, item) => {
-        if (item.read_at) return counts;
-        const key = `${item.target_type}:${item.target_id}`;
-        counts[key] = (counts[key] ?? 0) + 1;
-        return counts;
-      }, {}),
+  const { unreadComments, newTasks } = useMemo(
+    () => notificationIndicators(notifications),
     [notifications],
   );
 
@@ -81,6 +76,7 @@ export default function MyWorkContent({
     onRestore: controller.restore,
     onToggleKey: controller.toggleKey,
     unreadComments,
+    newTasks,
   };
 
   return (

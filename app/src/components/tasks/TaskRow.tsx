@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CommentSidecarButton } from "./CommentThread";
+import NewTaskBadge from "./NewTaskBadge";
 import type { Task, Member } from "@/server/db/schema";
 import type { SaveState } from "./useTaskStore";
 
@@ -28,6 +29,7 @@ export interface TaskRowProps {
   onCancel: (task: Task) => void;
   onRestore: (task: Task) => void;
   unreadCommentCount?: number;
+  isNew?: boolean;
   /** Promote/demote a key task. Omit to hide the control. */
   onToggleKey?: (task: Task) => void;
   /** Omitted when the list is not reorderable (e.g. search results). */
@@ -62,6 +64,7 @@ export default function TaskRow({
   onCancel,
   onRestore,
   unreadCommentCount,
+  isNew,
   dragHandleProps,
 }: TaskRowProps) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -133,13 +136,16 @@ export default function TaskRow({
         onClick={() => onSelect(task)}
         className="flex min-w-0 flex-1 flex-col items-start gap-1 py-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-bg rounded"
       >
-        <span
-          className={cn(
-            "line-clamp-2 text-sm leading-snug text-text",
-            (done || cancelled) && "text-text-tertiary line-through"
-          )}
-        >
-          {task.title}
+        <span className="flex items-start gap-1.5">
+          {isNew && <NewTaskBadge className="mt-0.5" />}
+          <span
+            className={cn(
+              "line-clamp-2 text-sm leading-snug text-text",
+              (done || cancelled) && "text-text-tertiary line-through"
+            )}
+          >
+            {task.title}
+          </span>
         </span>
 
         <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs">

@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui";
 import { CommentSidecarButton } from "@/components/tasks/CommentThread";
+import NewTaskBadge from "@/components/tasks/NewTaskBadge";
 import { ownerColor } from "@/lib/colors";
 import { isOverdue, todayKST } from "@/lib/derive";
 import { isActiveWork } from "@/lib/workload";
@@ -27,6 +28,7 @@ interface StackedWorkflowBoardProps {
   projects: Project[];
   members: Record<string, Member>;
   unreadComments: Record<string, number>;
+  newTasks: Record<string, boolean>;
   focus: BoardFocus;
   onFocusChange: (focus: BoardFocus) => void;
   onSelect: (task: Task) => void;
@@ -107,6 +109,7 @@ function ChildTaskRow({
   owner,
   members,
   unreadComments,
+  newTasks,
   onSelect,
   onToggleComplete,
   onAddSubtask,
@@ -116,6 +119,7 @@ function ChildTaskRow({
   owner: Member | null;
   members: Member[];
   unreadComments: Record<string, number>;
+  newTasks: Record<string, boolean>;
   onSelect: (task: Task) => void;
   onToggleComplete: (task: Task) => void;
   onAddSubtask: (parent: Task) => void;
@@ -139,9 +143,10 @@ function ChildTaskRow({
       <button
         type="button"
         onClick={() => onSelect(task)}
-        className="min-w-0 flex-1 truncate text-left text-sm font-medium text-text transition-transform duration-fast ease-out active:scale-[0.99]"
+        className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-sm font-medium text-text transition-transform duration-fast ease-out active:scale-[0.99]"
       >
-        {task.title}
+        {newTasks[`task:${task.id}`] && <NewTaskBadge />}
+        <span className="truncate">{task.title}</span>
       </button>
       <OwnerBadge owner={owner} />
       <CommentSidecarButton
@@ -172,6 +177,7 @@ function FlowTask({
   members,
   memberList,
   unreadComments,
+  newTasks,
   onSelect,
   onToggleComplete,
   onAddSubtask,
@@ -182,6 +188,7 @@ function FlowTask({
   members: Record<string, Member>;
   memberList: Member[];
   unreadComments: Record<string, number>;
+  newTasks: Record<string, boolean>;
   onSelect: (task: Task) => void;
   onToggleComplete: (task: Task) => void;
   onAddSubtask: (parent: Task) => void;
@@ -207,6 +214,7 @@ function FlowTask({
           style={{ backgroundColor: brandColor }}
           aria-hidden
         />
+        {newTasks[`task:${task.id}`] && <NewTaskBadge />}
         <button
           type="button"
           onClick={() => onSelect(task)}
@@ -253,6 +261,7 @@ function FlowTask({
               owner={childOwner}
               members={memberList}
               unreadComments={unreadComments}
+              newTasks={newTasks}
               onSelect={onSelect}
               onToggleComplete={onToggleComplete}
               onAddSubtask={onAddSubtask}
@@ -294,6 +303,7 @@ export default function StackedWorkflowBoard({
   projects,
   members,
   unreadComments,
+  newTasks,
   focus,
   onFocusChange,
   onSelect,
@@ -560,6 +570,7 @@ export default function StackedWorkflowBoard({
                                 members={members}
                                 memberList={memberList}
                                 unreadComments={unreadComments}
+                                newTasks={newTasks}
                               onSelect={onSelect}
                               onToggleComplete={onToggleComplete}
                               onAddSubtask={onAddSubtask}

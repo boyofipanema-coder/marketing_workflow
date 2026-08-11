@@ -13,6 +13,7 @@ export interface MobileWorkflowOverviewProps {
   today: string;
   onSelect: (task: Task) => void;
   unreadComments: Record<string, number>;
+  newTasks: Record<string, boolean>;
   initialOpenProjectId?: string;
   onAddTask: (projectId: string) => void;
   onAddSubtask: (task: Task) => void;
@@ -25,6 +26,7 @@ export default function MobileWorkflowOverview({
   today,
   onSelect,
   unreadComments,
+  newTasks,
   initialOpenProjectId,
   onAddTask,
   onAddSubtask,
@@ -163,6 +165,7 @@ export default function MobileWorkflowOverview({
                             onToggleComplete={onToggleComplete}
                             onAddSubtask={onAddSubtask}
                             unreadComments={unreadComments}
+                            newTasks={newTasks}
                           />
                         ) : (
                           <p className="py-4 text-center text-sm text-text-secondary">

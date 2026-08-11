@@ -36,7 +36,7 @@ export default function NotificationMenu({
     router.push(
       item.target_type === "project"
         ? `/home?project=${encodeURIComponent(item.target_id)}`
-        : `/search?q=${encodeURIComponent(item.target_title)}`,
+        : `/home?task=${encodeURIComponent(item.target_id)}`,
     );
   }
 
@@ -147,7 +147,7 @@ export function WorkInboxMenu({
       );
       await markNotificationReadAction(item.id, item.target_type);
     }
-    router.push(`/search?q=${encodeURIComponent(item.target_title)}`);
+    router.push(`/home?task=${encodeURIComponent(item.target_id)}`);
   }
 
   return (

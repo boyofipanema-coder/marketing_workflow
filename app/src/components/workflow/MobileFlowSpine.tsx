@@ -2,6 +2,7 @@
 
 import { Check, Circle, CornerDownRight, Plus } from "lucide-react";
 import { CommentSidecarButton } from "@/components/tasks/CommentThread";
+import NewTaskBadge from "@/components/tasks/NewTaskBadge";
 import {
   matchesWorkflowFilter,
   type ProjectWorkflowSummary,
@@ -33,6 +34,7 @@ function TaskBranch({
   onAddSubtask,
   depth = 0,
   unreadComments,
+  newTasks,
 }: {
   task: Task;
   childrenByParent: Map<string, Task[]>;
@@ -42,6 +44,7 @@ function TaskBranch({
   onAddSubtask?: (task: Task) => void;
   depth?: number;
   unreadComments?: Record<string, number>;
+  newTasks?: Record<string, boolean>;
 }) {
   const children = childrenByParent.get(task.id) ?? [];
   const doneChildren = children.filter((child) => child.status === "Done").length;
@@ -81,8 +84,11 @@ function TaskBranch({
             />
           )}
           <span className="min-w-0 flex-1">
-            <span className="line-clamp-2 text-sm font-medium leading-snug text-text [word-break:keep-all]">
-              {task.title}
+            <span className="flex items-start gap-1.5">
+              {newTasks?.[`task:${task.id}`] && <NewTaskBadge className="mt-0.5" />}
+              <span className="line-clamp-2 text-sm font-medium leading-snug text-text [word-break:keep-all]">
+                {task.title}
+              </span>
             </span>
             <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-text-tertiary">
               {assignee && <span>{assignee.name}</span>}
@@ -132,6 +138,7 @@ function TaskBranch({
               onAddSubtask={onAddSubtask}
               depth={depth + 1}
               unreadComments={unreadComments}
+              newTasks={newTasks}
             />
           ))}
         </ul>
@@ -150,6 +157,7 @@ export interface MobileFlowSpineProps {
   filter?: WorkflowFilter;
   onFilterChange?: (filter: WorkflowFilter) => void;
   unreadComments?: Record<string, number>;
+  newTasks?: Record<string, boolean>;
 }
 
 export default function MobileFlowSpine({
@@ -162,6 +170,7 @@ export default function MobileFlowSpine({
   filter = "all",
   onFilterChange,
   unreadComments,
+  newTasks,
 }: MobileFlowSpineProps) {
   const visibleStages = summary.stages
     .map((stage) => ({
@@ -244,6 +253,7 @@ export default function MobileFlowSpine({
                         onToggleComplete={onToggleComplete}
                         onAddSubtask={onAddSubtask}
                         unreadComments={unreadComments}
+                        newTasks={newTasks}
                       />
                     ))}
                   </ul>

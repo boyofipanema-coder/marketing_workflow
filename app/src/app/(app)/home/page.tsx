@@ -19,9 +19,12 @@ import { todayKST } from "@/lib/derive";
 export default async function HomePage({
   searchParams,
 }: {
-  searchParams: Promise<{ project?: string }>;
+  searchParams: Promise<{ project?: string; task?: string }>;
 }) {
-  const { project: initialOpenProjectId } = await searchParams;
+  const {
+    project: initialOpenProjectId,
+    task: initialOpenTaskId,
+  } = await searchParams;
   const { member: viewer, db } = await getCurrentMember();
   const workspaceId = viewer.workspace_id;
 
@@ -45,6 +48,7 @@ export default async function HomePage({
       notifications={notifications}
       today={todayKST(new Date())}
       initialOpenProjectId={initialOpenProjectId}
+      initialOpenTaskId={initialOpenTaskId}
     />
   );
 }

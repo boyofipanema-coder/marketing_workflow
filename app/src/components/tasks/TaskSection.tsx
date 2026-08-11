@@ -18,6 +18,7 @@ export interface TaskSectionProps {
   onCancel: (task: Task) => void;
   onRestore: (task: Task) => void;
   unreadComments?: Record<string, number>;
+  newTasks?: Record<string, boolean>;
   onToggleKey?: (task: Task) => void;
   emptyTitle: string;
   emptyDescription: string;
@@ -39,6 +40,7 @@ export default function TaskSection({
   onCancel,
   onRestore,
   unreadComments,
+  newTasks,
   onToggleKey,
   emptyTitle,
   emptyDescription,
@@ -78,6 +80,7 @@ export default function TaskSection({
         onCancel={onCancel}
         onRestore={onRestore}
         unreadComments={unreadComments}
+        newTasks={newTasks}
         onToggleKey={onToggleKey}
         emptyTitle={emptyTitle}
         emptyDescription={emptyDescription}

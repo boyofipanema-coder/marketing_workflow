@@ -17,6 +17,7 @@ import BrandFormDialog from "@/components/projects/BrandFormDialog";
 import ProjectFormDialog from "@/components/projects/ProjectFormDialog";
 import { Button } from "@/components/ui";
 import { summarizeWorkspaceWorkflow } from "@/lib/workflow-summary";
+import { notificationIndicators } from "@/lib/notification-indicators";
 import type { Task, Brand, Project, Workstream, Member } from "@/server/db/schema";
 import type { NotificationView } from "@/server/services/collaboration";
 
@@ -30,6 +31,7 @@ export interface HomeContentProps {
   notifications: NotificationView[];
   today: string;
   initialOpenProjectId?: string;
+  initialOpenTaskId?: string;
 }
 
 /**
@@ -49,6 +51,7 @@ export default function HomeContent({
   notifications,
   today,
   initialOpenProjectId,
+  initialOpenTaskId,
 }: HomeContentProps) {
   const router = useRouter();
   const controller = useTaskController(tasks);
@@ -73,6 +76,12 @@ export default function HomeContent({
   }, [router]);
 
   useEffect(() => {
+    if (!initialOpenTaskId) return;
+    const task = controller.tasks.find((candidate) => candidate.id === initialOpenTaskId);
+    if (task) controller.select(task);
+  }, [controller.select, controller.tasks, initialOpenTaskId]);
+
+  useEffect(() => {
     setBrandFilterIds((current) => {
       const availableIds = new Set(brands.map((brand) => brand.id));
       const next = current.filter((id) => availableIds.has(id));
@@ -84,14 +93,8 @@ export default function HomeContent({
     () => Object.fromEntries(members.map((m) => [m.id, m])),
     [members]
   );
-  const unreadComments = useMemo(
-    () =>
-      notifications.reduce<Record<string, number>>((counts, item) => {
-        if (item.read_at) return counts;
-        const key = `${item.target_type}:${item.target_id}`;
-        counts[key] = (counts[key] ?? 0) + 1;
-        return counts;
-      }, {}),
+  const { unreadComments, newTasks } = useMemo(
+    () => notificationIndicators(notifications),
     [notifications],
   );
 
@@ -180,6 +183,7 @@ export default function HomeContent({
     onRestore: controller.restore,
     onToggleKey: controller.toggleKey,
     unreadComments,
+    newTasks,
   };
 
   function startProject(brandId?: string) {
@@ -238,6 +242,7 @@ export default function HomeContent({
             today={today}
             onSelect={controller.select}
             unreadComments={unreadComments}
+            newTasks={newTasks}
             initialOpenProjectId={initialOpenProjectId}
             onAddTask={(projectId) => {
               setTaskParent(null);
@@ -379,6 +384,7 @@ export default function HomeContent({
               members={membersRecord}
               projects={visibleProjects}
               unreadComments={unreadComments}
+              newTasks={newTasks}
               onSelect={controller.select}
               onToggleComplete={controller.toggleComplete}
               onAddProject={(brandId) => startProject(brandId)}
@@ -421,7 +427,10 @@ export default function HomeContent({
         conflict={controller.selected ? store.errorFor(controller.selected.id).conflict : false}
         onOpenChange={(open) => {
           controller.setPanelOpen(open);
-          if (!open) store.dismissError();
+          if (!open) {
+            store.dismissError();
+            if (initialOpenTaskId) router.replace("/home", { scroll: false });
+          }
         }}
         onPatch={controller.patch}
         onToggleComplete={controller.toggleComplete}
