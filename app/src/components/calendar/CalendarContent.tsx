@@ -1,7 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CalendarDays,
   ChevronLeft,
@@ -16,7 +15,10 @@ import TaskDetailPanel from "@/components/tasks/TaskDetailPanel";
 import { useTaskController } from "@/components/tasks/useTaskController";
 import { cn } from "@/lib/utils";
 import type { Member, Project, Task, Workstream } from "@/server/db/schema";
-import type { GoogleCalendarEvent } from "@/server/services/google-calendar";
+import {
+  parseGoogleCalendarIcs,
+  type GoogleCalendarEvent,
+} from "@/server/services/google-calendar";
 
 const TEAM_CALENDAR_ID = "gpvjgso7avdc7npu6ln7qf2qgk@group.calendar.google.com";
 const TEAM_CALENDAR_LINK = `https://calendar.google.com/calendar/u/0/r?cid=${encodeURIComponent(TEAM_CALENDAR_ID)}`;
@@ -167,22 +169,20 @@ export default function CalendarContent({
   projects,
   workstreams,
   members,
-  googleEvents,
-  googleAvailable,
   today,
 }: {
   tasks: Task[];
   projects: Project[];
   workstreams: Workstream[];
   members: Member[];
-  googleEvents: GoogleCalendarEvent[];
-  googleAvailable: boolean;
   today: string;
 }) {
-  const router = useRouter();
   const controller = useTaskController(tasks);
   const { store } = controller;
-  const [refreshPending, startRefresh] = useTransition();
+  const [googleEvents, setGoogleEvents] = useState<GoogleCalendarEvent[]>([]);
+  const [googleStatus, setGoogleStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [refreshPending, setRefreshPending] = useState(false);
+  const requestRef = useRef<AbortController | null>(null);
   const lastRefresh = useRef(Date.now());
   const [month, setMonth] = useState(today.slice(0, 7));
   const [selectedDate, setSelectedDate] = useState(today);
@@ -210,13 +210,38 @@ export default function CalendarContent({
   const monthTitle = new Intl.DateTimeFormat("ko-KR", { year: "numeric", month: "long" })
     .format(new Date(`${month}-01T00:00:00`));
 
-  const refreshCalendar = useCallback(() => {
+  const refreshCalendar = useCallback(async () => {
     if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+    requestRef.current?.abort();
+    const request = new AbortController();
+    requestRef.current = request;
+    setRefreshPending(true);
     lastRefresh.current = Date.now();
-    startRefresh(() => router.refresh());
-  }, [router]);
+    try {
+      const response = await fetch("/api/google-calendar", {
+        cache: "no-store",
+        signal: request.signal,
+      });
+      if (!response.ok) throw new Error("Google Calendar request failed");
+      const ics = await response.text();
+      const year = Number(today.slice(0, 4));
+      setGoogleEvents(
+        parseGoogleCalendarIcs(ics, `${year - 1}-01-01`, `${year + 2}-12-31`),
+      );
+      setGoogleStatus("ready");
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      setGoogleStatus("error");
+    } finally {
+      if (requestRef.current === request) {
+        requestRef.current = null;
+        setRefreshPending(false);
+      }
+    }
+  }, [today]);
 
   useEffect(() => {
+    void refreshCalendar();
     const interval = window.setInterval(refreshCalendar, REFRESH_INTERVAL_MS);
     function refreshWhenVisible() {
       if (
@@ -229,6 +254,7 @@ export default function CalendarContent({
     document.addEventListener("visibilitychange", refreshWhenVisible);
     window.addEventListener("focus", refreshWhenVisible);
     return () => {
+      requestRef.current?.abort();
       window.clearInterval(interval);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
       window.removeEventListener("focus", refreshWhenVisible);
@@ -290,7 +316,7 @@ export default function CalendarContent({
             {store.error}
           </p>
         )}
-        {!googleAvailable && (
+        {googleStatus === "error" && (
           <p role="status" className="mb-4 rounded-xl border border-status-waiting/25 bg-status-waiting/8 px-4 py-3 text-xs text-text-secondary">
             Google 일정을 불러오지 못했습니다. 업무 일정만 표시하고 있습니다.
           </p>
@@ -405,7 +431,7 @@ export default function CalendarContent({
                 );
               })}
             </div>
-            {googleAvailable && (
+            {googleStatus === "ready" && (
               <p className="mt-4 border-t border-separator pt-4 text-[10px] leading-relaxed text-text-tertiary">
                 Google 일정은 공개 캘린더에서 2분마다 자동 동기화됩니다.
               </p>

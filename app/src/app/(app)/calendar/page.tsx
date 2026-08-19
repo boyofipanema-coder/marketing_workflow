@@ -1,6 +1,5 @@
 import CalendarContent from "@/components/calendar/CalendarContent";
 import { todayKST } from "@/lib/derive";
-import { getGoogleCalendarFeed } from "@/server/services/google-calendar";
 import {
   getCurrentMember,
   getWorkspaceMembers,
@@ -12,12 +11,11 @@ import {
 export default async function CalendarPage() {
   const { member, db } = await getCurrentMember();
   const today = todayKST(new Date());
-  const [tasks, projects, workstreams, members, googleFeed] = await Promise.all([
+  const [tasks, projects, workstreams, members] = await Promise.all([
     getWorkspaceTasks(db, member.workspace_id),
     getWorkspaceProjects(db, member.workspace_id),
     getWorkspaceWorkstreams(db, member.workspace_id),
     getWorkspaceMembers(db, member.workspace_id),
-    getGoogleCalendarFeed(today),
   ]);
 
   return (
@@ -26,8 +24,6 @@ export default async function CalendarPage() {
       projects={projects}
       workstreams={workstreams}
       members={members}
-      googleEvents={googleFeed.events}
-      googleAvailable={googleFeed.available}
       today={today}
     />
   );

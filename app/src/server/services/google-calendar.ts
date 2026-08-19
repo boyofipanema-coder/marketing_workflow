@@ -1,4 +1,4 @@
-const GOOGLE_CALENDAR_ICS_URL =
+export const GOOGLE_CALENDAR_ICS_URL =
   "https://calendar.google.com/calendar/ical/gpvjgso7avdc7npu6ln7qf2qgk%40group.calendar.google.com/public/basic.ics";
 
 export interface GoogleCalendarEvent {
@@ -8,11 +8,6 @@ export interface GoogleCalendarEvent {
   startTime: string | null;
   endTime: string | null;
   allDay: boolean;
-}
-
-export interface GoogleCalendarFeed {
-  events: GoogleCalendarEvent[];
-  available: boolean;
 }
 
 interface ParsedDate {
@@ -361,23 +356,4 @@ export function parseGoogleCalendarIcs(
       (a.startTime ?? "").localeCompare(b.startTime ?? "") ||
       a.title.localeCompare(b.title, "ko"),
   );
-}
-
-export async function getGoogleCalendarFeed(today: string): Promise<GoogleCalendarFeed> {
-  const year = Number(today.slice(0, 4));
-  const rangeStart = `${year - 1}-01-01`;
-  const rangeEnd = `${year + 2}-12-31`;
-  try {
-    const response = await fetch(GOOGLE_CALENDAR_ICS_URL, {
-      next: { revalidate: 120 },
-    });
-    if (!response.ok) return { events: [], available: false };
-    const ics = await response.text();
-    return {
-      events: parseGoogleCalendarIcs(ics, rangeStart, rangeEnd),
-      available: true,
-    };
-  } catch {
-    return { events: [], available: false };
-  }
 }
