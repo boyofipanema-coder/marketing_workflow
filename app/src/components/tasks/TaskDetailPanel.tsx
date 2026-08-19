@@ -10,8 +10,8 @@ import {
   AlertTriangle,
   RotateCcw,
   XCircle,
-  CalendarClock,
   Circle,
+  Star,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -312,6 +312,30 @@ export default function TaskDetailPanel({
                 />
               </Field>
 
+              <div className="flex flex-wrap items-center gap-2 border-b border-separator pb-4">
+                <span className="mr-1 text-xs font-semibold text-text-secondary">중요도</span>
+                {(["normal", "key"] as const).map((importance) => (
+                  <button
+                    key={importance}
+                    type="button"
+                    disabled={readOnly}
+                    aria-pressed={task.importance === importance}
+                    onClick={() => void patch({ importance })}
+                    className={cn(
+                      "inline-flex h-9 items-center gap-1.5 rounded-xl border px-3 text-xs font-semibold transition-[background-color,border-color,color] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50",
+                      task.importance === importance
+                        ? importance === "key"
+                          ? "border-accent/30 bg-accent/10 text-accent"
+                          : "border-border-strong bg-surface-2 text-text"
+                        : "border-transparent text-text-tertiary hover:bg-surface-2 hover:text-text-secondary",
+                    )}
+                  >
+                    {importance === "key" && <Star className="size-3.5" fill={task.importance === "key" ? "currentColor" : "none"} aria-hidden />}
+                    {importance === "key" ? "중요" : "보통"}
+                  </button>
+                ))}
+              </div>
+
               <div className="flex flex-col gap-4">
                 <section className="flex min-w-0 flex-col gap-4">
                   {/* Description — debounced */}
@@ -340,7 +364,7 @@ export default function TaskDetailPanel({
                   </div>
                 </section>
 
-                <section className="grid min-w-0 content-start gap-3 sm:grid-cols-3">
+                <section className="grid min-w-0 content-start gap-3 sm:grid-cols-2 lg:grid-cols-4">
                   <Field label="프로젝트" htmlFor="task-project">
                     <select
                       id="task-project"
@@ -379,7 +403,7 @@ export default function TaskDetailPanel({
                     </select>
                   </Field>
 
-                  <Field label="일정 / 마감일" htmlFor="task-due">
+                  <Field label={task.start_date === task.due_date && task.due_date ? "일정 날짜" : "마감일"} htmlFor="task-due">
                     <input
                       id="task-due"
                       type="date"
@@ -406,25 +430,45 @@ export default function TaskDetailPanel({
                       className={selectClass}
                     />
                   </Field>
+
+                  <Field label={task.start_date === task.due_date && task.due_date ? "시작 시각" : "마감 시각"} htmlFor="task-due-time">
+                    <input
+                      id="task-due-time"
+                      type="time"
+                      value={task.due_time ?? ""}
+                      disabled={readOnly || !task.due_date}
+                      onChange={(event) => void patch({ due_time: event.target.value || null })}
+                      className={selectClass}
+                    />
+                  </Field>
                 </section>
 
-                <label className="flex min-h-8 items-center gap-2 text-xs font-medium text-text-secondary">
-                  <input
-                    type="checkbox"
-                    checked={
-                      task.due_date !== null &&
-                      task.start_date === task.due_date
-                    }
-                    disabled={readOnly || !task.due_date}
-                    onChange={(e) =>
-                      void patch({
-                        start_date: e.target.checked ? task.due_date : null,
-                      })
-                    }
-                    className="size-4 rounded border-border text-accent focus:ring-ring"
-                  />
-                  하루 일정으로 지정
-                </label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="mr-1 text-xs font-semibold text-text-secondary">날짜 성격</span>
+                  {(["deadline", "schedule"] as const).map((mode) => {
+                    const selected = mode === "schedule"
+                      ? task.due_date !== null && task.start_date === task.due_date
+                      : task.start_date !== task.due_date || task.due_date === null;
+                    return (
+                      <button
+                        key={mode}
+                        type="button"
+                        disabled={readOnly || !task.due_date}
+                        aria-pressed={selected}
+                        onClick={() => void patch({ start_date: mode === "schedule" ? task.due_date : task.start_date === task.due_date ? null : task.start_date })}
+                        className={cn(
+                          "h-9 rounded-xl border px-3 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-45",
+                          selected ? "border-accent/30 bg-accent/10 text-accent" : "border-transparent text-text-tertiary hover:bg-surface-2",
+                        )}
+                      >
+                        {mode === "schedule" ? "일정" : "마감"}
+                      </button>
+                    );
+                  })}
+                  <span className="text-[11px] text-text-tertiary">
+                    {task.start_date === task.due_date && task.due_date ? "그날 참여하거나 실행하는 일" : "그때까지 끝내야 하는 일"}
+                  </span>
+                </div>
 
                 <button
                   type="button"
@@ -495,7 +539,7 @@ export default function TaskDetailPanel({
                       </div>
                     </Field>
 
-                    <Field label="시작일" htmlFor="task-start">
+                    <Field label="업무 시작일" htmlFor="task-start">
                       <input
                         id="task-start"
                         type="date"
@@ -508,34 +552,6 @@ export default function TaskDetailPanel({
                       />
                     </Field>
 
-                    <Field label="마감 시간 (선택)" htmlFor="task-due-time">
-                      <div className="flex items-center gap-2">
-                        <CalendarClock
-                          className="h-4 w-4 flex-shrink-0 text-text-tertiary"
-                          aria-hidden
-                        />
-                        <input
-                          id="task-due-time"
-                          type="time"
-                          value={task.due_time ?? ""}
-                          disabled={readOnly || !task.due_date}
-                          onChange={(e) =>
-                            void patch({ due_time: e.target.value || null })
-                          }
-                          className={selectClass}
-                        />
-                        {task.due_time && (
-                          <button
-                            type="button"
-                            onClick={() => void patch({ due_time: null })}
-                            disabled={readOnly}
-                            className="flex-shrink-0 rounded px-2 py-2 text-xs text-text-secondary hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                          >
-                            제거
-                          </button>
-                        )}
-                      </div>
-                    </Field>
                   </section>
                 )}
               </div>

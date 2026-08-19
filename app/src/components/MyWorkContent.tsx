@@ -6,6 +6,7 @@ import TaskSection from "@/components/tasks/TaskSection";
 import TaskDetailPanel from "@/components/tasks/TaskDetailPanel";
 import { useTaskController } from "@/components/tasks/useTaskController";
 import { notificationIndicators } from "@/lib/notification-indicators";
+import PriorityBrief from "@/components/PriorityBrief";
 import type { NotificationView } from "@/server/services/collaboration";
 import type { Task, Project, Workstream, Member } from "@/server/db/schema";
 
@@ -17,6 +18,7 @@ export interface MyWorkContentProps {
   workstreams: Workstream[];
   members: Member[];
   notifications: NotificationView[];
+  today: string;
 }
 
 export default function MyWorkContent({
@@ -27,6 +29,7 @@ export default function MyWorkContent({
   workstreams,
   members,
   notifications,
+  today,
 }: MyWorkContentProps) {
   const router = useRouter();
   const controller = useTaskController(tasks);
@@ -55,6 +58,7 @@ export default function MyWorkContent({
             !task.cancelled_at,
         )
         .sort((a, b) => {
+          if (a.importance !== b.importance) return a.importance === "key" ? -1 : 1;
           if (!a.due_date) return 1;
           if (!b.due_date) return -1;
           return a.due_date.localeCompare(b.due_date);
@@ -81,7 +85,7 @@ export default function MyWorkContent({
 
   return (
     <>
-      <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
+      <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
         <header className="mb-8">
           <h1 className="text-2xl font-semibold leading-tight text-text">
             내 업무
@@ -101,7 +105,15 @@ export default function MyWorkContent({
           </p>
         )}
 
-        <div className="flex flex-col gap-8">
+        <PriorityBrief
+          tasks={controller.tasks}
+          projects={projects}
+          viewerId={viewerId}
+          today={today}
+          onSelect={controller.select}
+        />
+
+        <div className="mt-8">
           <TaskSection
             {...shared}
             title="내 업무"

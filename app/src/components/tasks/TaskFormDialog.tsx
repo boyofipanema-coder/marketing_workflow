@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Check, ChevronDown, Loader2, X } from "lucide-react";
+import { Check, ChevronDown, Loader2, Star, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createDetailedProjectTaskAction } from "@/app/actions/tasks";
 import type { Member, Project, Task, Workstream } from "@/server/db/schema";
@@ -55,6 +55,7 @@ export default function TaskFormDialog({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [kind, setKind] = useState<Task["kind"]>("task");
+  const [importance, setImportance] = useState<Task["importance"]>("normal");
   const [projectId, setProjectId] = useState("");
   const [workstreamId, setWorkstreamId] = useState("");
   const [assigneeId, setAssigneeId] = useState("");
@@ -77,6 +78,7 @@ export default function TaskFormDialog({
     setTitle("");
     setDescription("");
     setKind("task");
+    setImportance("normal");
     setProjectId(
       defaultParentTask?.project_id ??
         defaultProjectId ??
@@ -112,7 +114,7 @@ export default function TaskFormDialog({
       title: title.trim(),
       description: description.trim() || null,
       status: "ToDo",
-      importance: "normal",
+      importance,
       kind,
       assigneeId: assigneeId || null,
       startDate: startDate || null,
@@ -202,7 +204,7 @@ export default function TaskFormDialog({
                     ))}
                   </select>
                 </Field>
-                <Field label="일정 / 마감일" htmlFor="create-task-due">
+                <Field label={singleDay ? "일정 날짜" : "마감일"} htmlFor="create-task-due">
                   <input
                     id="create-task-due"
                     type="date"
@@ -219,19 +221,42 @@ export default function TaskFormDialog({
                     className={inputClass}
                   />
                 </Field>
-                <label className="flex min-h-8 items-center gap-2 text-xs font-medium text-text-secondary sm:col-span-2">
-                  <input
-                    type="checkbox"
-                    checked={singleDay}
-                    disabled={!dueDate}
-                    onChange={(event) => {
-                      setSingleDay(event.target.checked);
-                      setStartDate(event.target.checked ? dueDate : "");
-                    }}
-                    className="size-4 rounded border-border text-accent focus:ring-ring"
-                  />
-                  하루 일정으로 지정
-                </label>
+                <Field label={singleDay ? "시작 시각" : "마감 시각"} htmlFor="create-task-due-time">
+                  <input id="create-task-due-time" type="time" value={dueTime} onChange={(event) => setDueTime(event.target.value)} disabled={!dueDate} className={inputClass} />
+                </Field>
+                <div className="flex min-w-0 flex-col gap-1.5">
+                  <span className="text-xs font-semibold text-text-secondary">날짜 성격</span>
+                  <div className="grid grid-cols-2 gap-1 rounded-xl border border-border bg-surface-2/70 p-1">
+                    {(["deadline", "schedule"] as const).map((mode) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        disabled={!dueDate}
+                        aria-pressed={(mode === "schedule") === singleDay}
+                        onClick={() => {
+                          const schedule = mode === "schedule";
+                          setSingleDay(schedule);
+                          setStartDate(schedule ? dueDate : startDate === dueDate ? "" : startDate);
+                        }}
+                        className={cn("h-9 rounded-[9px] text-xs font-semibold disabled:opacity-45", (mode === "schedule") === singleDay ? "bg-surface text-text shadow-sm" : "text-text-tertiary hover:text-text")}
+                      >
+                        {mode === "schedule" ? "일정" : "마감"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex min-w-0 flex-col gap-1.5">
+                  <span className="text-xs font-semibold text-text-secondary">중요도</span>
+                  <button
+                    type="button"
+                    aria-pressed={importance === "key"}
+                    onClick={() => setImportance((value) => value === "key" ? "normal" : "key")}
+                    className={cn("inline-flex h-11 items-center justify-center gap-2 rounded-xl border text-sm font-semibold", importance === "key" ? "border-accent/30 bg-accent/10 text-accent" : "border-border bg-surface text-text-secondary")}
+                  >
+                    <Star className="size-4" fill={importance === "key" ? "currentColor" : "none"} />
+                    {importance === "key" ? "중요 업무" : "보통 업무"}
+                  </button>
+                </div>
               </div>
 
               <button
@@ -272,9 +297,6 @@ export default function TaskFormDialog({
                       }}
                       className={inputClass}
                     />
-                  </Field>
-                  <Field label="마감 시간" htmlFor="create-task-due-time">
-                    <input id="create-task-due-time" type="time" value={dueTime} onChange={(event) => setDueTime(event.target.value)} disabled={!dueDate} className={inputClass} />
                   </Field>
                   <Field label="업무 유형" htmlFor="create-task-kind">
                     <select id="create-task-kind" value={kind} onChange={(event) => setKind(event.target.value as Task["kind"])} className={inputClass}>

@@ -73,6 +73,20 @@ export const session = sqliteTable("session", {
 });
 
 // ---------------------------------------------------------------------------
+// personal_note — one lightweight scratchpad per member
+// ---------------------------------------------------------------------------
+export const personal_note = sqliteTable("personal_note", {
+  member_id: text("member_id")
+    .primaryKey()
+    .references(() => member.id),
+  workspace_id: text("workspace_id")
+    .notNull()
+    .references(() => workspace.id),
+  body: text("body").notNull().default(""),
+  updated_at: text("updated_at").notNull(),
+});
+
+// ---------------------------------------------------------------------------
 // project
 // ---------------------------------------------------------------------------
 export const project = sqliteTable("project", {
@@ -315,6 +329,10 @@ export const memberRelations = relations(member, ({ one, many }) => ({
   reviewed_tasks: many(task, { relationName: "reviewer" }),
   created_tasks: many(task, { relationName: "creator" }),
   led_projects: many(project),
+  personal_note: one(personal_note, {
+    fields: [member.id],
+    references: [personal_note.member_id],
+  }),
 }));
 
 export const auth_accountRelations = relations(auth_account, ({ one }) => ({
@@ -433,6 +451,9 @@ export type NewAuthAccount = typeof auth_account.$inferInsert;
 
 export type Session = typeof session.$inferSelect;
 export type NewSession = typeof session.$inferInsert;
+
+export type PersonalNote = typeof personal_note.$inferSelect;
+export type NewPersonalNote = typeof personal_note.$inferInsert;
 
 export type Project = typeof project.$inferSelect;
 export type NewProject = typeof project.$inferInsert;

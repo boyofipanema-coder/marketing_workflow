@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import type { Brand, Member } from "@/server/db/schema";
 import type { NotificationView } from "@/server/services/collaboration";
 import NotificationMenu, { WorkInboxMenu } from "./NotificationMenu";
+import PersonalMemo from "./PersonalMemo";
 
 // ── Nav items ────────────────────────────────────────────────────────────────
 
@@ -26,6 +27,7 @@ import NotificationMenu, { WorkInboxMenu } from "./NotificationMenu";
 const NAV_ITEMS = [
   { href: "/home", label: "홈" },
   { href: "/my-work", label: "내 업무" },
+  { href: "/calendar", label: "캘린더" },
   { href: "/team", label: "팀" },
 ] as const;
 
@@ -36,9 +38,16 @@ export interface NavBarProps {
   brands: Brand[];
   viewerId: string;
   notifications: NotificationView[];
+  personalNote: string;
 }
 
-export default function NavBar({ members, brands, viewerId, notifications }: NavBarProps) {
+export default function NavBar({
+  members,
+  brands,
+  viewerId,
+  notifications,
+  personalNote,
+}: NavBarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [showQuickAdd, setShowQuickAdd] = useState(false);
@@ -109,7 +118,7 @@ export default function NavBar({ members, brands, viewerId, notifications }: Nav
           </nav>
 
           {/* Right side */}
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-1 sm:gap-2">
             <form onSubmit={submitSearch} className="relative hidden md:block">
               <Search
                 className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-tertiary"
@@ -129,13 +138,14 @@ export default function NavBar({ members, brands, viewerId, notifications }: Nav
               href="/guide"
               aria-label="사용 안내"
               title="사용 안내"
-              className="grid size-8 place-items-center rounded-lg text-text-secondary transition-[transform,background-color,color] duration-fast ease-out hover:bg-surface-2 hover:text-text active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+              className="hidden size-8 place-items-center rounded-lg text-text-secondary transition-[transform,background-color,color] duration-fast ease-out hover:bg-surface-2 hover:text-text active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg md:grid"
             >
               <CircleHelp className="size-4" aria-hidden />
             </Link>
 
             <NotificationMenu initialNotifications={notifications} />
             <WorkInboxMenu initialNotifications={notifications} />
+            <PersonalMemo initialBody={personalNote} />
 
             <DropdownMenu.Root>
               <DropdownMenu.Trigger asChild>

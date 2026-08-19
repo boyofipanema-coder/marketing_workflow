@@ -7,6 +7,7 @@ import {
 } from "@/server/data/queries";
 import MyWorkContent from "@/components/MyWorkContent";
 import { getMemberNotifications } from "@/server/services/collaboration";
+import { todayKST } from "@/lib/derive";
 
 /**
  * My Work page — server component.
@@ -35,6 +36,7 @@ export default async function MyWorkPage() {
       workstreams={workstreams}
       members={members}
       notifications={notifications}
+      today={todayKST(new Date())}
     />
   );
 }

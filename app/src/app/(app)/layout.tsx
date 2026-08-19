@@ -5,6 +5,7 @@ import {
   getWorkspaceMembers,
 } from "@/server/data/queries";
 import { getMemberNotifications } from "@/server/services/collaboration";
+import { getPersonalNote } from "@/server/services/personal-note";
 
 /**
  * Every screen under this layout resolves the current member and reads that
@@ -25,10 +26,11 @@ export default async function AppLayout({
 }) {
   // Validates the session against D1 before rendering any workspace data.
   const { member: viewer, db } = await getCurrentMember();
-  const [members, brands, notifications] = await Promise.all([
+  const [members, brands, notifications, personalNote] = await Promise.all([
     getWorkspaceMembers(db, viewer.workspace_id),
     getWorkspaceBrands(db, viewer.workspace_id),
     getMemberNotifications(db, viewer.workspace_id, viewer.id),
+    getPersonalNote(db, viewer.workspace_id, viewer.id),
   ]);
 
   return (
@@ -38,6 +40,7 @@ export default async function AppLayout({
         brands={brands}
         viewerId={viewer.id}
         notifications={notifications}
+        personalNote={personalNote}
       />
       <main>{children}</main>
     </div>

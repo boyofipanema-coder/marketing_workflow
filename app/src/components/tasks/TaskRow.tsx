@@ -9,6 +9,7 @@ import {
   MoreHorizontal,
   Loader2,
   RotateCcw,
+  Star,
   XCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -65,6 +66,7 @@ export default function TaskRow({
   onRestore,
   unreadCommentCount,
   isNew,
+  onToggleKey,
   dragHandleProps,
 }: TaskRowProps) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -180,6 +182,25 @@ export default function TaskRow({
 
       {saveState === "error" && (
         <span className="flex-shrink-0 text-xs text-flag-blocked">저장 실패</span>
+      )}
+
+      {onToggleKey && !cancelled && !done && (
+        <button
+          type="button"
+          onClick={() => onToggleKey(task)}
+          disabled={saveState === "saving"}
+          aria-pressed={task.importance === "key"}
+          aria-label={task.importance === "key" ? `${task.title} 중요 표시 해제` : `${task.title} 중요 업무로 표시`}
+          title={task.importance === "key" ? "중요 업무" : "중요 표시"}
+          className={cn(
+            "grid size-11 shrink-0 place-items-center rounded-xl transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            task.importance === "key"
+              ? "bg-accent/10 text-accent hover:bg-accent/15"
+              : "text-text-quaternary hover:bg-surface-2 hover:text-text-secondary",
+          )}
+        >
+          <Star className="size-4" fill={task.importance === "key" ? "currentColor" : "none"} aria-hidden />
+        </button>
       )}
 
       <CommentSidecarButton

@@ -42,6 +42,13 @@ export interface NotificationView {
   created_at: string;
 }
 
+const notificationTieBreak: Record<NotificationView["kind"], number> = {
+  task_scheduled: 3,
+  mention: 2,
+  comment: 2,
+  task_created: 1,
+};
+
 function isMissingCollaborationTable(error: unknown): boolean {
   const message =
     error instanceof Error ? error.message : typeof error === "string" ? error : "";
@@ -376,7 +383,12 @@ export async function getMemberNotifications(
       created_at: row.created_at,
     })),
   ]
-    .sort((a, b) => b.created_at.localeCompare(a.created_at))
+    .sort(
+      (a, b) =>
+        b.created_at.localeCompare(a.created_at) ||
+        notificationTieBreak[b.kind] - notificationTieBreak[a.kind] ||
+        b.id.localeCompare(a.id),
+    )
     .slice(0, 40);
 }
 
