@@ -3,11 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CalendarDays,
+  Check,
   ChevronLeft,
   ChevronRight,
-  Clock3,
   ExternalLink,
-  Flag,
   LocateFixed,
   RefreshCw,
 } from "lucide-react";
@@ -23,6 +22,15 @@ import {
 const TEAM_CALENDAR_ID = "gpvjgso7avdc7npu6ln7qf2qgk@group.calendar.google.com";
 const TEAM_CALENDAR_LINK = `https://calendar.google.com/calendar/u/0/r?cid=${encodeURIComponent(TEAM_CALENDAR_ID)}`;
 const REFRESH_INTERVAL_MS = 2 * 60 * 1000;
+const CLIENT_CACHE_KEY = "mtw:google-calendar:v2";
+const CLIENT_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+type GoogleStatus = "loading" | "ready" | "stale" | "error";
+
+interface CachedGoogleCalendar {
+  savedAt: number;
+  events: GoogleCalendarEvent[];
+}
 
 type CalendarKind = "schedule" | "deadline" | "followup" | "milestone";
 
@@ -51,11 +59,11 @@ interface GoogleCalendarItem {
 
 type CalendarItem = WorkspaceCalendarItem | GoogleCalendarItem;
 
-const KIND_META: Record<CalendarKind, { label: string; text: string }> = {
-  schedule: { label: "일정", text: "text-accent" },
-  deadline: { label: "마감", text: "text-flag-overdue" },
-  followup: { label: "팔로업", text: "text-status-waiting" },
-  milestone: { label: "마일스톤", text: "text-text-secondary" },
+const KIND_META: Record<CalendarKind, { label: string }> = {
+  schedule: { label: "일정" },
+  deadline: { label: "마감" },
+  followup: { label: "팔로업" },
+  milestone: { label: "마일스톤" },
 };
 
 function isoDate(date: Date): string {
@@ -147,6 +155,55 @@ function itemTime(item: CalendarItem): string {
   return item.endTime ? `${item.time}–${item.endTime}` : item.time;
 }
 
+function readCalendarCache(): CachedGoogleCalendar | null {
+  try {
+    const value = localStorage.getItem(CLIENT_CACHE_KEY);
+    if (!value) return null;
+    const cached = JSON.parse(value) as CachedGoogleCalendar;
+    if (
+      !Number.isFinite(cached.savedAt) ||
+      Date.now() - cached.savedAt > CLIENT_CACHE_MAX_AGE_MS ||
+      !Array.isArray(cached.events)
+    ) {
+      localStorage.removeItem(CLIENT_CACHE_KEY);
+      return null;
+    }
+    return cached;
+  } catch {
+    return null;
+  }
+}
+
+function writeCalendarCache(events: GoogleCalendarEvent[], savedAt: number) {
+  try {
+    localStorage.setItem(CLIENT_CACHE_KEY, JSON.stringify({ events, savedAt }));
+  } catch {
+    // The calendar remains usable when browser storage is unavailable.
+  }
+}
+
+function calendarItemTone(item: CalendarItem): string {
+  if (item.source === "google") {
+    return "border-[#4285f4]/35 bg-[#4285f4]/8 text-[#245ea9] dark:text-[#9bc0ff]";
+  }
+  if (item.kind === "deadline") {
+    return "border-flag-overdue/40 bg-flag-overdue/8 text-flag-overdue";
+  }
+  if (item.kind === "followup") {
+    return "border-status-waiting/40 bg-status-waiting/8 text-status-waiting";
+  }
+  return "border-accent/35 bg-accent/8 text-accent";
+}
+
+function syncLabel(status: GoogleStatus, savedAt: number | null): string {
+  if (status === "loading") return "Google 일정 불러오는 중";
+  if (status === "stale") return "저장된 일정 표시 중";
+  if (status === "error") return "Google 일정 연결 지연";
+  if (!savedAt) return "Google 일정 동기화됨";
+  const minutes = Math.floor((Date.now() - savedAt) / 60_000);
+  return minutes < 1 ? "방금 동기화됨" : `${minutes}분 전 동기화`;
+}
+
 function SourceMark({ source, compact = false }: { source: CalendarItem["source"]; compact?: boolean }) {
   return (
     <span
@@ -180,16 +237,28 @@ export default function CalendarContent({
   const controller = useTaskController(tasks);
   const { store } = controller;
   const [googleEvents, setGoogleEvents] = useState<GoogleCalendarEvent[]>([]);
-  const [googleStatus, setGoogleStatus] = useState<"loading" | "ready" | "error">("loading");
+  const googleEventsRef = useRef<GoogleCalendarEvent[]>([]);
+  const [googleStatus, setGoogleStatus] = useState<GoogleStatus>("loading");
+  const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
   const [refreshPending, setRefreshPending] = useState(false);
   const requestRef = useRef<AbortController | null>(null);
   const lastRefresh = useRef(Date.now());
   const [month, setMonth] = useState(today.slice(0, 7));
   const [selectedDate, setSelectedDate] = useState(today);
+  const [showWorkspace, setShowWorkspace] = useState(true);
+  const [showGoogle, setShowGoogle] = useState(true);
   const days = useMemo(() => monthGrid(month), [month]);
+  const workspaceCalendarItems = useMemo(
+    () => workspaceItems(controller.tasks),
+    [controller.tasks],
+  );
+  const googleCalendarItems = useMemo(() => googleItems(googleEvents), [googleEvents]);
   const items = useMemo(
-    () => [...workspaceItems(controller.tasks), ...googleItems(googleEvents)],
-    [controller.tasks, googleEvents],
+    () => [
+      ...(showWorkspace ? workspaceCalendarItems : []),
+      ...(showGoogle ? googleCalendarItems : []),
+    ],
+    [googleCalendarItems, showGoogle, showWorkspace, workspaceCalendarItems],
   );
   const itemsByDate = useMemo(() => {
     const map = new Map<string, CalendarItem[]>();
@@ -207,6 +276,8 @@ export default function CalendarContent({
     return map;
   }, [items]);
   const selectedItems = itemsByDate.get(selectedDate) ?? [];
+  const monthWorkspaceCount = workspaceCalendarItems.filter((item) => item.date.startsWith(month)).length;
+  const monthGoogleCount = googleCalendarItems.filter((item) => item.date.startsWith(month)).length;
   const monthTitle = new Intl.DateTimeFormat("ko-KR", { year: "numeric", month: "long" })
     .format(new Date(`${month}-01T00:00:00`));
 
@@ -225,13 +296,20 @@ export default function CalendarContent({
       if (!response.ok) throw new Error("Google Calendar request failed");
       const ics = await response.text();
       const year = Number(today.slice(0, 4));
-      setGoogleEvents(
-        parseGoogleCalendarIcs(ics, `${year - 1}-01-01`, `${year + 2}-12-31`),
+      const events = parseGoogleCalendarIcs(
+        ics,
+        `${year - 1}-01-01`,
+        `${year + 2}-12-31`,
       );
+      const savedAt = Date.now();
+      googleEventsRef.current = events;
+      setGoogleEvents(events);
+      setLastSyncedAt(savedAt);
+      writeCalendarCache(events, savedAt);
       setGoogleStatus("ready");
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
-      setGoogleStatus("error");
+      setGoogleStatus(googleEventsRef.current.length ? "stale" : "error");
     } finally {
       if (requestRef.current === request) {
         requestRef.current = null;
@@ -241,6 +319,13 @@ export default function CalendarContent({
   }, [today]);
 
   useEffect(() => {
+    const cached = readCalendarCache();
+    if (cached) {
+      googleEventsRef.current = cached.events;
+      setGoogleEvents(cached.events);
+      setLastSyncedAt(cached.savedAt);
+      setGoogleStatus("ready");
+    }
     void refreshCalendar();
     const interval = window.setInterval(refreshCalendar, REFRESH_INTERVAL_MS);
     function refreshWhenVisible() {
@@ -268,35 +353,51 @@ export default function CalendarContent({
 
   return (
     <>
-      <div className="mx-auto max-w-7xl px-4 py-7 sm:px-6 sm:py-10">
-        <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <p className="text-2xs font-semibold tracking-[0.16em] text-accent">통합 캘린더</p>
-            <h1 className="mt-1 break-keep text-3xl font-semibold tracking-tight text-text">모든 일정을 하나의 시간표로</h1>
-            <p className="mt-2 break-keep text-sm leading-relaxed text-text-secondary">
-              업무 일정과 Google 일정을 출처만 구분해 함께 보여줍니다.
-            </p>
+      <div className="mx-auto max-w-[1440px] px-3 py-5 sm:px-6 sm:py-7">
+        <header className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-semibold tracking-tight text-text">캘린더</h1>
+              <span
+                role="status"
+                aria-live="polite"
+                className={cn(
+                  "inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-[10px] font-medium",
+                  googleStatus === "error"
+                    ? "border-flag-overdue/25 bg-flag-overdue/8 text-flag-overdue"
+                    : googleStatus === "stale"
+                      ? "border-status-waiting/25 bg-status-waiting/8 text-status-waiting"
+                      : "border-border bg-surface text-text-tertiary",
+                )}
+              >
+                <span className={cn("size-1.5 rounded-full", googleStatus === "error" ? "bg-flag-overdue" : googleStatus === "stale" ? "bg-status-waiting" : "bg-[#4285f4]", (googleStatus === "loading" || refreshPending) && "animate-pulse")} />
+                {syncLabel(googleStatus, lastSyncedAt)}
+              </span>
+            </div>
+            <p className="mt-1 text-xs text-text-tertiary">업무와 외부 일정을 한 화면에서 확인합니다.</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <button
               type="button"
               onClick={refreshCalendar}
               disabled={refreshPending}
-              className="grid size-11 place-items-center rounded-xl border border-border bg-surface text-text-secondary shadow-xs hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-55"
+              className="inline-flex h-10 items-center gap-2 rounded-xl border border-border bg-surface px-3 text-xs font-semibold text-text-secondary shadow-xs hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-55"
               aria-label="일정 새로고침"
               title="일정 새로고침"
             >
               <RefreshCw className={cn("size-4", refreshPending && "animate-spin")} aria-hidden />
+              <span className="hidden sm:inline">새로고침</span>
             </button>
             <a
               href={TEAM_CALENDAR_LINK}
               target="_blank"
               rel="noreferrer"
-              className="grid size-11 place-items-center rounded-xl border border-border bg-surface text-text-secondary shadow-xs hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="inline-flex h-10 items-center gap-2 rounded-xl border border-border bg-surface px-3 text-xs font-semibold text-text-secondary shadow-xs hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               aria-label="Google Calendar에서 열기"
               title="Google Calendar에서 열기"
             >
               <ExternalLink className="size-4" aria-hidden />
+              <span className="hidden sm:inline">Google에서 열기</span>
             </a>
             <button
               type="button"
@@ -304,9 +405,9 @@ export default function CalendarContent({
                 setMonth(today.slice(0, 7));
                 setSelectedDate(today);
               }}
-              className="inline-flex h-11 items-center gap-2 rounded-xl border border-border bg-surface px-4 text-sm font-semibold text-text-secondary shadow-xs transition-[transform,background-color] hover:bg-surface-2 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="inline-flex h-10 items-center gap-2 rounded-xl bg-text px-3 text-xs font-semibold text-bg shadow-xs transition-[transform,opacity] hover:opacity-90 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
-              <LocateFixed className="size-4" aria-hidden />오늘로 이동
+              <LocateFixed className="size-4" aria-hidden />오늘
             </button>
           </div>
         </header>
@@ -316,43 +417,69 @@ export default function CalendarContent({
             {store.error}
           </p>
         )}
-        {googleStatus === "error" && (
+        {(googleStatus === "error" || googleStatus === "stale") && (
           <p role="status" className="mb-4 rounded-xl border border-status-waiting/25 bg-status-waiting/8 px-4 py-3 text-xs text-text-secondary">
-            Google 일정을 불러오지 못했습니다. 업무 일정만 표시하고 있습니다.
+            {googleStatus === "stale"
+              ? "Google 연결이 늦어 저장된 일정을 먼저 보여주고 있습니다. 업무 일정은 최신 상태입니다."
+              : "Google 일정을 불러오지 못했습니다. 업무 일정은 계속 사용할 수 있습니다."}
           </p>
         )}
 
-        <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.7fr)_minmax(19rem,0.65fr)]">
-          <section aria-label="통합 달력" className="overflow-hidden rounded-[24px] border border-border bg-surface shadow-sm">
-            <div className="flex items-center justify-between border-b border-separator px-4 py-4 sm:px-5">
-              <button type="button" onClick={() => setMonth((value) => moveMonth(value, -1))} aria-label="이전 달" className="grid size-11 place-items-center rounded-xl text-text-secondary hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><ChevronLeft className="size-4" aria-hidden /></button>
-              <div className="text-center">
-                <h2 className="text-lg font-semibold tracking-tight text-text">{monthTitle}</h2>
-                <div className="mt-1 flex items-center justify-center gap-2">
-                  <SourceMark source="workspace" />
-                  <SourceMark source="google" />
-                </div>
+        <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_21rem]">
+          <section aria-label="통합 달력" className="overflow-hidden rounded-[20px] border border-border bg-surface shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-separator px-3 py-3 sm:px-4">
+              <div className="flex items-center gap-1">
+                <button type="button" onClick={() => setMonth((value) => moveMonth(value, -1))} aria-label="이전 달" className="grid size-9 place-items-center rounded-lg text-text-secondary hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><ChevronLeft className="size-4" aria-hidden /></button>
+                <h2 className="min-w-32 text-center text-base font-semibold tracking-tight text-text sm:text-lg">{monthTitle}</h2>
+                <button type="button" onClick={() => setMonth((value) => moveMonth(value, 1))} aria-label="다음 달" className="grid size-9 place-items-center rounded-lg text-text-secondary hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><ChevronRight className="size-4" aria-hidden /></button>
               </div>
-              <button type="button" onClick={() => setMonth((value) => moveMonth(value, 1))} aria-label="다음 달" className="grid size-11 place-items-center rounded-xl text-text-secondary hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><ChevronRight className="size-4" aria-hidden /></button>
+              <div className="flex items-center gap-1.5" aria-label="일정 출처 필터">
+                <button
+                  type="button"
+                  aria-pressed={showWorkspace}
+                  onClick={() => setShowWorkspace((value) => !value)}
+                  className={cn(
+                    "inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    showWorkspace ? "border-accent/25 bg-accent/8 text-accent" : "border-border bg-surface text-text-tertiary",
+                  )}
+                >
+                  {showWorkspace ? <Check className="size-3" aria-hidden /> : <span className="size-2 rounded-full border border-current" />}
+                  업무 <span className="tabular-nums opacity-70">{monthWorkspaceCount}</span>
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={showGoogle}
+                  onClick={() => setShowGoogle((value) => !value)}
+                  className={cn(
+                    "inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    showGoogle ? "border-[#4285f4]/25 bg-[#4285f4]/8 text-[#2f6fce] dark:text-[#9bc0ff]" : "border-border bg-surface text-text-tertiary",
+                  )}
+                >
+                  {showGoogle ? <Check className="size-3" aria-hidden /> : <span className="size-2 rounded-full border border-current" />}
+                  Google <span className="tabular-nums opacity-70">{googleStatus === "loading" ? "…" : monthGoogleCount}</span>
+                </button>
+              </div>
             </div>
             <div className="grid grid-cols-7 border-b border-separator bg-surface-2/55">
-              {["월", "화", "수", "목", "금", "토", "일"].map((weekday) => (
-                <div key={weekday} className="py-2 text-center text-2xs font-semibold text-text-tertiary">{weekday}</div>
+              {["월", "화", "수", "목", "금", "토", "일"].map((weekday, index) => (
+                <div key={weekday} className={cn("py-2 text-center text-[10px] font-semibold", index >= 5 ? "text-text-secondary" : "text-text-tertiary")}>{weekday}</div>
               ))}
             </div>
             <div className="grid grid-cols-7">
-              {days.map((date) => {
+              {days.map((date, dayIndex) => {
                 const dayItems = itemsByDate.get(date) ?? [];
                 const inMonth = date.startsWith(month);
                 const selected = date === selectedDate;
                 const isToday = date === today;
+                const isWeekend = dayIndex % 7 >= 5;
                 return (
                   <div
                     key={date}
                     className={cn(
-                      "min-h-24 border-b border-r border-separator p-1.5 sm:min-h-32 sm:p-2",
+                      "min-h-[4.5rem] border-b border-r border-separator p-1 sm:min-h-28 sm:p-1.5 lg:min-h-32 lg:p-2",
                       !inMonth && "bg-surface-2/35",
-                      selected && "bg-accent/[0.035]",
+                      inMonth && isWeekend && "bg-surface-2/20",
+                      selected && "bg-accent/[0.055] ring-1 ring-inset ring-accent/20",
                     )}
                   >
                     <button
@@ -366,20 +493,43 @@ export default function CalendarContent({
                     >
                       {Number(date.slice(-2))}
                     </button>
-                    <div className="space-y-1">
+                    <div className="flex min-h-5 items-center gap-1 px-0.5 sm:hidden" aria-hidden>
+                      {dayItems.slice(0, 3).map((item) => (
+                        <span
+                          key={item.id}
+                          className={cn(
+                            "size-1.5 rounded-full",
+                            item.source === "google"
+                              ? "bg-[#4285f4]"
+                              : item.kind === "deadline"
+                                ? "bg-flag-overdue"
+                                : "bg-accent",
+                          )}
+                        />
+                      ))}
+                      {dayItems.length > 3 && <span className="text-[8px] font-semibold text-text-tertiary">+{dayItems.length - 3}</span>}
+                    </div>
+                    <div className="hidden space-y-1 sm:block">
                       {dayItems.slice(0, 3).map((item) => (
                         <button
                           key={item.id}
                           type="button"
                           onClick={() => openItem(item)}
-                          className="flex w-full items-center gap-1 rounded-md px-1 py-0.5 text-left text-[9px] text-text-secondary hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:text-[10px]"
+                          className={cn(
+                            "flex w-full items-center gap-1.5 truncate rounded-md border-l-2 px-1.5 py-1 text-left text-[10px] font-medium leading-tight hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:text-[11px]",
+                            calendarItemTone(item),
+                          )}
                           title={`${item.source === "google" ? "Google" : "업무"} · ${item.label}`}
                         >
-                          <SourceMark source={item.source} compact />
-                          <span className="truncate">{item.time ? `${item.time} ` : ""}{item.label}</span>
+                          {item.time && <span className="shrink-0 font-mono text-[9px] opacity-70">{item.time}</span>}
+                          <span className="truncate">{item.label}</span>
                         </button>
                       ))}
-                      {dayItems.length > 3 && <p className="pl-1 text-[9px] font-medium text-text-tertiary">+{dayItems.length - 3}</p>}
+                      {dayItems.length > 3 && (
+                        <button type="button" onClick={() => setSelectedDate(date)} className="w-full rounded px-1.5 py-0.5 text-left text-[9px] font-semibold text-text-tertiary hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                          +{dayItems.length - 3}개 더 보기
+                        </button>
+                      )}
                     </div>
                   </div>
                 );
@@ -387,45 +537,42 @@ export default function CalendarContent({
             </div>
           </section>
 
-          <aside aria-labelledby="selected-day-title" className="rounded-[22px] border border-border bg-surface p-5 shadow-sm xl:sticky xl:top-5">
+          <aside aria-labelledby="selected-day-title" className="rounded-[20px] border border-border bg-surface p-4 shadow-sm sm:p-5 xl:sticky xl:top-5">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-2xs font-semibold tracking-[0.16em] text-accent">선택한 날</p>
+                <p className="text-[10px] font-semibold tracking-[0.14em] text-accent">{selectedDate === today ? "오늘의 일정" : "선택한 날"}</p>
                 <h2 id="selected-day-title" className="mt-1 break-keep text-xl font-semibold tracking-tight text-text">{dateLabel(selectedDate)}</h2>
               </div>
-              <span className="rounded-full bg-surface-2 px-2.5 py-1 text-[10px] font-semibold tabular-nums text-text-secondary">{selectedItems.length}개</span>
+              <span className="rounded-full bg-surface-2 px-2.5 py-1 text-[10px] font-semibold tabular-nums text-text-secondary">일정 {selectedItems.length}</span>
             </div>
-            <div className="mt-4 space-y-2">
+            <div className="mt-4 space-y-1.5">
               {selectedItems.length === 0 ? (
-                <p className="rounded-xl bg-surface-2/60 px-4 py-7 text-center text-xs leading-relaxed text-text-tertiary">등록된 일정이 없습니다.</p>
+                <div className="rounded-xl border border-dashed border-border bg-surface-2/35 px-4 py-8 text-center">
+                  <CalendarDays className="mx-auto size-5 text-text-quaternary" aria-hidden />
+                  <p className="mt-2 text-xs font-medium text-text-tertiary">등록된 일정이 없습니다.</p>
+                  <p className="mt-1 text-[10px] text-text-quaternary">다른 날짜를 선택하거나 Google에서 일정을 추가하세요.</p>
+                </div>
               ) : selectedItems.map((item) => {
                 const meta = item.source === "workspace" ? KIND_META[item.kind] : null;
-                const Icon = item.source === "google"
-                  ? CalendarDays
-                  : item.kind === "deadline"
-                    ? Flag
-                    : item.kind === "schedule"
-                      ? Clock3
-                      : CalendarDays;
                 const content = (
                   <>
-                    <span className={cn("grid size-9 shrink-0 place-items-center rounded-[11px] bg-surface-2", meta?.text ?? "text-[#2f6fce] dark:text-[#8ab4f8]")}><Icon className="size-4" aria-hidden /></span>
+                    <span className="w-12 shrink-0 pt-0.5 text-right font-mono text-[10px] font-semibold tabular-nums text-text-tertiary">{itemTime(item)}</span>
+                    <span className={cn("mt-1 h-9 w-0.5 shrink-0 rounded-full", item.source === "google" ? "bg-[#4285f4]" : item.kind === "deadline" ? "bg-flag-overdue" : item.kind === "followup" ? "bg-status-waiting" : "bg-accent")} aria-hidden />
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-semibold text-text">{item.label}</span>
+                      <span className="block break-keep text-sm font-semibold leading-snug text-text">{item.label}</span>
                       <span className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-text-tertiary">
                         <SourceMark source={item.source} />
-                        <span>{itemTime(item)}</span>
-                        {meta && <span>· {meta.label}</span>}
+                        {meta && <span>{meta.label}</span>}
                       </span>
                     </span>
                   </>
                 );
                 return item.source === "workspace" ? (
-                  <button key={item.id} type="button" onClick={() => controller.select(item.task)} className="group flex w-full items-start gap-3 rounded-xl border border-separator px-3 py-3 text-left hover:border-border-strong hover:bg-surface-2/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  <button key={item.id} type="button" onClick={() => controller.select(item.task)} className="group flex w-full items-start gap-3 rounded-xl px-2 py-3 text-left hover:bg-surface-2/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                     {content}
                   </button>
                 ) : (
-                  <div key={item.id} className="flex w-full items-start gap-3 rounded-xl border border-separator px-3 py-3">
+                  <div key={item.id} className="flex w-full items-start gap-3 rounded-xl px-2 py-3">
                     {content}
                   </div>
                 );
