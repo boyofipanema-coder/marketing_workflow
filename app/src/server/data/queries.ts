@@ -141,7 +141,7 @@ export async function getWorkspaceProjects(
     .where(
       and(eq(project.workspace_id, workspaceId), isNull(project.archived_at))
     )
-    .orderBy(asc(project.created_at));
+    .orderBy(asc(project.sort_order), asc(project.created_at));
 }
 
 /** Fetch a single project by ID, scoped to the caller's workspace. */

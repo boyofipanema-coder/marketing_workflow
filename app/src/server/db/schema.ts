@@ -102,6 +102,8 @@ export const project = sqliteTable("project", {
     .references(() => member.id),
   target_start_date: text("target_start_date"),
   target_end_date: text("target_end_date"),
+  /** Manual ordering within a brand. */
+  sort_order: integer("sort_order").notNull().default(0),
   archived_at: text("archived_at"),
   created_at: text("created_at").notNull(),
   updated_at: text("updated_at").notNull(),

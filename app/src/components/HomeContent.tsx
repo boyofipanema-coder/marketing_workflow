@@ -18,6 +18,7 @@ import ProjectFormDialog from "@/components/projects/ProjectFormDialog";
 import { Button } from "@/components/ui";
 import { summarizeWorkspaceWorkflow } from "@/lib/workflow-summary";
 import { notificationIndicators } from "@/lib/notification-indicators";
+import { reorderProjectsAction } from "@/app/actions/projects";
 import type { Task, Brand, Project, Workstream, Member } from "@/server/db/schema";
 import type { NotificationView } from "@/server/services/collaboration";
 
@@ -66,6 +67,8 @@ export default function HomeContent({
   const [brandFilterIds, setBrandFilterIds] = useState<string[]>([]);
   const [taskProjectId, setTaskProjectId] = useState<string | null>(null);
   const [taskParent, setTaskParent] = useState<Task | null>(null);
+  const [orderedProjects, setOrderedProjects] = useState(projects);
+  const [projectOrderError, setProjectOrderError] = useState<string | null>(null);
 
   useEffect(() => {
     function onFocus() {
@@ -88,6 +91,10 @@ export default function HomeContent({
       return next.length === current.length ? current : next;
     });
   }, [brands]);
+
+  useEffect(() => {
+    setOrderedProjects(projects);
+  }, [projects]);
 
   const membersRecord = useMemo(
     () => Object.fromEntries(members.map((m) => [m.id, m])),
@@ -122,11 +129,11 @@ export default function HomeContent({
   const visibleProjects = useMemo(
     () =>
       brandFilterIds.length === 0
-        ? projects
-        : projects.filter(
+        ? orderedProjects
+        : orderedProjects.filter(
             (project) => project.brand_id && brandFilterIds.includes(project.brand_id)
           ),
-    [brandFilterIds, projects]
+    [brandFilterIds, orderedProjects]
   );
   const visibleBrands = useMemo(
     () =>
@@ -204,22 +211,39 @@ export default function HomeContent({
     });
   }
 
+  async function reorderProjectGroup(orderedIds: string[]) {
+    const previous = orderedProjects;
+    const rank = new Map(orderedIds.map((id, index) => [id, index]));
+    setProjectOrderError(null);
+    setOrderedProjects((current) =>
+      current.map((item) => {
+        const sortOrder = rank.get(item.id);
+        return sortOrder === undefined ? item : { ...item, sort_order: sortOrder };
+      }),
+    );
+    const result = await reorderProjectsAction(orderedIds);
+    if (!result.success) {
+      setOrderedProjects(previous);
+      setProjectOrderError(result.error ?? "프로젝트 순서를 저장하지 못했습니다.");
+    }
+  }
+
   return (
     <>
       <div className="mx-auto max-w-5xl px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:px-6 sm:pb-4">
-        {store.error && (
+        {(store.error || projectOrderError) && (
           <p
             role="alert"
             className="mb-6 rounded-lg border border-flag-blocked/30 bg-flag-blocked/10 px-3 py-2 text-xs text-flag-blocked"
           >
-            {store.error}
+            {store.error ?? projectOrderError}
           </p>
         )}
 
         {/* A workspace with no projects yet has nothing for the board to
             group by — offer the one thing that unblocks it, independent of
             whether a stray quick-added task already exists in 미분류. */}
-        {projects.length === 0 && (
+        {orderedProjects.length === 0 && (
           <div className="mb-10 rounded-xl border border-dashed border-border bg-surface-2/40">
             <EmptyState
               icon={<Briefcase className="h-5 w-5" aria-hidden />}
@@ -250,7 +274,7 @@ export default function HomeContent({
             }}
             onAddSubtask={(parent) => {
               setTaskParent(parent);
-              setTaskProjectId(parent.project_id);
+              setTaskProjectId(parent.project_id ?? null);
             }}
             onToggleComplete={controller.toggleComplete}
           />
@@ -258,7 +282,7 @@ export default function HomeContent({
 
         {/* Desktop retains the spatial board. Mobile gets the same hierarchy
             as a readable vertical flow from the first render. */}
-        {(brands.length > 0 || projects.length > 0 || boardTasks.length > 0) && (
+        {(brands.length > 0 || orderedProjects.length > 0 || boardTasks.length > 0) && (
           <section
             className="relative left-1/2 mb-10 hidden w-[min(1400px,calc(100vw-2rem))] -translate-x-1/2 md:block"
             aria-label="전체 업무 흐름"
@@ -394,9 +418,11 @@ export default function HomeContent({
               }}
               onAddSubtask={(parent) => {
                 setTaskParent(parent);
-                setTaskProjectId(parent.project_id);
+                setTaskProjectId(parent.project_id ?? null);
               }}
               onEditProject={setEditingProject}
+              onReorderProjects={(ids) => void reorderProjectGroup(ids)}
+              onReorderTasks={controller.reorder}
               focus={boardFocus}
               onFocusChange={setBoardFocus}
             />
@@ -416,7 +442,7 @@ export default function HomeContent({
 
       <TaskDetailPanel
         task={controller.selected}
-        projects={projects}
+        projects={orderedProjects}
         workstreams={workstreams}
         members={members}
         open={controller.panelOpen}
@@ -446,7 +472,7 @@ export default function HomeContent({
             setTaskParent(null);
           }
         }}
-        projects={projects}
+        projects={orderedProjects}
         workstreams={workstreams}
         members={members}
         defaultAssigneeId={viewerId}

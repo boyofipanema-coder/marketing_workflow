@@ -27,6 +27,7 @@ import {
   editProject,
   archiveProject,
   restoreProject,
+  reorderProjects,
 } from "@/server/services/project";
 import { createWorkstream } from "@/server/services/workstream";
 import { createMilestone, editMilestone } from "@/server/services/milestone";
@@ -921,6 +922,27 @@ describe("Project, workstream, milestone", () => {
 
     const restored = await restoreProject(db as never, created.id, WS_ID);
     expect(restored.archived_at).toBeNull();
+  });
+
+  it("persists project order within a brand", async () => {
+    const first = await createProject(db as never, {
+      workspaceId: WS_ID,
+      name: "First project",
+      projectLeadId: MEMBER_ID,
+    });
+    const second = await createProject(db as never, {
+      workspaceId: WS_ID,
+      name: "Second project",
+      projectLeadId: MEMBER_ID,
+    });
+
+    await reorderProjects(db as never, WS_ID, [second.id, first.id, PROJECT_ID]);
+
+    const rows = db.select().from(schema.project).all() as schema.Project[];
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    expect(byId.get(second.id)?.sort_order).toBe(0);
+    expect(byId.get(first.id)?.sort_order).toBe(1);
+    expect(byId.get(PROJECT_ID)?.sort_order).toBe(2);
   });
 
   it("appends new workstreams to the end of the project's order", async () => {

@@ -3,11 +3,14 @@
 import { useMemo, useState } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
+  ArrowDownUp,
+  CalendarClock,
   Check,
   Circle,
   CircleAlert,
   CornerDownRight,
   FolderPlus,
+  GripVertical,
   Network,
   Plus,
 } from "lucide-react";
@@ -21,6 +24,7 @@ import type { Brand, Member, Project, Task } from "@/server/db/schema";
 
 export type BoardFocus = "all" | "today" | "overdue";
 type Scope = "active" | "done";
+type OrderMode = "manual" | "recent";
 
 interface StackedWorkflowBoardProps {
   tasks: Task[];
@@ -37,6 +41,24 @@ interface StackedWorkflowBoardProps {
   onAddProjectTask: (projectId: string) => void;
   onAddSubtask: (parent: Task) => void;
   onEditProject: (project: Project) => void;
+  onReorderProjects: (orderedIds: string[]) => void;
+  onReorderTasks: (orderedIds: string[]) => void;
+}
+
+function taskOrder(a: Task, b: Task, mode: OrderMode) {
+  return mode === "recent"
+    ? b.created_at.localeCompare(a.created_at)
+    : a.sort_order - b.sort_order || a.created_at.localeCompare(b.created_at);
+}
+
+function taskDateText(task: Task): string | null {
+  if (task.start_date && task.due_date && task.start_date !== task.due_date) {
+    return `${task.start_date.slice(5)}–${task.due_date.slice(5)}`;
+  }
+  if (task.due_date) {
+    return `${task.due_date.slice(5)} ${task.start_date === task.due_date ? "일정" : "마감"}`;
+  }
+  return task.start_date ? `${task.start_date.slice(5)} 시작` : null;
 }
 
 function CompletionButton({
@@ -113,6 +135,10 @@ function ChildTaskRow({
   onSelect,
   onToggleComplete,
   onAddSubtask,
+  canDrag,
+  isDragging,
+  onDragStart,
+  onDropTask,
 }: {
   task: Task;
   depth: number;
@@ -123,11 +149,22 @@ function ChildTaskRow({
   onSelect: (task: Task) => void;
   onToggleComplete: (task: Task) => void;
   onAddSubtask: (parent: Task) => void;
+  canDrag: boolean;
+  isDragging: boolean;
+  onDragStart: () => void;
+  onDropTask: () => void;
 }) {
+  const dateText = taskDateText(task);
   return (
     <div
+      draggable={canDrag && isDragging}
+      onDragOver={(event) => {
+        if (canDrag) event.preventDefault();
+      }}
+      onDrop={onDropTask}
+      onDragEnd={onDropTask}
       title={task.description ?? `${task.title} · ${owner?.name ?? "담당자 미지정"}`}
-      className="group/child flex h-10 w-[calc(100%-var(--indent))] items-center gap-2 border-b border-border/60 px-1.5 text-left transition-colors duration-fast ease-out last:border-b-0 hover:bg-surface-2/70"
+      className={`group/child flex min-h-12 w-[calc(100%-var(--indent))] items-center gap-1.5 border-b border-border/60 px-1.5 py-1.5 text-left transition-colors duration-fast ease-out last:border-b-0 hover:bg-surface-2/70 ${isDragging ? "opacity-40" : ""}`}
       style={{
         marginLeft: `${depth * 8}px`,
         ["--indent" as string]: `${depth * 8}px`,
@@ -139,14 +176,32 @@ function ChildTaskRow({
           aria-hidden
         />
       )}
+      <button
+        type="button"
+        draggable={canDrag}
+        onDragStart={canDrag ? onDragStart : undefined}
+        aria-label={`${task.title} 순서 이동`}
+        title={canDrag ? "드래그해 순서 변경" : "전체 · 수동 순서에서 변경할 수 있습니다"}
+        className="grid size-6 shrink-0 cursor-grab place-items-center rounded-md text-text-quaternary opacity-0 transition-opacity hover:bg-surface-3 hover:text-text-secondary group-hover/child:opacity-100 focus-visible:opacity-100"
+      >
+        <GripVertical className="size-3.5" aria-hidden />
+      </button>
       <CompletionButton task={task} onToggleComplete={onToggleComplete} compact />
       <button
         type="button"
         onClick={() => onSelect(task)}
-        className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-sm font-medium text-text transition-transform duration-fast ease-out active:scale-[0.99]"
+        className="flex min-w-0 flex-1 flex-col items-start justify-center text-left text-sm font-medium text-text transition-transform duration-fast ease-out active:scale-[0.99]"
       >
-        {newTasks[`task:${task.id}`] && <NewTaskBadge />}
-        <span className="truncate">{task.title}</span>
+        <span className="flex w-full min-w-0 items-center gap-1.5">
+          {newTasks[`task:${task.id}`] && <NewTaskBadge />}
+          <span className="truncate">{task.title}</span>
+        </span>
+        {dateText && (
+          <span className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-semibold tabular-nums text-accent">
+            <CalendarClock className="size-3" aria-hidden />
+            {dateText}
+          </span>
+        )}
       </button>
       <OwnerBadge owner={owner} />
       <CommentSidecarButton
@@ -182,6 +237,10 @@ function FlowTask({
   onToggleComplete,
   onAddSubtask,
   brandColor,
+  canDrag,
+  draggingTaskId,
+  onDragStart,
+  onDropTask,
 }: {
   task: Task;
   childrenByParent: Map<string, Task[]>;
@@ -193,7 +252,12 @@ function FlowTask({
   onToggleComplete: (task: Task) => void;
   onAddSubtask: (parent: Task) => void;
   brandColor: string;
+  canDrag: boolean;
+  draggingTaskId: string | null;
+  onDragStart: (task: Task) => void;
+  onDropTask: (task: Task) => void;
 }) {
+  const isDragging = draggingTaskId === task.id;
   const descendants = descendantsOf(task.id, childrenByParent);
   const [showAllDescendants, setShowAllDescendants] = useState(false);
   const remainingDescendants = descendants.slice(3);
@@ -201,7 +265,15 @@ function FlowTask({
   const owner = task.assignee_id ? members[task.assignee_id] : null;
 
   return (
-    <div className="relative grid grid-cols-[minmax(14rem,.8fr)_minmax(16rem,.9fr)] items-start gap-5">
+    <div
+      draggable={canDrag && isDragging}
+      onDragOver={(event) => {
+        if (canDrag) event.preventDefault();
+      }}
+      onDrop={() => onDropTask(task)}
+      onDragEnd={() => onDropTask(task)}
+      className={`relative grid grid-cols-[minmax(14rem,.8fr)_minmax(16rem,.9fr)] items-start gap-5 ${isDragging ? "opacity-40" : ""}`}
+    >
       <div
         className="group relative z-10 flex min-h-14 items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2 shadow-xs transition-[border-color,box-shadow,transform] duration-fast ease-out hover:-translate-y-px hover:border-border-strong hover:shadow-sm active:scale-[0.995]"
       >
@@ -214,6 +286,16 @@ function FlowTask({
           style={{ backgroundColor: brandColor }}
           aria-hidden
         />
+        <button
+          type="button"
+          draggable={canDrag}
+          onDragStart={canDrag ? () => onDragStart(task) : undefined}
+          aria-label={`${task.title} 순서 이동`}
+          title={canDrag ? "드래그해 순서 변경" : "전체 · 수동 순서에서 변경할 수 있습니다"}
+          className="grid size-7 shrink-0 cursor-grab place-items-center rounded-lg text-text-quaternary opacity-0 transition-opacity hover:bg-surface-2 hover:text-text-secondary group-hover:opacity-100 focus-visible:opacity-100"
+        >
+          <GripVertical className="size-4" aria-hidden />
+        </button>
         {newTasks[`task:${task.id}`] && <NewTaskBadge />}
         <button
           type="button"
@@ -265,6 +347,10 @@ function FlowTask({
               onSelect={onSelect}
               onToggleComplete={onToggleComplete}
               onAddSubtask={onAddSubtask}
+              canDrag={canDrag}
+              isDragging={draggingTaskId === child.id}
+              onDragStart={() => onDragStart(child)}
+              onDropTask={() => onDropTask(child)}
             />
           );
         })}
@@ -312,8 +398,13 @@ export default function StackedWorkflowBoard({
   onAddProjectTask,
   onAddSubtask,
   onEditProject,
+  onReorderProjects,
+  onReorderTasks,
 }: StackedWorkflowBoardProps) {
   const [scope, setScope] = useState<Scope>("active");
+  const [orderMode, setOrderMode] = useState<OrderMode>("manual");
+  const [draggingProjectId, setDraggingProjectId] = useState<string | null>(null);
+  const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
   const now = useMemo(() => new Date(), []);
   const scopedTasks = useMemo(
     () =>
@@ -331,9 +422,49 @@ export default function StackedWorkflowBoard({
       if (!task.parent_task_id || !taskIds.has(task.parent_task_id)) continue;
       map.set(task.parent_task_id, [...(map.get(task.parent_task_id) ?? []), task]);
     }
+    for (const children of map.values()) {
+      children.sort((a, b) => taskOrder(a, b, orderMode));
+    }
     return map;
-  }, [scopedTasks, taskIds]);
+  }, [orderMode, scopedTasks, taskIds]);
   const memberList = useMemo(() => Object.values(members), [members]);
+  const canReorderTasks = orderMode === "manual" && scope === "active" && focus === "all";
+
+  function moveId(ids: string[], fromId: string, toId: string) {
+    const next = [...ids];
+    const from = next.indexOf(fromId);
+    const to = next.indexOf(toId);
+    if (from === -1 || to === -1 || from === to) return null;
+    next.splice(to, 0, next.splice(from, 1)[0]!);
+    return next;
+  }
+
+  function dropProject(target: Project, siblings: Project[]) {
+    if (!draggingProjectId) return;
+    const next = moveId(siblings.map((item) => item.id), draggingProjectId, target.id);
+    setDraggingProjectId(null);
+    if (next) onReorderProjects(next);
+  }
+
+  function dropTask(target: Task) {
+    if (!draggingTaskId) return;
+    const source = scopedTasks.find((item) => item.id === draggingTaskId);
+    setDraggingTaskId(null);
+    if (
+      !source ||
+      source.project_id !== target.project_id ||
+      source.parent_task_id !== target.parent_task_id
+    ) return;
+    const siblings = scopedTasks
+      .filter(
+        (item) =>
+          item.project_id === target.project_id &&
+          item.parent_task_id === target.parent_task_id,
+      )
+      .sort((a, b) => taskOrder(a, b, "manual"));
+    const next = moveId(siblings.map((item) => item.id), source.id, target.id);
+    if (next) onReorderTasks(next);
+  }
 
   return (
     <div className="overflow-hidden rounded-2xl border border-border bg-surface-2/35 shadow-xs">
@@ -364,6 +495,22 @@ export default function StackedWorkflowBoard({
           >
             완료 업무
           </button>
+          <span className="mx-1 h-5 w-px bg-border" aria-hidden />
+          <button
+            type="button"
+            onClick={() =>
+              setOrderMode((current) => current === "manual" ? "recent" : "manual")
+            }
+            aria-pressed={orderMode === "recent"}
+            className={`inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-semibold transition-colors ${orderMode === "recent" ? "bg-accent-soft text-accent" : "border border-border bg-surface text-text-secondary"}`}
+          >
+            {orderMode === "recent" ? (
+              <CalendarClock className="size-3.5" aria-hidden />
+            ) : (
+              <ArrowDownUp className="size-3.5" aria-hidden />
+            )}
+            {orderMode === "recent" ? "최근 추가순" : "수동 순서"}
+          </button>
         </div>
       </div>
 
@@ -389,6 +536,10 @@ export default function StackedWorkflowBoard({
             {brands.map((brand) => {
               const brandProjects = projects.filter(
                 (project) => project.brand_id === brand.id,
+              ).sort(
+                (a, b) =>
+                  a.sort_order - b.sort_order ||
+                  a.created_at.localeCompare(b.created_at),
               );
               if (!brandProjects.length) return null;
               return (
@@ -450,12 +601,16 @@ export default function StackedWorkflowBoard({
                       const roots = projectTasks.filter(
                         (task) =>
                           !task.parent_task_id || !taskIds.has(task.parent_task_id),
-                      );
+                      ).sort((a, b) => taskOrder(a, b, orderMode));
                       if (!roots.length && scope === "done") return null;
                       return (
                         <article
                           key={project.id}
-                          className="relative grid grid-cols-[18rem_minmax(0,1fr)] items-stretch gap-5 border-b border-border/70 py-3 last:border-b-0"
+                          draggable={draggingProjectId === project.id}
+                          onDragOver={(event) => event.preventDefault()}
+                          onDrop={() => dropProject(project, brandProjects)}
+                          onDragEnd={() => setDraggingProjectId(null)}
+                          className={`group/project relative grid grid-cols-[18rem_minmax(0,1fr)] items-stretch gap-5 border-b border-border/70 py-3 last:border-b-0 ${draggingProjectId === project.id ? "opacity-40" : ""}`}
                         >
                           <div
                             className="relative z-10 flex min-h-[72px] flex-col rounded-2xl border border-border bg-surface p-3"
@@ -465,6 +620,16 @@ export default function StackedWorkflowBoard({
                               className="pointer-events-none absolute left-full top-7 h-px w-5 bg-border"
                             />
                             <div className="flex h-8 min-w-0 items-center gap-2">
+                              <button
+                                type="button"
+                                draggable
+                                onDragStart={() => setDraggingProjectId(project.id)}
+                                aria-label={`${project.name} 순서 이동`}
+                                title="드래그해 프로젝트 순서 변경"
+                                className="grid size-7 shrink-0 cursor-grab place-items-center rounded-lg text-text-quaternary opacity-0 transition-opacity hover:bg-surface-2 hover:text-text-secondary group-hover/project:opacity-100 focus-visible:opacity-100"
+                              >
+                                <GripVertical className="size-4" aria-hidden />
+                              </button>
                               <span
                                 className="size-2 shrink-0 rounded-full"
                                 style={{ backgroundColor: brand.color }}
@@ -571,10 +736,14 @@ export default function StackedWorkflowBoard({
                                 memberList={memberList}
                                 unreadComments={unreadComments}
                                 newTasks={newTasks}
-                              onSelect={onSelect}
-                              onToggleComplete={onToggleComplete}
-                              onAddSubtask={onAddSubtask}
+                                onSelect={onSelect}
+                                onToggleComplete={onToggleComplete}
+                                onAddSubtask={onAddSubtask}
                                 brandColor={brand.color}
+                                canDrag={canReorderTasks}
+                                draggingTaskId={draggingTaskId}
+                                onDragStart={(item) => setDraggingTaskId(item.id)}
+                                onDropTask={dropTask}
                               />
                             ))}
                             {!roots.length && (

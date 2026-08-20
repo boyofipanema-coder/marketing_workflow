@@ -16,6 +16,7 @@ const project: Project = {
   project_lead_id: "member-1",
   target_start_date: null,
   target_end_date: "2024-04-30",
+  sort_order: 0,
   archived_at: null,
   created_at: "2024-01-01",
   updated_at: "2024-01-01",

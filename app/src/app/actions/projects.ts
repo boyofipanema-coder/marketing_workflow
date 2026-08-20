@@ -6,6 +6,7 @@ import {
   editProject,
   archiveProject,
   restoreProject,
+  reorderProjects,
   type ProjectPatch,
 } from "@/server/services/project";
 import { getCurrentMember } from "@/server/data/queries";
@@ -69,6 +70,18 @@ export async function restoreProjectAction(
   const result = await runAction("restoreProjectAction", async () => {
     const { member, db } = await getCurrentMember();
     return restoreProject(db, projectId, member.workspace_id);
+  });
+  if (result.success) revalidateAll();
+  return result;
+}
+
+export async function reorderProjectsAction(
+  orderedIds: string[],
+): Promise<ActionResult<null>> {
+  const result = await runAction("reorderProjectsAction", async () => {
+    const { member, db } = await getCurrentMember();
+    await reorderProjects(db, member.workspace_id, orderedIds);
+    return null;
   });
   if (result.success) revalidateAll();
   return result;

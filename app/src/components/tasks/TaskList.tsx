@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ChevronRight, ClipboardList } from "lucide-react";
+import { ArrowDownUp, ChevronRight, ClipboardList, Clock3 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { todayKST } from "@/lib/derive";
 import EmptyState from "@/components/EmptyState";
@@ -52,16 +52,21 @@ export default function TaskList({
 }: TaskListProps) {
   const [showDone, setShowDone] = useState(false);
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [orderMode, setOrderMode] = useState<"manual" | "recent">("manual");
 
   const today = useMemo(() => todayKST(new Date()), []);
 
   const { open, done } = useMemo(() => {
-    const sorted = [...tasks].sort((a, b) => a.sort_order - b.sort_order);
+    const sorted = [...tasks].sort((a, b) =>
+      orderMode === "recent"
+        ? b.created_at.localeCompare(a.created_at)
+        : a.sort_order - b.sort_order || a.created_at.localeCompare(b.created_at),
+    );
     return {
       open: sorted.filter((t) => t.status !== "Done"),
       done: sorted.filter((t) => t.status === "Done"),
     };
-  }, [tasks]);
+  }, [orderMode, tasks]);
 
   function handleDrop(targetId: string) {
     if (!onReorder || !draggingId || draggingId === targetId) return;
@@ -91,6 +96,26 @@ export default function TaskList({
 
   return (
     <div className="flex flex-col">
+      {onReorder && tasks.length > 1 && (
+        <div className="mb-2 flex justify-end">
+          <button
+            type="button"
+            onClick={() => {
+              setDraggingId(null);
+              setOrderMode((current) => current === "manual" ? "recent" : "manual");
+            }}
+            aria-pressed={orderMode === "recent"}
+            className="inline-flex h-7 items-center gap-1.5 rounded-full border border-border bg-surface px-2.5 text-[10px] font-semibold text-text-secondary transition-colors hover:border-border-strong hover:text-text"
+          >
+            {orderMode === "recent" ? (
+              <Clock3 className="size-3" aria-hidden />
+            ) : (
+              <ArrowDownUp className="size-3" aria-hidden />
+            )}
+            {orderMode === "recent" ? "최근 추가순" : "수동 순서"}
+          </button>
+        </div>
+      )}
       {open.length === 0 && done.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border bg-surface-2/40">
           <EmptyState
@@ -104,9 +129,9 @@ export default function TaskList({
           {open.map((task) => (
             <li
               key={task.id}
-              draggable={Boolean(onReorder && draggingId === task.id)}
+              draggable={Boolean(onReorder && orderMode === "manual" && draggingId === task.id)}
               onDragOver={(e) => {
-                if (onReorder && draggingId) e.preventDefault();
+                if (onReorder && orderMode === "manual" && draggingId) e.preventDefault();
               }}
               onDrop={() => handleDrop(task.id)}
               onDragEnd={() => setDraggingId(null)}
@@ -115,7 +140,7 @@ export default function TaskList({
               <TaskRow
                 {...rowProps(task)}
                 dragHandleProps={
-                  onReorder
+                  onReorder && orderMode === "manual"
                     ? {
                         draggable: true,
                         onDragStart: () => setDraggingId(task.id),

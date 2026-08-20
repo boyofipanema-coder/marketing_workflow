@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull, max } from "drizzle-orm";
 import {
   project,
   brand,
@@ -120,6 +120,17 @@ export async function createProject(
     throw new ValidationError("시작일은 종료일보다 늦을 수 없습니다.");
   }
 
+  const scope = params.brandId
+    ? and(
+        eq(project.workspace_id, params.workspaceId),
+        eq(project.brand_id, params.brandId),
+      )
+    : and(eq(project.workspace_id, params.workspaceId), isNull(project.brand_id));
+  const [lastProject] = await db
+    .select({ value: max(project.sort_order) })
+    .from(project)
+    .where(scope);
+
   const now = new Date().toISOString();
   const newProject: NewProject = {
     id: crypto.randomUUID(),
@@ -130,6 +141,7 @@ export async function createProject(
     project_lead_id: params.projectLeadId,
     target_start_date: start,
     target_end_date: end,
+    sort_order: (lastProject?.value ?? -1) + 1,
     archived_at: null,
     created_at: now,
     updated_at: now,
@@ -137,6 +149,52 @@ export async function createProject(
 
   await db.insert(project).values(newProject);
   return newProject as Project;
+}
+
+/** Persist a complete project order inside one brand. */
+export async function reorderProjects(
+  db: Database,
+  workspaceId: string,
+  orderedIds: string[],
+): Promise<void> {
+  if (orderedIds.length === 0 || new Set(orderedIds).size !== orderedIds.length) {
+    throw new ValidationError("프로젝트 순서를 다시 확인해 주세요.");
+  }
+
+  const rows = await db
+    .select({ id: project.id, brandId: project.brand_id })
+    .from(project)
+    .where(
+      and(eq(project.workspace_id, workspaceId), isNull(project.archived_at)),
+    );
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  const selected = orderedIds.map((id) => byId.get(id));
+  if (selected.some((row) => !row)) {
+    throw new ValidationError("순서를 바꿀 프로젝트를 찾을 수 없습니다.");
+  }
+  const brandId = selected[0]!.brandId;
+  if (selected.some((row) => row!.brandId !== brandId)) {
+    throw new ValidationError("같은 브랜드의 프로젝트끼리만 순서를 바꿀 수 있습니다.");
+  }
+
+  const scopeIds = rows
+    .filter((row) => row.brandId === brandId)
+    .map((row) => row.id);
+  if (
+    scopeIds.length !== orderedIds.length ||
+    scopeIds.some((id) => !orderedIds.includes(id))
+  ) {
+    throw new ValidationError("브랜드의 모든 프로젝트를 포함해 순서를 바꿔 주세요.");
+  }
+
+  const updatedAt = new Date().toISOString();
+  const statements = orderedIds.map((id, index) =>
+    db
+      .update(project)
+      .set({ sort_order: index, updated_at: updatedAt })
+      .where(and(eq(project.id, id), eq(project.workspace_id, workspaceId))),
+  );
+  await db.batch(statements as never);
 }
 
 export async function editProject(

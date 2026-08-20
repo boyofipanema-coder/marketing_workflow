@@ -44,6 +44,7 @@ interface WorkspaceCalendarItem {
   time: string | null;
   endTime: null;
   allDay: boolean;
+  parentLabel: string | null;
 }
 
 interface GoogleCalendarItem {
@@ -87,10 +88,28 @@ function moveMonth(month: string, delta: number): string {
   return isoDate(new Date(year!, monthNumber! - 1 + delta, 1)).slice(0, 7);
 }
 
-function workspaceItems(tasks: Task[]): WorkspaceCalendarItem[] {
+export function workspaceItems(tasks: Task[]): WorkspaceCalendarItem[] {
+  const taskById = new Map(tasks.map((task) => [task.id, task]));
   return tasks.flatMap((task) => {
     if (task.cancelled_at || task.status === "Done") return [];
     const items: WorkspaceCalendarItem[] = [];
+    const parentLabel = task.parent_task_id
+      ? taskById.get(task.parent_task_id)?.title ?? "하위업무"
+      : null;
+    if (task.start_date && task.start_date !== task.due_date) {
+      items.push({
+        id: `${task.id}:schedule`,
+        source: "workspace",
+        task,
+        date: task.start_date,
+        kind: task.kind === "milestone" ? "milestone" : "schedule",
+        label: task.title,
+        time: null,
+        endTime: null,
+        allDay: true,
+        parentLabel,
+      });
+    }
     if (task.due_date) {
       const kind: CalendarKind = task.kind === "milestone"
         ? "milestone"
@@ -107,6 +126,7 @@ function workspaceItems(tasks: Task[]): WorkspaceCalendarItem[] {
         time: task.due_time,
         endTime: null,
         allDay: !task.due_time,
+        parentLabel,
       });
     }
     if (task.follow_up_at && task.follow_up_at !== task.due_date) {
@@ -122,6 +142,7 @@ function workspaceItems(tasks: Task[]): WorkspaceCalendarItem[] {
         time: null,
         endTime: null,
         allDay: true,
+        parentLabel,
       });
     }
     return items;
@@ -563,6 +584,9 @@ export default function CalendarContent({
                       <span className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-text-tertiary">
                         <SourceMark source={item.source} />
                         {meta && <span>{meta.label}</span>}
+                        {item.source === "workspace" && item.parentLabel && (
+                          <span className="truncate">↳ {item.parentLabel}</span>
+                        )}
                       </span>
                     </span>
                   </>

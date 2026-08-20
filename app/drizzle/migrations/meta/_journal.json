@@ -71,6 +71,13 @@
       "when": 1787097600000,
       "tag": "0009_personal_note",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1787184000000,
+      "tag": "0010_project_sort_order",
+      "breakpoints": true
     }
   ]
 }
