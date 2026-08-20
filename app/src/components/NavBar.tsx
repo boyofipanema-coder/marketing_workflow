@@ -14,6 +14,7 @@ import { ownerColor } from "@/lib/colors";
 import { cn } from "@/lib/utils";
 import type { Brand, Member } from "@/server/db/schema";
 import type { NotificationView } from "@/server/services/collaboration";
+import type { MemoDocumentView } from "@/server/services/personal-note";
 import NotificationMenu, { WorkInboxMenu } from "./NotificationMenu";
 import PersonalMemo from "./PersonalMemo";
 
@@ -38,7 +39,7 @@ export interface NavBarProps {
   brands: Brand[];
   viewerId: string;
   notifications: NotificationView[];
-  personalNote: string;
+  memoDocuments: MemoDocumentView[];
 }
 
 export default function NavBar({
@@ -46,7 +47,7 @@ export default function NavBar({
   brands,
   viewerId,
   notifications,
-  personalNote,
+  memoDocuments,
 }: NavBarProps) {
   const pathname = usePathname();
   const router = useRouter();
@@ -145,7 +146,7 @@ export default function NavBar({
 
             <NotificationMenu initialNotifications={notifications} />
             <WorkInboxMenu initialNotifications={notifications} />
-            <PersonalMemo initialBody={personalNote} />
+            <PersonalMemo initialDocuments={memoDocuments} />
 
             <DropdownMenu.Root>
               <DropdownMenu.Trigger asChild>

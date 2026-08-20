@@ -73,7 +73,7 @@ export const session = sqliteTable("session", {
 });
 
 // ---------------------------------------------------------------------------
-// personal_note — one lightweight scratchpad per member
+// personal_note — legacy one-note scratchpad kept for migration compatibility
 // ---------------------------------------------------------------------------
 export const personal_note = sqliteTable("personal_note", {
   member_id: text("member_id")
@@ -83,6 +83,27 @@ export const personal_note = sqliteTable("personal_note", {
     .notNull()
     .references(() => workspace.id),
   body: text("body").notNull().default(""),
+  updated_at: text("updated_at").notNull(),
+});
+
+// ---------------------------------------------------------------------------
+// memo_document — saved Simple/Deep documents in a member's memo library
+// ---------------------------------------------------------------------------
+export const memo_document = sqliteTable("memo_document", {
+  id: text("id").primaryKey(),
+  workspace_id: text("workspace_id")
+    .notNull()
+    .references(() => workspace.id),
+  member_id: text("member_id")
+    .notNull()
+    .references(() => member.id),
+  title: text("title").notNull().default("제목 없는 메모"),
+  body: text("body").notNull().default(""),
+  mode: text("mode", { enum: ["simple", "deep"] })
+    .notNull()
+    .default("simple"),
+  archived_at: text("archived_at"),
+  created_at: text("created_at").notNull(),
   updated_at: text("updated_at").notNull(),
 });
 
@@ -335,6 +356,18 @@ export const memberRelations = relations(member, ({ one, many }) => ({
     fields: [member.id],
     references: [personal_note.member_id],
   }),
+  memo_documents: many(memo_document),
+}));
+
+export const memoDocumentRelations = relations(memo_document, ({ one }) => ({
+  workspace: one(workspace, {
+    fields: [memo_document.workspace_id],
+    references: [workspace.id],
+  }),
+  member: one(member, {
+    fields: [memo_document.member_id],
+    references: [member.id],
+  }),
 }));
 
 export const auth_accountRelations = relations(auth_account, ({ one }) => ({
@@ -456,6 +489,9 @@ export type NewSession = typeof session.$inferInsert;
 
 export type PersonalNote = typeof personal_note.$inferSelect;
 export type NewPersonalNote = typeof personal_note.$inferInsert;
+
+export type MemoDocument = typeof memo_document.$inferSelect;
+export type NewMemoDocument = typeof memo_document.$inferInsert;
 
 export type Project = typeof project.$inferSelect;
 export type NewProject = typeof project.$inferInsert;

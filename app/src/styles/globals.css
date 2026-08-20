@@ -318,6 +318,44 @@
   .reveal > *:nth-child(6)  { animation-delay: 220ms; }
   .reveal > *:nth-child(7)  { animation-delay: 260ms; }
   .reveal > *:nth-child(8)  { animation-delay: 300ms; }
+
+  /* Deep memo editor — document structure is visible without adding chrome. */
+  .memo-rich-editor:empty::before {
+    color: rgb(var(--text-quaternary));
+    content: attr(data-placeholder);
+    pointer-events: none;
+  }
+  .memo-rich-editor h1 {
+    margin: 0.5rem 0 1rem;
+    font-size: 1.75rem;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    line-height: 1.25;
+  }
+  .memo-rich-editor h2 {
+    margin: 1.5rem 0 0.75rem;
+    font-size: 1.25rem;
+    font-weight: 650;
+    letter-spacing: -0.015em;
+    line-height: 1.35;
+  }
+  .memo-rich-editor p,
+  .memo-rich-editor div {
+    margin: 0 0 0.75rem;
+  }
+  .memo-rich-editor ul,
+  .memo-rich-editor ol {
+    margin: 0.75rem 0;
+    padding-left: 1.5rem;
+  }
+  .memo-rich-editor ul { list-style: disc; }
+  .memo-rich-editor ol { list-style: decimal; }
+  .memo-rich-editor blockquote {
+    margin: 1rem 0;
+    border-left: 3px solid rgb(var(--accent) / 0.45);
+    padding-left: 1rem;
+    color: rgb(var(--text-secondary));
+  }
 }
 
 @keyframes reveal-up {
