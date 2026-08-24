@@ -296,54 +296,111 @@ export async function getMemberNotifications(
   workspaceId: string,
   recipientId: string,
 ): Promise<NotificationView[]> {
-  let taskRows: Notification[] = [];
-  let projectRows: ProjectNotification[] = [];
-  try {
-    taskRows = await db
-      .select()
-      .from(notification)
-      .where(
-        and(
-          eq(notification.workspace_id, workspaceId),
-          eq(notification.recipient_id, recipientId),
-        ),
-      )
-      .orderBy(desc(notification.created_at))
-      .limit(40);
-  } catch (error) {
-    if (!isMissingCollaborationTable(error)) throw error;
-  }
-  try {
-    projectRows = await db
-      .select()
-      .from(project_notification)
-      .where(
-        and(
-          eq(project_notification.workspace_id, workspaceId),
-          eq(project_notification.recipient_id, recipientId),
-        ),
-      )
-      .orderBy(desc(project_notification.created_at))
-      .limit(40);
-  } catch (error) {
-    if (!isMissingCollaborationTable(error)) throw error;
-  }
-  if (!taskRows.length && !projectRows.length) return [];
-
-  const [members, tasks, projects, taskComments, projectComments] =
+  const [taskRows, projectRows]: [Notification[], ProjectNotification[]] =
     await Promise.all([
-      db.select().from(member).where(eq(member.workspace_id, workspaceId)),
-      db.select().from(task).where(eq(task.workspace_id, workspaceId)),
-      db.select().from(project).where(eq(project.workspace_id, workspaceId)),
-      db.select().from(task_comment).where(eq(task_comment.workspace_id, workspaceId)),
       db
         .select()
-        .from(project_comment)
-        .where(eq(project_comment.workspace_id, workspaceId))
+        .from(notification)
+        .where(
+          and(
+            eq(notification.workspace_id, workspaceId),
+            eq(notification.recipient_id, recipientId),
+          ),
+        )
+        .orderBy(desc(notification.created_at))
+        .limit(40)
         .catch((error) => {
           if (isMissingCollaborationTable(error)) return [];
           throw error;
         }),
+      db
+        .select()
+        .from(project_notification)
+        .where(
+          and(
+            eq(project_notification.workspace_id, workspaceId),
+            eq(project_notification.recipient_id, recipientId),
+          ),
+        )
+        .orderBy(desc(project_notification.created_at))
+        .limit(40)
+        .catch((error) => {
+          if (isMissingCollaborationTable(error)) return [];
+          throw error;
+        }),
+    ]);
+  if (!taskRows.length && !projectRows.length) return [];
+
+  const unique = (values: string[]) => [...new Set(values)];
+  const present = (values: Array<string | null>) =>
+    unique(values.filter((value): value is string => Boolean(value)));
+  const actorIds = unique([
+    ...taskRows.map((row) => row.actor_id),
+    ...projectRows.map((row) => row.actor_id),
+  ]);
+  const taskIds = unique(taskRows.map((row) => row.task_id));
+  const projectIds = unique(projectRows.map((row) => row.project_id));
+  const taskCommentIds = present(taskRows.map((row) => row.comment_id));
+  const projectCommentIds = present(projectRows.map((row) => row.comment_id));
+
+  const [members, tasks, projects, taskComments, projectComments] =
+    await Promise.all([
+      actorIds.length
+        ? db
+            .select({ id: member.id, name: member.name })
+            .from(member)
+            .where(
+              and(
+                eq(member.workspace_id, workspaceId),
+                inArray(member.id, actorIds),
+              ),
+            )
+        : Promise.resolve([]),
+      taskIds.length
+        ? db
+            .select({ id: task.id, title: task.title, due_date: task.due_date })
+            .from(task)
+            .where(
+              and(eq(task.workspace_id, workspaceId), inArray(task.id, taskIds)),
+            )
+        : Promise.resolve([]),
+      projectIds.length
+        ? db
+            .select({ id: project.id, name: project.name })
+            .from(project)
+            .where(
+              and(
+                eq(project.workspace_id, workspaceId),
+                inArray(project.id, projectIds),
+              ),
+            )
+        : Promise.resolve([]),
+      taskCommentIds.length
+        ? db
+            .select({ id: task_comment.id, body: task_comment.body })
+            .from(task_comment)
+            .where(
+              and(
+                eq(task_comment.workspace_id, workspaceId),
+                inArray(task_comment.id, taskCommentIds),
+              ),
+            )
+        : Promise.resolve([]),
+      projectCommentIds.length
+        ? db
+            .select({ id: project_comment.id, body: project_comment.body })
+            .from(project_comment)
+            .where(
+              and(
+                eq(project_comment.workspace_id, workspaceId),
+                inArray(project_comment.id, projectCommentIds),
+              ),
+            )
+            .catch((error) => {
+              if (isMissingCollaborationTable(error)) return [];
+              throw error;
+            })
+        : Promise.resolve([]),
     ]);
   const memberById = new Map(members.map((item) => [item.id, item.name]));
   const taskById = new Map(tasks.map((item) => [item.id, item]));

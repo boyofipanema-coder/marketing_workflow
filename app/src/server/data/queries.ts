@@ -6,6 +6,7 @@
 import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { cache } from "react";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { createDb } from "@/server/db/client";
 import { validateSession } from "@/server/auth/session";
@@ -25,7 +26,7 @@ import { dependencyMap } from "@/server/services/dependency";
  * member. A valid shared session is required; the optional member picker
  * determines who is credited for work in that browser.
  */
-export async function getCurrentMember(): Promise<{
+async function resolveCurrentMember(): Promise<{
   member: Member;
   db: Database;
 }> {
@@ -57,6 +58,11 @@ export async function getCurrentMember(): Promise<{
 
   redirect("/login");
 }
+
+// Layouts and pages render in the same request but both need the current
+// member. React's request-scoped cache prevents duplicate session and active
+// member D1 reads without persisting identity across requests.
+export const getCurrentMember = cache(resolveCurrentMember);
 
 // ---------------------------------------------------------------------------
 // Task queries

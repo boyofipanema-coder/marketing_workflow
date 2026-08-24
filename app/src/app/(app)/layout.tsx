@@ -1,4 +1,5 @@
 import NavBar from "@/components/NavBar";
+import { NotificationProvider } from "@/components/NotificationProvider";
 import {
   getCurrentMember,
   getWorkspaceBrands,
@@ -34,15 +35,16 @@ export default async function AppLayout({
   ]);
 
   return (
-    <div className="min-h-screen bg-bg">
-      <NavBar
-        members={members}
-        brands={brands}
-        viewerId={viewer.id}
-        notifications={notifications}
-        memoDocuments={memoDocuments}
-      />
-      <main>{children}</main>
-    </div>
+    <NotificationProvider initialNotifications={notifications}>
+      <div className="min-h-screen bg-bg">
+        <NavBar
+          members={members}
+          brands={brands}
+          viewerId={viewer.id}
+          memoDocuments={memoDocuments}
+        />
+        <main>{children}</main>
+      </div>
+    </NotificationProvider>
   );
 }

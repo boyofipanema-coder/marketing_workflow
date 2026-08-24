@@ -13,7 +13,6 @@ import { switchMemberAction } from "@/app/actions/identity";
 import { ownerColor } from "@/lib/colors";
 import { cn } from "@/lib/utils";
 import type { Brand, Member } from "@/server/db/schema";
-import type { NotificationView } from "@/server/services/collaboration";
 import type { MemoDocumentView } from "@/server/services/personal-note";
 import NotificationMenu, { WorkInboxMenu } from "./NotificationMenu";
 import PersonalMemo from "./PersonalMemo";
@@ -38,7 +37,6 @@ export interface NavBarProps {
   members: Member[];
   brands: Brand[];
   viewerId: string;
-  notifications: NotificationView[];
   memoDocuments: MemoDocumentView[];
 }
 
@@ -46,7 +44,6 @@ export default function NavBar({
   members,
   brands,
   viewerId,
-  notifications,
   memoDocuments,
 }: NavBarProps) {
   const pathname = usePathname();
@@ -144,8 +141,8 @@ export default function NavBar({
               <CircleHelp className="size-4" aria-hidden />
             </Link>
 
-            <NotificationMenu initialNotifications={notifications} />
-            <WorkInboxMenu initialNotifications={notifications} />
+            <NotificationMenu />
+            <WorkInboxMenu />
             <PersonalMemo initialDocuments={memoDocuments} />
 
             <DropdownMenu.Root>

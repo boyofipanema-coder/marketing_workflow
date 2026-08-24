@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Briefcase, Check, ChevronDown, FolderPlus, Plus, Tags } from "lucide-react";
@@ -16,11 +16,13 @@ import { useTaskController } from "@/components/tasks/useTaskController";
 import BrandFormDialog from "@/components/projects/BrandFormDialog";
 import ProjectFormDialog from "@/components/projects/ProjectFormDialog";
 import { Button } from "@/components/ui";
+import { useNotifications } from "@/components/NotificationProvider";
 import { summarizeWorkspaceWorkflow } from "@/lib/workflow-summary";
 import { notificationIndicators } from "@/lib/notification-indicators";
 import { reorderProjectsAction } from "@/app/actions/projects";
 import type { Task, Brand, Project, Workstream, Member } from "@/server/db/schema";
-import type { NotificationView } from "@/server/services/collaboration";
+
+const FOCUS_REFRESH_COOLDOWN_MS = 60_000;
 
 export interface HomeContentProps {
   viewerId: string;
@@ -29,7 +31,6 @@ export interface HomeContentProps {
   projects: Project[];
   workstreams: Workstream[];
   members: Member[];
-  notifications: NotificationView[];
   today: string;
   initialOpenProjectId?: string;
   initialOpenTaskId?: string;
@@ -49,12 +50,13 @@ export default function HomeContent({
   projects,
   workstreams,
   members,
-  notifications,
   today,
   initialOpenProjectId,
   initialOpenTaskId,
 }: HomeContentProps) {
   const router = useRouter();
+  const { notifications } = useNotifications();
+  const lastFocusRefreshAt = useRef(Date.now());
   const controller = useTaskController(tasks);
   const { store } = controller;
   const [boardFocus, setBoardFocus] = useState<BoardFocus>("all");
@@ -72,6 +74,10 @@ export default function HomeContent({
 
   useEffect(() => {
     function onFocus() {
+      if (Date.now() - lastFocusRefreshAt.current < FOCUS_REFRESH_COOLDOWN_MS) {
+        return;
+      }
+      lastFocusRefreshAt.current = Date.now();
       router.refresh();
     }
     window.addEventListener("focus", onFocus);

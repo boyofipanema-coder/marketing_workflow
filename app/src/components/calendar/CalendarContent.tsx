@@ -21,7 +21,7 @@ import {
 
 const TEAM_CALENDAR_ID = "gpvjgso7avdc7npu6ln7qf2qgk@group.calendar.google.com";
 const TEAM_CALENDAR_LINK = `https://calendar.google.com/calendar/u/0/r?cid=${encodeURIComponent(TEAM_CALENDAR_ID)}`;
-const REFRESH_INTERVAL_MS = 2 * 60 * 1000;
+const REFRESH_INTERVAL_MS = 10 * 60 * 1000;
 const CLIENT_CACHE_KEY = "mtw:google-calendar:v2";
 const CLIENT_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -604,7 +604,7 @@ export default function CalendarContent({
             </div>
             {googleStatus === "ready" && (
               <p className="mt-4 border-t border-separator pt-4 text-[10px] leading-relaxed text-text-tertiary">
-                Google 일정은 공개 캘린더에서 2분마다 자동 동기화됩니다.
+                Google 일정은 공개 캘린더에서 10분마다 자동 동기화됩니다.
               </p>
             )}
           </aside>

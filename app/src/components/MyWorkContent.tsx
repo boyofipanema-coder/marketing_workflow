@@ -1,14 +1,16 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import TaskSection from "@/components/tasks/TaskSection";
 import TaskDetailPanel from "@/components/tasks/TaskDetailPanel";
 import { useTaskController } from "@/components/tasks/useTaskController";
 import { notificationIndicators } from "@/lib/notification-indicators";
 import PriorityBrief from "@/components/PriorityBrief";
-import type { NotificationView } from "@/server/services/collaboration";
+import { useNotifications } from "@/components/NotificationProvider";
 import type { Task, Project, Workstream, Member } from "@/server/db/schema";
+
+const FOCUS_REFRESH_COOLDOWN_MS = 60_000;
 
 export interface MyWorkContentProps {
   viewerId: string;
@@ -17,7 +19,6 @@ export interface MyWorkContentProps {
   projects: Project[];
   workstreams: Workstream[];
   members: Member[];
-  notifications: NotificationView[];
   today: string;
 }
 
@@ -28,15 +29,20 @@ export default function MyWorkContent({
   projects,
   workstreams,
   members,
-  notifications,
   today,
 }: MyWorkContentProps) {
   const router = useRouter();
+  const { notifications } = useNotifications();
+  const lastFocusRefreshAt = useRef(Date.now());
   const controller = useTaskController(tasks);
   const { store } = controller;
 
   useEffect(() => {
     function onFocus() {
+      if (Date.now() - lastFocusRefreshAt.current < FOCUS_REFRESH_COOLDOWN_MS) {
+        return;
+      }
+      lastFocusRefreshAt.current = Date.now();
       router.refresh();
     }
     window.addEventListener("focus", onFocus);

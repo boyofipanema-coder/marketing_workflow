@@ -17,6 +17,8 @@ import type {
   CommentView,
 } from "@/server/services/collaboration";
 
+const COMMENT_REFRESH_INTERVAL_MS = 60_000;
+
 export default function CommentThread({
   target,
   members,
@@ -38,21 +40,32 @@ export default function CommentThread({
 
   useEffect(() => {
     let active = true;
+    let requestInFlight = false;
     setLoading(true);
     setError(null);
-    function load() {
-      void getCommentsAction(target).then((result) => {
+    async function load() {
+      if (document.hidden || requestInFlight) return;
+      requestInFlight = true;
+      try {
+        const result = await getCommentsAction(target);
         if (!active) return;
         setLoading(false);
         if (result.success && result.data) setComments(result.data);
         else setError(result.error ?? "댓글을 불러오지 못했습니다.");
-      });
+      } finally {
+        requestInFlight = false;
+      }
     }
-    load();
-    const timer = window.setInterval(load, 5000);
+    void load();
+    const timer = window.setInterval(() => void load(), COMMENT_REFRESH_INTERVAL_MS);
+    function refreshWhenVisible() {
+      if (!document.hidden) void load();
+    }
+    document.addEventListener("visibilitychange", refreshWhenVisible);
     return () => {
       active = false;
       window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
   }, [target.id, target.type]);
 

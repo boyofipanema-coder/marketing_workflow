@@ -6,7 +6,6 @@ import {
   getWorkspaceMembers,
 } from "@/server/data/queries";
 import MyWorkContent from "@/components/MyWorkContent";
-import { getMemberNotifications } from "@/server/services/collaboration";
 import { todayKST } from "@/lib/derive";
 
 /**
@@ -19,12 +18,11 @@ export default async function MyWorkPage() {
   const { member: viewer, db } = await getCurrentMember();
   const workspaceId = viewer.workspace_id;
 
-  const [tasks, projects, workstreams, members, notifications] = await Promise.all([
+  const [tasks, projects, workstreams, members] = await Promise.all([
     getWorkspaceTasks(db, workspaceId),
     getWorkspaceProjects(db, workspaceId),
     getWorkspaceWorkstreams(db, workspaceId),
     getWorkspaceMembers(db, workspaceId),
-    getMemberNotifications(db, workspaceId, viewer.id),
   ]);
 
   return (
@@ -35,7 +33,6 @@ export default async function MyWorkPage() {
       projects={projects}
       workstreams={workstreams}
       members={members}
-      notifications={notifications}
       today={todayKST(new Date())}
     />
   );

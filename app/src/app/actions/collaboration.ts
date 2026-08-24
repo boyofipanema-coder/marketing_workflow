@@ -6,6 +6,7 @@ import {
   createComment,
   deleteComment,
   getComments,
+  getMemberNotifications,
   markNotificationRead,
   markTargetNotificationsRead,
   type CommentTarget,
@@ -23,6 +24,13 @@ export async function getCommentsAction(
       ...comment,
       can_delete: comment.author_id === member.id,
     }));
+  });
+}
+
+export async function getNotificationsAction() {
+  return runAction("getNotificationsAction", async () => {
+    const { member, db } = await getCurrentMember();
+    return getMemberNotifications(db, member.workspace_id, member.id);
   });
 }
 

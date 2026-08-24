@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 type EdgeCacheStorage = CacheStorage & { readonly default?: Cache };
 
 const RESPONSE_HEADERS = {
-  "Cache-Control": "public, max-age=120, s-maxage=120, stale-while-revalidate=600",
+  "Cache-Control": "public, max-age=600, s-maxage=600, stale-while-revalidate=3600",
   "Content-Type": "text/calendar; charset=utf-8",
 };
 

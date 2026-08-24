@@ -5,32 +5,18 @@ import { useRouter } from "next/navigation";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Bell, Inbox } from "lucide-react";
 import { markNotificationReadAction } from "@/app/actions/collaboration";
+import { useNotifications } from "@/components/NotificationProvider";
 import type { NotificationView } from "@/server/services/collaboration";
 
-export default function NotificationMenu({
-  initialNotifications,
-}: {
-  initialNotifications: NotificationView[];
-}) {
+export default function NotificationMenu() {
   const router = useRouter();
-  const [notifications, setNotifications] = useState(
-    initialNotifications.filter((item) => item.kind === "comment"),
-  );
+  const { notifications: allNotifications, markReadLocally } = useNotifications();
+  const notifications = allNotifications.filter((item) => item.kind === "comment");
   const unreadCount = notifications.filter((item) => !item.read_at).length;
-
-  useEffect(() => {
-    setNotifications(initialNotifications.filter((item) => item.kind === "comment"));
-  }, [initialNotifications]);
 
   async function openNotification(item: NotificationView) {
     if (!item.read_at) {
-      setNotifications((current) =>
-        current.map((notification) =>
-          notification.id === item.id
-            ? { ...notification, read_at: new Date().toISOString() }
-            : notification,
-        ),
-      );
+      markReadLocally(item.id);
       await markNotificationReadAction(item.id, item.target_type);
     }
     router.push(
@@ -105,13 +91,10 @@ function shortDate(iso: string): string {
   }).format(new Date(`${iso}T00:00:00+09:00`));
 }
 
-export function WorkInboxMenu({
-  initialNotifications,
-}: {
-  initialNotifications: NotificationView[];
-}) {
+export function WorkInboxMenu() {
   const router = useRouter();
-  const workNotifications = initialNotifications.filter(
+  const { notifications: allNotifications, markReadLocally } = useNotifications();
+  const workNotifications = allNotifications.filter(
     (item) => item.target_type === "task",
   );
   const [notifications, setNotifications] = useState(workNotifications);
@@ -127,24 +110,11 @@ export function WorkInboxMenu({
     setToast(fresh);
     const timer = window.setTimeout(() => setToast(null), 5000);
     return () => window.clearTimeout(timer);
-  }, [initialNotifications]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      if (!document.hidden) router.refresh();
-    }, 5000);
-    return () => window.clearInterval(timer);
-  }, [router]);
+  }, [allNotifications]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function openNotification(item: NotificationView) {
     if (!item.read_at) {
-      setNotifications((current) =>
-        current.map((notification) =>
-          notification.id === item.id
-            ? { ...notification, read_at: new Date().toISOString() }
-            : notification,
-        ),
-      );
+      markReadLocally(item.id);
       await markNotificationReadAction(item.id, item.target_type);
     }
     router.push(`/home?task=${encodeURIComponent(item.target_id)}`);
